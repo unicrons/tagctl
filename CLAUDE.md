@@ -91,6 +91,9 @@ internal/
 test/
 ├── testdata/             # Config and fixture files
 └── testutil/             # Shared test helpers
+permissions/aws/          # IAM policies (JSON, source of truth) and the
+                          # TagctlScan / TagctlApply CloudFormation roles
+                          # rendered from them by scripts/render-iam-templates.py
 ```
 
 ## Key Commands
@@ -140,7 +143,7 @@ See `tagctl.yaml.example`. Structure:
 clouds:
   aws:
     - profile: default        # AWS profile name (credentials never live here)
-      # role_arn: arn:aws:iam::123456789012:role/TagAudit  # Optional AssumeRole
+      # role_arn: arn:aws:iam::123456789012:role/TagctlScan  # Optional AssumeRole
       regions:                # Optional: empty = all regions
         - us-east-1
 
@@ -303,9 +306,14 @@ same ids SARIF uses, keep them aligned. The full mapping is the contract in
 7. Extend `TestRegionalListers`/`TestGlobalListers`,
    `TestGetResourceType_AllSupportedServices` and `TestTaggingIdentifier`,
    which pin the supported service set
-8. Add the resource to the table and the IAM policies in `docs/providers/aws.mdx`
-   and bump the count in README, `docs/introduction.mdx`,
-   `docs/configuration.mdx`, `docs/development.mdx` and `docs/architecture.mdx`
+8. Add the read actions to `permissions/aws/tagctl-scan-policy.json` and the
+   write action to `tagctl-apply-policy.json`, run `make iam-templates` to
+   re-render the CloudFormation roles, and paste the same JSON into
+   `docs/providers/aws.mdx`. `TestPermissionPolicies_*` pins the three copies
+   together and fails when a lister calls an API no policy allows
+9. Add the resource to the table in `docs/providers/aws.mdx` and bump the
+   count in README, `docs/introduction.mdx`, `docs/configuration.mdx`,
+   `docs/development.mdx` and `docs/architecture.mdx`
 
 ### Adding a New CLI Command
 

@@ -1,0 +1,362 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  tagctl remediation role. Everything the scan role can do, plus writing tags on the 106 supported resource types. Assume it only to run tagctl apply.
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Who can assume the role
+        Parameters:
+          - TrustedPrincipalArn
+          - ExternalId
+          - RequireMFA
+      - Label:
+          default: Role settings
+        Parameters:
+          - RoleName
+          - MaxSessionDuration
+          - PermissionsBoundaryArn
+
+Parameters:
+  TrustedPrincipalArn:
+    Type: String
+    Description: >-
+      Principal allowed to assume the role: an account root
+      (arn:aws:iam::111111111111:root), an IAM role or user, or an Identity
+      Center permission-set role. Use the account root to trust the whole
+      account and let IAM policies there decide who assumes it.
+    AllowedPattern: "^arn:aws[a-z-]*:iam::[0-9]{12}:.+$"
+    ConstraintDescription: must be an IAM principal ARN
+  ExternalId:
+    Type: String
+    Description: >-
+      Optional. When set, callers must send it as sts:ExternalId; put the same
+      value in external_id in tagctl.yaml. Recommended when the principal lives
+      in another account.
+    Default: ""
+    NoEcho: true
+  RequireMFA:
+    Type: String
+    Description: >-
+      Require an MFA-authenticated session to assume the role. Set to true for
+      roles assumed by people; keep false for CI, where no MFA context exists.
+    Default: "true"
+    AllowedValues: ["true", "false"]
+  RoleName:
+    Type: String
+    Description: Name of the role. Referenced from tagctl.yaml as role_arn.
+    Default: TagctlApply
+    AllowedPattern: "^[A-Za-z0-9+=,.@_-]{1,64}$"
+  MaxSessionDuration:
+    Type: Number
+    Description: >-
+      Upper bound, in seconds, for session_duration in tagctl.yaml. A full
+      scan of a large account can run past one hour.
+    Default: 3600
+    MinValue: 3600
+    MaxValue: 43200
+  PermissionsBoundaryArn:
+    Type: String
+    Description: Optional permissions boundary to attach to the role.
+    Default: ""
+
+Conditions:
+  HasExternalId:
+    Fn::Not:
+      - Fn::Equals: [{Ref: ExternalId}, ""]
+  MFARequired:
+    Fn::Equals: [{Ref: RequireMFA}, "true"]
+  HasTrustConditions:
+    Fn::Or: [{Condition: HasExternalId}, {Condition: MFARequired}]
+  HasPermissionsBoundary:
+    Fn::Not:
+      - Fn::Equals: [{Ref: PermissionsBoundaryArn}, ""]
+
+Resources:
+  Role:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: {Ref: RoleName}
+      Description: Read-write role for tagctl apply
+      MaxSessionDuration: {Ref: MaxSessionDuration}
+      PermissionsBoundary:
+        Fn::If:
+          - HasPermissionsBoundary
+          - {Ref: PermissionsBoundaryArn}
+          - {Ref: AWS::NoValue}
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: TagctlAssumeRole
+            Effect: Allow
+            Principal:
+              AWS: {Ref: TrustedPrincipalArn}
+            Action: sts:AssumeRole
+            Condition:
+              Fn::If:
+                - HasTrustConditions
+                - StringEquals:
+                    Fn::If:
+                      - HasExternalId
+                      - sts:ExternalId: {Ref: ExternalId}
+                      - {Ref: AWS::NoValue}
+                  Bool:
+                    Fn::If:
+                      - MFARequired
+                      - aws:MultiFactorAuthPresent: "true"
+                      - {Ref: AWS::NoValue}
+                - {Ref: AWS::NoValue}
+      Tags:
+        - Key: managed-by
+          Value: tagctl
+      Policies:
+        - PolicyName: TagctlScan
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: BulkTags
+                Effect: Allow
+                Action:
+                  - tag:GetResources
+                Resource: "*"
+              - Sid: Discovery
+                Effect: Allow
+                Action:
+                  - sts:GetCallerIdentity
+                  - ec2:DescribeRegions
+                  - ec2:DescribeInstances
+                  - ec2:DescribeImages
+                  - ec2:DescribeVolumes
+                  - ec2:DescribeSnapshots
+                  - ec2:DescribeLaunchTemplates
+                  - ec2:DescribeSecurityGroups
+                  - ec2:DescribeVpcs
+                  - ec2:DescribeSubnets
+                  - ec2:DescribeInternetGateways
+                  - ec2:DescribeNatGateways
+                  - ec2:DescribeVpcEndpoints
+                  - ec2:DescribeAddresses
+                  - autoscaling:DescribeAutoScalingGroups
+                  - lambda:ListFunctions
+                  - ecs:ListClusters
+                  - ecs:DescribeClusters
+                  - ecs:ListServices
+                  - ecs:DescribeServices
+                  - eks:ListClusters
+                  - eks:DescribeCluster
+                  - ecr:DescribeRepositories
+                  - elasticbeanstalk:DescribeEnvironments
+                  - elasticloadbalancing:DescribeLoadBalancers
+                  - elasticloadbalancing:DescribeTargetGroups
+                  - elasticloadbalancing:DescribeTags
+                  - globalaccelerator:ListTagsForResource
+                  - apigateway:GET
+                  - route53:ListHostedZones
+                  - cloudfront:ListDistributions
+                  - s3:ListAllMyBuckets
+                  - s3:GetBucketLocation
+                  - elasticfilesystem:DescribeFileSystems
+                  - fsx:DescribeFileSystems
+                  - backup:ListBackupVaults
+                  - rds:DescribeDBInstances
+                  - rds:DescribeDBClusters
+                  - rds:DescribeDBSnapshots
+                  - dynamodb:ListTables
+                  - elasticache:DescribeCacheClusters
+                  - redshift:DescribeClusters
+                  - es:ListDomainNames
+                  - es:DescribeDomains
+                  - kinesis:ListStreams
+                  - firehose:ListDeliveryStreams
+                  - kafka:ListClustersV2
+                  - glue:GetJobs
+                  - sagemaker:ListEndpoints
+                  - sagemaker:ListNotebookInstances
+                  - sns:ListTopics
+                  - sqs:ListQueues
+                  - sqs:GetQueueAttributes
+                  - events:ListRules
+                  - states:ListStateMachines
+                  - cognito-idp:ListUserPools
+                  - logs:DescribeLogGroups
+                  - cloudwatch:DescribeAlarms
+                  - cloudformation:DescribeStacks
+                  - codebuild:ListProjects
+                  - codebuild:BatchGetProjects
+                  - secretsmanager:ListSecrets
+                  - acm:ListCertificates
+                  - kms:ListKeys
+                  - kms:DescribeKey
+                  - iam:ListRoles
+                  - access-analyzer:ListAnalyzers
+                  - acm-pca:ListCertificateAuthorities
+                  - cloudtrail:DescribeTrails
+                  - config:DescribeConfigRules
+                  - ds:DescribeDirectories
+                  - fms:ListPolicies
+                  - guardduty:ListDetectors
+                  - guardduty:GetDetector
+                  - network-firewall:ListFirewalls
+                  - rolesanywhere:ListTrustAnchors
+                  - waf-regional:ListWebACLs
+                  - waf:ListWebACLs
+                  - wafv2:ListWebACLs
+                  - shield:ListProtections
+                  - globalaccelerator:ListAccelerators
+                  - amplify:ListApps
+                  - appsync:ListGraphqlApis
+                  - bedrock:ListGuardrails
+                  - codeartifact:ListDomains
+                  - codeartifact:ListRepositories
+                  - codecommit:ListRepositories
+                  - codepipeline:ListPipelines
+                  - servicecatalog:ListPortfolios
+                  - wellarchitected:ListWorkloads
+                  - athena:ListWorkGroups
+                  - dms:DescribeReplicationInstances
+                  - datapipeline:ListPipelines
+                  - datapipeline:DescribePipelines
+                  - datasync:ListTasks
+                  - elasticmapreduce:ListClusters
+                  - glacier:ListVaults
+                  - memorydb:DescribeClusters
+                  - mq:ListBrokers
+                  - ses:ListEmailIdentities
+                  - ses:ListConfigurationSets
+                  - storagegateway:ListGateways
+                  - transfer:ListServers
+                  - appstream:DescribeFleets
+                  - appstream:DescribeStacks
+                  - batch:DescribeComputeEnvironments
+                  - batch:DescribeJobQueues
+                  - directconnect:DescribeConnections
+                  - dlm:GetLifecyclePolicies
+                  - drs:DescribeSourceServers
+                  - lightsail:GetInstances
+                  - ssm:DescribeParameters
+                  - ssm:ListDocuments
+                  - ssm-incidents:ListResponsePlans
+                  - workspaces:DescribeWorkspaces
+                  - ce:GetCostAndUsage
+                Resource: "*"
+              - Sid: PerResourceTagFallback
+                Effect: Allow
+                Action:
+                  - s3:GetBucketTagging
+                  - rds:ListTagsForResource
+                  - lambda:ListTags
+                  - sns:ListTagsForResource
+                  - sqs:ListQueueTags
+                  - dynamodb:ListTagsOfResource
+                  - elasticache:ListTagsForResource
+                  - ecr:ListTagsForResource
+                  - kms:ListResourceTags
+                  - kinesis:ListTagsForStream
+                  - logs:ListTagsForResource
+                  - cloudtrail:ListTags
+                Resource: "*"
+        - PolicyName: TagctlApply
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: ServiceTagAPIs
+                Effect: Allow
+                Action:
+                  - ec2:CreateTags
+                  - s3:PutBucketTagging
+                  - rds:AddTagsToResource
+                  - lambda:TagResource
+                  - sns:TagResource
+                  - sqs:TagQueue
+                  - elasticloadbalancing:AddTags
+                  - autoscaling:CreateOrUpdateTags
+                  - dynamodb:TagResource
+                  - ecs:TagResource
+                  - eks:TagResource
+                  - elasticache:AddTagsToResource
+                  - elasticfilesystem:TagResource
+                  - ecr:TagResource
+                  - kms:TagResource
+                  - kinesis:AddTagsToStream
+                  - logs:TagResource
+                  - lightsail:TagResource
+                  - globalaccelerator:TagResource
+                Resource: "*"
+              - Sid: TaggingAPI
+                Effect: Allow
+                Action:
+                  - tag:TagResources
+                  - elasticbeanstalk:AddTags
+                  - apigateway:PUT
+                  - route53:ChangeTagsForResource
+                  - cloudfront:TagResource
+                  - fsx:TagResource
+                  - backup:TagResource
+                  - redshift:CreateTags
+                  - es:AddTags
+                  - firehose:TagDeliveryStream
+                  - kafka:TagResource
+                  - glue:TagResource
+                  - sagemaker:AddTags
+                  - events:TagResource
+                  - states:TagResource
+                  - cognito-idp:TagResource
+                  - cloudwatch:TagResource
+                  - cloudformation:TagResource
+                  - codebuild:UpdateProject
+                  - secretsmanager:TagResource
+                  - acm:AddTagsToCertificate
+                  - iam:TagRole
+                  - access-analyzer:TagResource
+                  - acm-pca:TagCertificateAuthority
+                  - cloudtrail:AddTags
+                  - config:TagResource
+                  - ds:AddTagsToResource
+                  - fms:TagResource
+                  - guardduty:TagResource
+                  - network-firewall:TagResource
+                  - rolesanywhere:TagResource
+                  - waf-regional:TagResource
+                  - waf:TagResource
+                  - wafv2:TagResource
+                  - shield:TagResource
+                  - amplify:TagResource
+                  - appsync:TagResource
+                  - bedrock:TagResource
+                  - codeartifact:TagResource
+                  - codecommit:TagResource
+                  - codepipeline:TagResource
+                  - servicecatalog:TagResource
+                  - wellarchitected:TagResource
+                  - athena:TagResource
+                  - dms:AddTagsToResource
+                  - datapipeline:AddTags
+                  - datasync:TagResource
+                  - elasticmapreduce:AddTags
+                  - glacier:AddTagsToVault
+                  - memorydb:TagResource
+                  - mq:CreateTags
+                  - ses:TagResource
+                  - storagegateway:AddTagsToResource
+                  - transfer:TagResource
+                  - appstream:TagResource
+                  - batch:TagResource
+                  - directconnect:TagResource
+                  - dlm:TagResource
+                  - drs:TagResource
+                  - ssm:AddTagsToResource
+                  - ssm-incidents:TagResource
+                  - workspaces:CreateTags
+                Resource: "*"
+
+Outputs:
+  RoleArn:
+    Description: Value for role_arn in tagctl.yaml (or --role).
+    Value: {Fn::GetAtt: [Role, Arn]}
+    Export:
+      Name: {Fn::Sub: "${AWS::StackName}-RoleArn"}
+  TagctlConfig:
+    Description: Account entry for clouds.aws in tagctl.yaml.
+    Value:
+      Fn::Sub: "- profile: <base profile>\n  role_arn: ${Role.Arn}"

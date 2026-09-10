@@ -299,8 +299,39 @@ region only serves the initial STS call.
 
 ## Required IAM Permissions
 
-When `role_arn` is used, attach these policies to the role; the base identity
-only needs `sts:AssumeRole` on it.
+tagctl needs two levels of access and ships one role for each, as
+CloudFormation templates under
+[`permissions/aws/`](https://github.com/unicrons/tagctl/tree/main/permissions/aws):
+
+| Role | Policies | Commands | Hand it to |
+|------|----------|----------|------------|
+| `TagctlScan` | `TagctlScan` | `scan`, `plan`, `diff`, `normalize`, `terraform`, `cost` | Scheduled jobs, CI, auditors. It cannot write a tag. |
+| `TagctlApply` | `TagctlScan` + `TagctlApply` | `apply` | People and pipelines that remediate, behind MFA or an external id. |
+
+The apply policy is additive: it holds only the tag write actions and always
+sits next to the scan policy, which is where `sts:GetCallerIdentity`, the
+discovery calls and the S3 `Get*` reads that precede `PutBucketTagging` come
+from. Deploy the role in every account tagctl will touch:
+
+```bash
+aws cloudformation deploy \
+  --template-file permissions/aws/tagctl-scan-role.yaml \
+  --stack-name tagctl-scan-role \
+  --capabilities CAPABILITY_NAMED_IAM \
+  --parameter-overrides TrustedPrincipalArn=arn:aws:iam::111111111111:root
+```
+
+`TrustedPrincipalArn` is who may assume the role: an account root, a role or
+an Identity Center permission set. `ExternalId`, `RequireMFA` (default `true`
+on the apply template), `MaxSessionDuration` and `PermissionsBoundaryArn` are
+optional. The `TagctlConfig` output is the entry to paste under `clouds.aws`;
+the base identity only needs `sts:AssumeRole` on the role. For many accounts,
+deploy the same template as a StackSet.
+
+The policy documents are also available on their own as
+`tagctl-scan-policy.json` and `tagctl-apply-policy.json`, for Terraform or a
+role you already have. Every copy on this page is checked against those files
+by `go test ./internal/provider/aws/`.
 
 ### Read-Only (Scan)
 
@@ -482,8 +513,6 @@ only needs `sts:AssumeRole` on it.
       "Effect": "Allow",
       "Action": [
         "ec2:CreateTags",
-        "s3:GetBucketLocation",
-        "s3:GetBucketTagging",
         "s3:PutBucketTagging",
         "rds:AddTagsToResource",
         "lambda:TagResource",
@@ -579,12 +608,13 @@ only needs `sts:AssumeRole` on it.
 ```
 
 <Note>
-  `PutBucketTagging` replaces the whole tag set, so tagctl reads the existing
-  tags first: the S3 `Get*` actions above are part of applying, not only of
-  scanning. `tag:TagResources` delegates to each service, so the service's own tagging
-  action must be allowed as well; a resource the service rejects is reported
-  as a failed change with the service's error code, the rest of the batch
-  still applies.
+  This policy only adds the write actions: attach it together with the scan
+  policy, as the `TagctlApply` role does. `PutBucketTagging` replaces the whole
+  tag set, so tagctl reads the existing tags first through the scan policy's
+  `s3:GetBucketTagging`. `tag:TagResources` delegates to each service, so the
+  service's own tagging action must be allowed as well; a resource the service
+  rejects is reported as a failed change with the service's error code, the
+  rest of the batch still applies.
 </Note>
 
 <Tip>
@@ -613,15 +643,18 @@ clouds:
 
 ### Using Cross-Account Roles
 
-Configure assume role in `~/.aws/config`:
+Deploy `tagctl-scan-role.yaml` in every member account (a StackSet does it
+once) with the tooling account as `TrustedPrincipalArn`, then either list the
+accounts in `tagctl.yaml` with `role_arn` or configure the roles in
+`~/.aws/config`:
 
 ```ini
 [profile production]
-role_arn = arn:aws:iam::111111111111:role/TagctlRole
+role_arn = arn:aws:iam::111111111111:role/TagctlScan
 source_profile = default
 
 [profile staging]
-role_arn = arn:aws:iam::222222222222:role/TagctlRole
+role_arn = arn:aws:iam::222222222222:role/TagctlScan
 source_profile = default
 ```
 

@@ -170,6 +170,7 @@ tagctl/
 │       ├── resource.go, violation.go, scan.go, plan.go
 │       └── diff.go, normalize.go, cost.go
 ├── docs/                 # Documentation (Mintlify)
+├── permissions/aws/      # IAM policies and the CloudFormation role templates
 ├── test/
 │   ├── testdata/         # Config and fixture files
 │   └── testutil/         # Shared test helpers

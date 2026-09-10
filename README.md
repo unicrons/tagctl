@@ -128,6 +128,23 @@ The [configuration reference](docs/configuration.mdx) covers every field,
 [credentials](docs/credentials.mdx) the auth options (AssumeRole, external
 id, MFA) and [rules](docs/rules.mdx) the inference and defaults engine.
 
+## Permissions
+
+Two IAM roles, shipped as CloudFormation templates in [`permissions/aws/`](permissions/aws):
+
+| | |
+|---|---|
+| `TagctlScan` | Read-only. Runs `scan`, `plan`, `diff`, `normalize`, `terraform` and `cost`. The one for CI and schedules. |
+| `TagctlApply` | The scan policy plus the tag write actions. Only `apply` needs it; trust it to people, behind MFA or an external id. |
+
+```bash
+aws cloudformation deploy \
+  --template-file permissions/aws/tagctl-scan-role.yaml \
+  --stack-name tagctl-scan-role \
+  --capabilities CAPABILITY_NAMED_IAM \
+  --parameter-overrides TrustedPrincipalArn=arn:aws:iam::111111111111:root
+```
+
 ## Example output
 
 ```
