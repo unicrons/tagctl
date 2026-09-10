@@ -32,7 +32,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/codepipeline v1.54.0
 	github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider v1.73.0
 	github.com/aws/aws-sdk-go-v2/service/configservice v1.73.0
-	github.com/aws/aws-sdk-go-v2/service/costexplorer v1.45.2
+	github.com/aws/aws-sdk-go-v2/service/costexplorer v1.71.0
 	github.com/aws/aws-sdk-go-v2/service/databasemigrationservice v1.70.0
 	github.com/aws/aws-sdk-go-v2/service/datapipeline v1.37.0
 	github.com/aws/aws-sdk-go-v2/service/datasync v1.66.0
