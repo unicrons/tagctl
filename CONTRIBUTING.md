@@ -116,9 +116,9 @@ Release notes are generated from these subjects, so `feat`, `fix` and `docs`
 commits are what users will read. CI rejects a PR whose commits or title do
 not follow the format (`scripts/check-commits.sh`).
 
-CI runs only the jobs the diff needs: Lint, Test, Build and Gosec when Go
-files change, Docs when `docs/` changes, the secrets scan always. A skipped
-job counts as passed.
+CI runs only the jobs the diff needs: Lint, Test and Build when Go files
+change, Gosec on the packages holding the changed Go files, Docs when `docs/`
+changes, the secrets scan always. A skipped job counts as passed.
 
 ### 5. Push and Create PR
 

@@ -18,6 +18,7 @@ jobs:
       pull-requests: read
     outputs:
       go: ${{ steps.filter.outputs.go }}
+      go_files: ${{ steps.filter.outputs.go_files }}
       docs: ${{ steps.filter.outputs.docs }}
     steps:
       - name: Checkout code
@@ -29,6 +30,7 @@ jobs:
         id: filter
         uses: dorny/paths-filter@v3
         with:
+          list-files: shell
           filters: |
             go:
               - '**/*.go'
@@ -153,10 +155,21 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Resolve changed packages
+        id: pkgs
+        env:
+          GO_FILES: ${{ needs.changes.outputs.go_files }}
+        run: |
+          dirs=$(for f in $GO_FILES; do
+            case "$f" in *.go) d=$(dirname "$f"); [ -d "$d" ] && echo "./$d";; esac
+          done | sort -u | tr '\n' ' ')
+          echo "dirs=${dirs:-./...}" >> "$GITHUB_OUTPUT"
+          echo "scanning: ${dirs:-./...}"
+
       - name: Run Gosec Security Scanner
         uses: securego/gosec@master
         with:
-          args: '-exclude=G104 ./...'
+          args: '-exclude=G104 ${{ steps.pkgs.outputs.dirs }}'
 
   docs:
     name: Docs
