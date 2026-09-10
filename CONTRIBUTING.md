@@ -5,10 +5,11 @@ Thank you for your interest in contributing to tagctl! This guide will help you 
 ## Current State
 
 **Supported Providers:**
-- ✅ **AWS** - EC2, S3, RDS, Lambda (stable)
-- 🔜 **Kubernetes** - Coming soon
-- 🔜 **GCP** - Coming soon
-- 🔜 **Azure** - Coming soon
+- ✅ **AWS** - 106 resource types, the services Prowler audits (stable; full
+  table in [docs/providers/aws.mdx](docs/providers/aws.mdx))
+- 🚧 **Kubernetes** - provider exists under `internal/provider/k8s/` but is not
+  wired into the CLI yet
+- 🔜 **GCP** / **Azure** - config types only, no provider; contributions welcome
 
 ## Code of Conduct
 
@@ -18,7 +19,7 @@ Be respectful, inclusive, and constructive. We're all here to build something us
 
 ### Prerequisites
 
-- Go 1.23 or later
+- Go 1.24 or later
 - Git
 - Make
 - AWS credentials (for testing with real resources)
@@ -82,7 +83,7 @@ make coverage
 go test -v ./internal/engine/...
 
 # Run a specific test
-go test -v -run TestMockScanner ./internal/engine/
+go test -v -run TestMockScanner_Scan ./internal/engine/
 ```
 
 ### 4. Commit
@@ -126,32 +127,44 @@ Then create a Pull Request on GitHub.
 tagctl/
 ├── cmd/tagctl/           # Entry point
 ├── internal/
-│   ├── cli/              # Command implementations
-│   │   ├── root.go       # Root command, global flags
-│   │   ├── scan.go       # Scan command
-│   │   ├── plan.go       # Plan command
+│   ├── cli/              # Commands
+│   │   ├── root.go       # Global flags, banner
+│   │   ├── scan.go       # Scan command → output/scan-*.json
+│   │   ├── plan.go       # Plan command → output/plan-*.json
 │   │   ├── apply.go      # Apply command
-│   │   ├── output.go     # Output formatters (table, JSON, CSV, HTML)
+│   │   ├── output.go     # Table, JSON, CSV, HTML formatters
+│   │   ├── evaluate.go   # Evaluate resources from JSON
+│   │   ├── diff.go       # Compliance drift between two scans
+│   │   ├── normalize.go  # Tag value drift detection
+│   │   ├── terraform.go  # Terraform plan/state checking
+│   │   ├── cost.go       # Cost attribution reporting
+│   │   ├── gate.go       # CI gate flags
+│   │   ├── init.go, validate.go, paths.go, progress.go
+│   │   ├── auth.go       # AWS auth flags shared by scan/apply/cost
 │   │   └── providers.go  # Provider initialization
-│   ├── config/           # Configuration parsing
-│   ├── engine/           # Core business logic
+│   ├── config/           # Configuration parsing and validation
+│   ├── engine/           # Core logic
 │   │   ├── scanner.go    # Resource discovery
-│   │   ├── evaluator.go  # Policy evaluation (generates Findings)
+│   │   ├── evaluator.go  # Policy evaluation → Findings (PASS/FAILED)
 │   │   ├── planner.go    # Change planning (inference, defaults)
-│   │   └── applier.go    # Tag application
+│   │   ├── applier.go    # Tag application
+│   │   ├── differ.go     # Drift between two scans
+│   │   └── normalizer.go # Tag value clustering
+│   ├── report/           # SARIF, JUnit, OCSF, gate, HTML report
+│   ├── terraform/        # terraform show -json parsing
 │   ├── log/              # Leveled logging (error, info, debug)
 │   ├── provider/         # Cloud providers
-│   │   ├── provider.go   # Interface definition
-│   │   ├── aws/          # AWS implementation (EC2, S3, RDS, Lambda)
-│   │   └── k8s/          # Kubernetes (coming soon)
+│   │   ├── provider.go   # Interface
+│   │   ├── aws/          # AWS, one file per service group
+│   │   └── k8s/          # Kubernetes (not wired yet)
 │   └── types/            # Domain types
-│       ├── resource.go   # Resource type
-│       ├── violation.go  # Violation and Finding types
-│       ├── scan.go       # ScanResult type
-│       └── plan.go       # Plan type
+│       ├── resource.go, violation.go, scan.go, plan.go
+│       └── diff.go, normalize.go, cost.go
 ├── docs/                 # Documentation (Mintlify)
-├── test/testutil/        # Test utilities and fixtures
-└── output/               # Generated reports (scan-*.json, plan-*.json)
+├── test/
+│   ├── testdata/         # Config and fixture files
+│   └── testutil/         # Shared test helpers
+└── output/               # Generated reports
 ```
 
 See [Architecture](docs/architecture.mdx) for details.
@@ -171,6 +184,9 @@ tagctl follows a file-based workflow where each command outputs to a file:
 - `scan` discovers resources and evaluates against policy → generates **Findings** (PASS/FAILED)
 - `plan` reads scan results and generates fix suggestions → uses **inference** and **default** rules
 - `apply` reads plan and applies tag changes to cloud resources
+
+`evaluate`, `diff`, `normalize`, `terraform` and `cost` read scan files or
+external input instead of the cloud; see [docs/commands.mdx](docs/commands.mdx).
 
 ## Adding Features
 
@@ -211,14 +227,19 @@ func init() {
 
 3. Add tests in `internal/cli/newcmd_test.go`
 
-4. Document in `docs/commands.md`
+4. Document in `docs/commands.mdx`
 
 ### Adding a New Provider
 
-We're looking for contributors to help implement:
-- **Kubernetes** - Label management for pods, deployments, services
+We're looking for contributors to help with:
+- **Kubernetes** - finish and wire the existing `internal/provider/k8s/`
+  provider (labels on pods, deployments, services)
 - **GCP** - Compute Engine, Cloud Storage, GKE
 - **Azure** - VMs, Storage Accounts, AKS
+
+For a new AWS service, follow "Adding a New AWS Service" in
+[CLAUDE.md](CLAUDE.md), which walks through the lister, tag source, applier
+routing and the tests that pin the supported set.
 
 1. Create `internal/provider/newcloud/provider.go`:
 
@@ -272,7 +293,7 @@ func (p *Provider) ApplyTags(ctx context.Context, resourceID string, tags map[st
 1. Add types in `internal/config/config.go`
 2. Implement logic in `internal/engine/planner.go`
 3. Add tests
-4. Document in `docs/rules.md`
+4. Document in `docs/rules.mdx`
 
 ## Testing Guidelines
 
@@ -305,14 +326,10 @@ func TestFunctionName(t *testing.T) {
 }
 ```
 
-### Coverage Goals
+### Coverage
 
-| Package | Goal | Current |
-|---------|------|---------|
-| `internal/types/` | 95%+ | 96.8% |
-| `internal/config/` | 80%+ | 78.6% |
-| `internal/engine/` | 80%+ | 37.6% |
-| `internal/cli/` | 50%+ | 11.5% |
+`make coverage` writes `coverage.html`. New code comes with tests that mock the
+cloud SDK; nothing in the suite may reach real AWS.
 
 ### Key Types to Understand
 
@@ -322,7 +339,8 @@ type Finding struct {
     Resource Resource      `json:"resource"`
     Tag      string        `json:"tag"`
     Status   FindingStatus `json:"status"`   // "PASS" or "FAILED"
-    Reason   ViolationReason `json:"reason"` // "compliant", "missing", "invalid_value", etc.
+    Reason   ViolationReason `json:"reason"` // "compliant", "missing", "invalid_value", "invalid_format"
+    Expected string        `json:"expected,omitempty"`
     Actual   string        `json:"actual,omitempty"`
 }
 
@@ -375,9 +393,9 @@ Follow standard Go conventions:
 
 ### Naming
 
-- Interfaces: `Scanner`, `Planner` (noun)
-- Implementations: `AWSScanner`, `MockPlanner`
-- Constructors: `NewScanner()`, `NewMockPlanner()`
+- Interfaces: `Scanner`, `Planner`, `Applier` (noun)
+- Implementations: `MockScanner`, `MockPlanner`, `MockApplier`
+- Constructors: `NewScanner()`, `NewMockScanner()`
 
 ### Error Handling
 
@@ -397,8 +415,8 @@ if err != nil {
 
 ```go
 // Good: explain why, not what
-// Skip CloudWatch log groups because they're auto-created
-// and tagging them provides no value.
+// Security Hub creates hundreds of Config rules per account; they are not
+// the user's to tag.
 
 // Bad: explain what (obvious from code)
 // Loop through resources
