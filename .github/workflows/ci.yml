@@ -10,6 +10,21 @@ permissions:
   contents: read
 
 jobs:
+  commits:
+    name: Conventional Commits
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request' && github.actor != 'dependabot[bot]'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check commit subjects and PR title
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: scripts/check-commits.sh "origin/${{ github.base_ref }}" "$PR_TITLE"
+
   lint:
     name: Lint
     runs-on: ubuntu-latest
