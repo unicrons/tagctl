@@ -137,7 +137,7 @@ tagctl scan --region eu-west-1 --region us-east-1
 
 ```bash Another profile or an assumed role
 tagctl scan --profile production
-tagctl scan --role arn:aws:iam::123456789012:role/TagAudit --external-id 4f2c9a
+tagctl scan --role arn:aws:iam::123456789012:role/TagctlScan --external-id 4f2c9a
 ```
 
 ```bash Verbose with debug logging
@@ -325,6 +325,10 @@ Apply the planned tag changes.
 ```bash
 tagctl apply [flags]
 ```
+
+This is the only command that writes to the cloud. The shipped `TagctlScan`
+role cannot run it; assume `TagctlApply` for this run with `--role` (see
+[Scan role vs apply role](/credentials#scan-role-vs-apply-role)).
 
 <ParamField path="--plan" type="string" default="latest in output/">
   Plan file to apply. If not specified, uses the most recent plan.
@@ -696,7 +700,9 @@ tagctl cost --fail-under 80
 
 ### IAM permissions
 
-`cost` needs one extra permission beyond the read-only scan policy:
+`cost` needs one action the other commands do not, `ce:GetCostAndUsage`.
+The `TagctlScan` role and the scan policy already include it; a role of your
+own needs:
 
 ```json
 {
@@ -1080,7 +1086,7 @@ jobs:
 
       - uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}   # the TagctlScan role
           aws-region: us-east-1
 
       - name: Install tagctl

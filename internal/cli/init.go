@@ -70,7 +70,7 @@ clouds:
 
     # Assume a role on top of the resolved credentials, one entry per account.
     # - profile: audit-base
-    #   role_arn: arn:aws:iam::123456789012:role/TagAudit
+    #   role_arn: arn:aws:iam::123456789012:role/TagctlScan   # permissions/aws/ ships the role templates
     #   external_id: my-external-id     # Optional
     #   session_duration: 3600          # Optional, 900-43200 seconds
     #   role_session_name: tagctl       # Optional

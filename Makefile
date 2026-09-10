@@ -107,6 +107,10 @@ check-secrets:
 	@echo "Checking for secrets..."
 	@./.githooks/check-secrets.sh || true
 
+## iam-templates: Re-render permissions/aws/*.yaml from the JSON policies
+iam-templates:
+	@python3 scripts/render-iam-templates.py
+
 ## check-fmt: Check if code is formatted
 check-fmt:
 	@echo "Checking Go formatting..."

@@ -34,7 +34,7 @@ Examples:
 
   # Pick the AWS profile or assume a role without touching the config
   tagctl scan --profile production
-  tagctl scan --role arn:aws:iam::123456789012:role/TagAudit --external-id 1234
+  tagctl scan --role arn:aws:iam::123456789012:role/TagctlScan --external-id 1234
 
   # Output as JSON
   tagctl scan --output json`,

@@ -73,6 +73,12 @@ tagctl version
     ```bash
     aws sts get-caller-identity
     ```
+
+    <Tip>
+    Prefer a dedicated role over your own credentials. The repository ships a
+    read-only `TagctlScan` role as a CloudFormation template; deploy it and add
+    `role_arn` to the entry. See [Scan role vs apply role](/credentials#scan-role-vs-apply-role).
+    </Tip>
   </Step>
 
   <Step title="Define Your Tag Policy">
@@ -160,6 +166,12 @@ tagctl version
     tagctl apply
     ```
     You'll be asked to confirm before any changes are made.
+
+    <Note>
+    `apply` is the only command that writes. With the shipped roles, the scan
+    role cannot do it: pass the apply role for this run only,
+    `tagctl apply --role arn:aws:iam::111111111111:role/TagctlApply`.
+    </Note>
 
     <Tip>
     You can specify a different plan file with `--plan`:
