@@ -66,6 +66,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: changes
     if: needs.changes.outputs.go == 'true'
+    timeout-minutes: 20
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -85,11 +86,14 @@ jobs:
             exit 1
           fi
 
+      - name: Download dependencies
+        run: go mod download
+
+      # A cold cache (any go.sum change) needs more than 5 minutes to type-check the AWS SDK.
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
           version: v2.13.2
-          args: --timeout=5m
 
   test:
     name: Test
