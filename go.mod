@@ -63,7 +63,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/kafka v1.63.0
 	github.com/aws/aws-sdk-go-v2/service/kinesis v1.53.0
 	github.com/aws/aws-sdk-go-v2/service/kms v1.59.0
-	github.com/aws/aws-sdk-go-v2/service/lambda v1.69.2
+	github.com/aws/aws-sdk-go-v2/service/lambda v1.88.5
 	github.com/aws/aws-sdk-go-v2/service/lightsail v1.64.0
 	github.com/aws/aws-sdk-go-v2/service/memorydb v1.41.0
 	github.com/aws/aws-sdk-go-v2/service/mq v1.43.0
