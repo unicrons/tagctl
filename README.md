@@ -1,87 +1,138 @@
 <p align="center">
-  <pre>
-  ████████╗ █████╗  ██████╗  ██████╗████████╗██╗
-  ╚══██╔══╝██╔══██╗██╔════╝ ██╔════╝╚══██╔══╝██║
-     ██║   ███████║██║  ███╗██║        ██║   ██║
-     ██║   ██╔══██║██║   ██║██║        ██║   ██║
-     ██║   ██║  ██║╚██████╔╝╚██████╗   ██║   ███████╗
-     ╚═╝   ╚═╝  ╚═╝ ╚═════╝  ╚═════╝   ╚═╝   ╚══════╝
-  </pre>
+  <a href="https://tagctl.dev">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="docs/logo/dark.svg">
+      <img src="docs/logo/light.svg" alt="tagctl" width="280">
+    </picture>
+  </a>
+</p>
+
+<h3 align="center">Audit, fix and enforce cloud resource tags</h3>
+
+<p align="center">
+  Scan what is wrong, review the plan, then apply it.<br>
+  AWS today, 106 resource types, every region by default.
 </p>
 
 <p align="center">
-  <strong>Audit, fix, and enforce cloud resource tags across AWS (GCP and Azure coming soon).</strong>
+  <a href="https://tagctl.dev"><b>Website</b></a>
+  &nbsp;·&nbsp;
+  <a href="docs/getting-started.mdx"><b>Getting started</b></a>
+  &nbsp;·&nbsp;
+  <a href="docs/commands.mdx"><b>Commands</b></a>
+  &nbsp;·&nbsp;
+  <a href="docs/configuration.mdx"><b>Configuration</b></a>
+  &nbsp;·&nbsp;
+  <a href="https://github.com/unicrons/tagctl/releases"><b>Releases</b></a>
 </p>
 
 <p align="center">
   <a href="https://github.com/unicrons/tagctl/actions/workflows/ci.yml"><img src="https://github.com/unicrons/tagctl/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://goreportcard.com/report/github.com/unicrons/tagctl"><img src="https://goreportcard.com/badge/github.com/unicrons/tagctl" alt="Go Report Card"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="License"></a>
-  <a href="https://github.com/unicrons/tagctl/releases"><img src="https://img.shields.io/github/v/release/unicrons/tagctl" alt="Release"></a>
+  <a href="https://github.com/unicrons/tagctl/releases"><img src="https://img.shields.io/github/v/release/unicrons/tagctl?color=6366F1" alt="Release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-6366F1.svg" alt="License"></a>
 </p>
 
----
+<br>
 
 ## Why tagctl?
 
-Cloud resources without proper tags are a **FinOps nightmare**. You can't allocate costs, assign ownership, or enforce compliance. Existing tools are either too complex (Cloud Custodian), too limited (AWS Tag Policies), or too expensive (AWS Config).
+Untagged resources are a FinOps blind spot: you cannot allocate the cost,
+find the owner or prove compliance. The usual answers are either heavy
+(Cloud Custodian), passive (AWS Tag Policies) or billed per rule (AWS Config).
 
-**tagctl** fills the gap with a simple, focused approach:
+tagctl is one binary and three commands:
 
 ```bash
-$ tagctl scan    # What's wrong?        → output/scan-TIMESTAMP.json
-$ tagctl plan    # How to fix it?       → output/plan-TIMESTAMP.json (uses latest scan)
-$ tagctl apply   # Fix it.              → applies changes (uses latest plan)
+tagctl scan    # What is wrong?    → output/scan-<ts>.{json,csv,html}
+tagctl plan    # How to fix it?    → output/plan-<ts>.json
+tagctl apply   # Fix it.           → tags written after a confirmation prompt
 ```
 
-## Key Features
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/workflow-dark.svg">
+    <img src="docs/images/workflow.svg" alt="scan → plan → apply" width="700">
+  </picture>
+</p>
 
-| Feature | Description |
-|---------|-------------|
-| **AWS Support** | 106 resource types across the same AWS services Prowler audits — from EC2 and S3 to CloudTrail, GuardDuty, WAF, Bedrock, SageMaker, CodePipeline, WorkSpaces and IAM roles (see [docs/providers/aws.mdx](docs/providers/aws.mdx); GCP, Azure coming soon) |
-| **Global discovery** | Scans ALL resources across ALL regions in your account by default |
-| **Smart inference** | Automatically derive tags from resource names (`web-prod-api` → `environment: prod`) |
-| **Defaults** | Fill missing tags with a default value when a condition holds (`tag:owner: absent`) |
-| **Safe by default** | Always preview changes with `plan` before `apply` |
-| **GitOps ready** | Store config in git, run in CI/CD pipelines |
-| **Beautiful reports** | Clear compliance dashboards for management |
-| **Drift tracking** | `diff` reports what got worse since a baseline, so CI gates on the change |
-| **Value normalization** | Collapses `prod` / `Production` / `PROD`, the drift that silently splits cost reports |
-| **Shift left** | `terraform` checks a plan before anything is created, honouring `default_tags` |
-| **Cost attribution** | `cost` reports the spend nobody can be billed for, in currency |
-| **CI native** | SARIF for GitHub code scanning, JUnit for any CI, with compliance gates |
-| **OCSF** | Every finding as an OCSF 1.4 Compliance Finding event, ready for Security Lake or any OCSF-native SIEM |
+## Features
 
-## Quick Start
+| | |
+|---|---|
+| **Wide coverage** | 106 AWS resource types, the same services Prowler audits, from EC2 and S3 to GuardDuty, WAF, Bedrock and IAM roles. Every region unless you say otherwise. See [the full list](docs/providers/aws.mdx). |
+| **Fixes, not just findings** | Infer tags from resource names (`web-prod-api` → `environment: prod`), fill gaps with conditional defaults, preview with `plan`, write with `apply`. |
+| **CI native** | SARIF for GitHub code scanning, JUnit for any CI, compliance gates (`--fail-under`, `--fail-on-new`), and `diff` to report what got worse since a baseline. |
+| **Shift left** | `terraform` checks a plan or state against the policy before anything is created, honouring `default_tags`. |
+| **FinOps signals** | `cost` puts a currency figure on the spend your tags fail to attribute; `normalize` catches `prod` / `Production` / `PROD` before it splits a cost report. |
+| **OCSF** | Every finding as an OCSF 1.4 Compliance Finding, ready for Security Lake or any OCSF-native SIEM. |
+| **Reports** | JSON for pipelines, CSV for spreadsheets, and a standalone HTML report that opens offline. |
+| **Safe by default** | Read-only until `apply`; credentials never live in the config file. |
+
+## Quick start
 
 ```bash
-# Install
 go install github.com/unicrons/tagctl/cmd/tagctl@latest
 
-# Initialize configuration
-tagctl init
-
-# Edit your policy
-vim tagctl.yaml
-
-# See what's wrong
-tagctl scan
-
-# Generate fix plan
-tagctl plan
-
-# Apply fixes
-tagctl apply
+tagctl init        # scaffolds tagctl.yaml
+tagctl scan        # audits the account and writes the reports
+tagctl plan        # proposes the tags to add
+tagctl apply       # writes them, after you confirm
 ```
 
-## Example Output
+Pre-built binaries for Linux, macOS and Windows (amd64 and arm64) are attached
+to every [release](https://github.com/unicrons/tagctl/releases) with a
+`checksums.txt`.
 
-### Scan Report
+## Configuration
+
+`tagctl.yaml` declares the accounts to scan, the policy, the fix rules and
+what to ignore. Credentials come from the AWS SDK chain (profiles, SSO,
+instance roles); they are never written here.
+
+```yaml
+clouds:
+  aws:
+    - profile: production
+    - profile: staging
+      regions: [us-east-1]
+
+policy:
+  required:
+    - name: environment
+      values: [dev, staging, prod]
+    - name: cost-center
+      pattern: "^[A-Z]{2,4}-\\d{3,6}$"
+    - name: owner
+      pattern: "^.+@company\\.com$"
+
+rules:
+  infer:
+    - tag: environment
+      from_name:
+        - pattern: "-prod-"
+          value: prod
+  defaults:
+    - resource: "*"
+      when:
+        tag:owner: absent
+      set:
+        owner: platform-team@company.com
+
+ignore:
+  resources:
+    - "aws_cloudwatch_*"
+```
+
+The [configuration reference](docs/configuration.mdx) covers every field,
+[credentials](docs/credentials.mdx) the auth options (AssumeRole, external
+id, MFA) and [rules](docs/rules.mdx) the inference and defaults engine.
+
+## Example output
 
 ```
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
                   Tag Compliance Report
-                  2026-02-02 10:51:48
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 Overall: 65% compliant █████████████░░░░░░░ (98/150 resources)
@@ -92,246 +143,71 @@ By Account:
   aws/staging     50     13         26% ██░░░░░░░░
 
 By Required Tag:
-  TAG          STATUS  PRESENT  MISSING  INVALID  COMPLIANCE
-  environment  PASS    140      10       0        93% █████████░
-  cost-center  FAILED  98       52       5        62% ██████░░░░
-  owner        FAILED  75       75       10       43% ████░░░░░░
+  TAG          PRESENT  MISSING  INVALID  COMPLIANCE
+  environment  140      10       0        93% █████████░
+  cost-center  98       52       5        62% ██████░░░░
+  owner        75       75       10       43% ████░░░░░░
 
 Run 'tagctl plan' to see suggested fixes.
-
-Detailed results saved to:
-  • JSON: /path/to/output/scan-20260202-105148.json
-  • CSV:  /path/to/output/scan-20260202-105148.csv
-  • HTML: /path/to/output/scan-20260202-105148.html
 ```
-
-### Plan Output
 
 ```
 Planned changes:
 
 aws_instance (web-prod-api-1)
-  + environment:  "prod"     (inferred: name contains '-prod-')
+  + environment:  "prod"                       (inferred: name contains '-prod-')
 
 aws_s3_bucket (legacy-data-2019)
   + owner:        "platform-team@company.com"  (default)
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Summary: 3 resources will be modified
-         5 tags will be added
-
+Summary: 3 resources will be modified, 5 tags will be added
 Run 'tagctl apply' to execute this plan.
-```
-
-## Configuration
-
-Create `tagctl.yaml` in your project root:
-
-```yaml
-# Cloud accounts to scan
-clouds:
-  aws:
-    - profile: production
-      # regions: [us-east-1, eu-west-1]  # Optional: limit to specific regions
-      # By default, ALL resources across ALL regions are discovered
-    - profile: staging
-      regions: [us-east-1]  # Optionally limit regions (also filters S3 buckets)
-
-# Tag policy - what tags are required?
-policy:
-  required:
-    - name: environment
-      values: [dev, staging, prod]
-    - name: cost-center
-      pattern: "^[A-Z]{2,4}-\\d{3,6}$"
-    - name: owner
-      pattern: "^.+@company\\.com$"
-
-# Auto-fix rules
-rules:
-  # Infer tags from resource names
-  infer:
-    - tag: environment
-      from_name:
-        - pattern: "-prod-"
-          value: prod
-        - pattern: "-staging-|-stg-"
-          value: staging
-
-  # Default values when tag is missing
-  defaults:
-    - resource: "*"
-      when:
-        tag:owner: absent
-      set:
-        owner: platform-team@company.com
-
-# Skip certain resources
-ignore:
-  resources:
-    - "aws_cloudwatch_*"
-    - "aws_iam_*"
 ```
 
 ## Commands
 
-| Command | Description |
-|---------|-------------|
-| `tagctl init` | Generate a configuration template |
-| `tagctl validate` | Validate your configuration file |
-| `tagctl scan` | Audit resources and report compliance → generates `scan-*.json` |
-| `tagctl plan` | Generate a fix plan from scan results → generates `plan-*.json` |
-| `tagctl apply` | Apply the planned changes from plan file |
-| `tagctl evaluate` | Evaluate resources from external JSON (for Prowler integration) |
-| `tagctl diff` | Compare two scans and report compliance drift |
-| `tagctl normalize` | Find tag values that are variants of one another (`prod` / `Production` / `PROD`) |
-| `tagctl terraform` | Check a Terraform plan or state against the policy, before apply |
-| `tagctl cost` | Report how much spend your tags fail to account for |
-| `tagctl version` | Show version information |
+| Command | What it does |
+|---------|--------------|
+| `tagctl init` | Scaffold a `tagctl.yaml` |
+| `tagctl validate` | Validate the configuration |
+| `tagctl scan` | Audit resources and write `scan-*.{json,csv,html}` |
+| `tagctl plan` | Turn the latest scan into a remediation plan |
+| `tagctl apply` | Apply the latest plan |
+| `tagctl diff` | Compliance drift between two scans |
+| `tagctl normalize` | Tag values that are variants of one another |
+| `tagctl terraform` | Check a Terraform plan or state before apply |
+| `tagctl cost` | Spend your tags fail to account for |
+| `tagctl evaluate` | Evaluate resources from external JSON (Prowler integration) |
 
-### Workflow
-
-Each command passes data to the next via JSON files in the `output/` directory:
-
-```bash
-# 1. Scan resources and save results
-tagctl scan                              # → output/scan-20260202-143052.json
-
-# 2. Generate plan from scan results
-tagctl plan                              # Uses latest scan automatically
-tagctl plan --scan output/scan-*.json    # Or specify a scan file
-
-# 3. Apply changes from plan
-tagctl apply                             # Uses latest plan automatically
-tagctl apply --plan output/plan-*.json   # Or specify a plan file
-```
-
-### Global Flags
-
-```
--c, --config string      Config file path (default: ./tagctl.yaml)
--o, --output string      Output format: table, json, csv (default: table)
--l, --log-level string   Log level: error, info, debug (default: error)
--h, --help               Show help
-```
-
-### Scan Flags
-
-```
---region strings   AWS region(s) to scan (default: all available regions)
---profile, -p      AWS profile (default: SDK credential chain)
---role string      IAM role ARN to assume (--external-id, --session-duration, --mfa-serial)
---verbose          Show all violations
---mock             Use mock data for demonstration
-```
-
-## Output Files
-
-Every scan automatically generates reports in the `output/` directory:
-
-```
-output/
-├── scan-20260202-105148.json   # Full results in JSON format
-├── scan-20260202-105148.csv    # Violations in CSV format
-└── scan-20260202-105148.html   # Visual HTML report
-```
-
-| Format | Description |
-|--------|-------------|
-| **JSON** | Complete scan results with all metadata, suitable for CI/CD pipelines |
-| **CSV** | Violations only, importable into Excel/Google Sheets |
-| **HTML** | Standalone visual report: per-tag coverage, a resource-type × tag matrix and filterable findings. Opens offline, shareable with management |
+Each command feeds the next through `output/`; `--scan` and `--plan` pick a
+specific file instead of the latest. Flags, exit codes and CI gates are in the
+[command reference](docs/commands.mdx).
 
 ## Documentation
 
-| Document | Description |
-|----------|-------------|
-| [Getting Started](docs/getting-started.mdx) | Installation and first steps |
-| [Configuration](docs/configuration.mdx) | Complete configuration reference |
-| [Commands](docs/commands.mdx) | Detailed command documentation |
+| | |
+|---|---|
+| [Getting started](docs/getting-started.mdx) | Install, first scan, first fix |
+| [Configuration](docs/configuration.mdx) | Every field of `tagctl.yaml` |
+| [Commands](docs/commands.mdx) | Flags, exit codes and CI gates |
 | [Rules](docs/rules.mdx) | Inference and defaults |
-| [Architecture](docs/architecture.mdx) | How tagctl works internally |
-
-## Installation
-
-### From Source
-
-```bash
-go install github.com/unicrons/tagctl/cmd/tagctl@latest
-```
-
-### Build from Repository
-
-```bash
-git clone https://github.com/unicrons/tagctl.git
-cd tagctl
-make build
-./bin/tagctl --help
-```
-
-### Releases
-
-Pre-built binaries for Linux, macOS and Windows (amd64 and arm64) are attached
-to every [GitHub Release](https://github.com/unicrons/tagctl/releases), with a
-`checksums.txt` to verify them.
-
-## Development
-
-```bash
-# Run tests
-make test
-
-# Run tests with coverage
-make coverage
-
-# Build binary
-make build
-
-# Format code
-make fmt
-
-# Run linter
-make lint
-
-# Run all checks
-make all
-```
-
-## Roadmap
-
-- [x] Core CLI structure
-- [x] Mock scanner/planner/applier
-- [x] AWS provider implementation (106 resource types, bulk tag reads through the Resource Groups Tagging API)
-- [x] Real tag scanning
-- [x] Real tag application
-- [x] Multi-region auto-discovery
-- [x] Global resource discovery (all regions, no filtering)
-- [x] Verbose logging (error, info, debug)
-- [x] Multi-format output (JSON, CSV, HTML)
-- [x] Compliance findings (PASS/FAILED status)
-- [x] File-based workflow (scan → plan → apply)
-- [x] Resource ARN in all outputs
-- [x] Compliance drift between scans (`diff`)
-- [x] CI gates with SARIF and JUnit output
-- [x] OCSF Compliance Finding output (`--ocsf`)
-- [x] Tag value normalization (`normalize`)
-- [x] Terraform plan and state checking (`terraform`)
-- [x] Cost attribution via Cost Explorer (`cost`)
-- [ ] Kubernetes provider (coming soon)
-- [ ] GCP provider (coming soon)
-- [ ] Azure provider (coming soon)
-- [ ] Web dashboard
+| [AWS provider](docs/providers/aws.mdx) | Resource types and IAM policies |
+| [OCSF](docs/integrations/ocsf.mdx) | Field mapping for the OCSF output |
+| [Architecture](docs/architecture.mdx) | How the pieces fit together |
+| [Roadmap](docs/roadmap.mdx) | Kubernetes, GCP and Azure providers |
 
 ## Contributing
 
-Contributions are welcome! Please read our [Contributing Guide](CONTRIBUTING.md) for details.
+Bug reports and pull requests are welcome. The [contributing guide](CONTRIBUTING.md)
+and [development docs](docs/development.mdx) cover the setup (`make setup`),
+the checks CI runs (`make check`) and the commit conventions.
 
 ## License
 
-Apache 2.0 - See [LICENSE](LICENSE) for details.
+Apache 2.0. See [LICENSE](LICENSE).
 
 ---
 
 <p align="center">
-  Made with ❤️ for the FinOps community
+  <a href="https://tagctl.dev">tagctl.dev</a> · Made with ❤️ for the FinOps community
 </p>
