@@ -81,7 +81,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sesv2 v1.72.0
 	github.com/aws/aws-sdk-go-v2/service/sfn v1.49.0
 	github.com/aws/aws-sdk-go-v2/service/shield v1.42.0
-	github.com/aws/aws-sdk-go-v2/service/sns v1.33.7
+	github.com/aws/aws-sdk-go-v2/service/sns v1.46.0
 	github.com/aws/aws-sdk-go-v2/service/sqs v1.37.5
 	github.com/aws/aws-sdk-go-v2/service/ssm v1.77.0
 	github.com/aws/aws-sdk-go-v2/service/ssmincidents v1.46.0
