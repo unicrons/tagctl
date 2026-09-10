@@ -1162,7 +1162,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.24'
+          go-version: '1.26'
 
       - name: Install tagctl
         run: go install github.com/unicrons/tagctl/cmd/tagctl@latest
@@ -1184,7 +1184,7 @@ jobs:
 ```yaml
 tag-compliance:
   stage: audit
-  image: golang:1.24
+  image: golang:1.26
   script:
     - go install github.com/unicrons/tagctl/cmd/tagctl@latest
     - tagctl scan --log-level info

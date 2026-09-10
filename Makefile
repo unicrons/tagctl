@@ -118,14 +118,14 @@ tools:
 	@if ! command -v trufflehog >/dev/null 2>&1; then \
 		echo "Installing trufflehog..."; \
 		brew install trufflehog 2>/dev/null || \
-		curl -sSfL https://raw.githubusercontent.com/trufflesecurity/trufflehog/main/scripts/install.sh | sh -s -- -b /usr/local/bin; \
+		curl -sSfL https://raw.githubusercontent.com/trufflesecurity/trufflehog/v3.97.4/scripts/install.sh | sh -s -- -b /usr/local/bin v3.97.4; \
 	else \
 		echo "trufflehog already installed"; \
 	fi
 	@if ! command -v golangci-lint >/dev/null 2>&1; then \
 		echo "Installing golangci-lint..."; \
 		brew install golangci-lint 2>/dev/null || \
-		go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest; \
+		go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.2; \
 	else \
 		echo "golangci-lint already installed"; \
 	fi

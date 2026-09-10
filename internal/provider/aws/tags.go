@@ -228,10 +228,10 @@ func (p *Provider) applyTagsViaTaggingAPI(ctx context.Context, arn string, tags 
 		Tags:            tags,
 	})
 	if err != nil {
-		return provider.NewProviderError("aws", "tag_resources", arn, err)
+		return provider.NewProviderError(providerName, "tag_resources", arn, err)
 	}
 	if failure, failed := output.FailedResourcesMap[arn]; failed {
-		return provider.NewProviderError("aws", "tag_resources", arn,
+		return provider.NewProviderError(providerName, "tag_resources", arn,
 			&taggingFailure{code: string(failure.ErrorCode), message: aws.ToString(failure.ErrorMessage)})
 	}
 

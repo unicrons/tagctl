@@ -8,7 +8,7 @@ This file provides guidance for Claude Code when working on this project.
 
 ## Tech Stack
 
-- **Language**: Go 1.24+ (see `go.mod`)
+- **Language**: Go 1.26+ (see `go.mod`)
 - **CLI Framework**: Cobra + Viper
 - **Cloud SDK**: aws-sdk-go-v2 (AWS), client-go (Kubernetes)
 - **Config**: YAML via Viper
@@ -322,12 +322,13 @@ same ids SARIF uses, keep them aligned. The full mapping is the contract in
 
 ## Linting
 
-The repo's `.golangci.yml` is v1 format, and CI uses `golangci-lint-action@v6`
-with `version: latest`, which resolves on the v1 line. A locally installed v2 binary cannot read the config
-and will refuse to run. Install a matching v1 to reproduce CI:
+`.golangci.yml` is v2 format and CI pins golangci-lint `v2.13.2` through
+`golangci-lint-action` (`.github/workflows/ci.yml`). Reproduce CI with the same
+version; a v1 binary cannot read the config, and a binary built with an older
+Go than `go.mod` targets refuses to run:
 
 ```bash
-go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.8
+go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.2
 ```
 
 Running with `--no-config` is not a substitute: the default linter set omits

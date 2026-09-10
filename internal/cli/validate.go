@@ -74,7 +74,7 @@ func (r *validationReport) checkClouds() {
 			continue
 		}
 		switch provider {
-		case "aws", "gcp", "azure", "kubernetes":
+		case providerAWS, "gcp", "azure", "kubernetes":
 			cloudCount++
 		default:
 			r.addWarning("unknown cloud provider: %s", provider)

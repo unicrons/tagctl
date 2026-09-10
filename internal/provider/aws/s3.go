@@ -49,7 +49,7 @@ func (p *Provider) listS3BucketsFrom(ctx context.Context, global s3API, regional
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_s3_buckets", "", err)
+			return nil, provider.NewProviderError(providerName, "list_s3_buckets", "", err)
 		}
 		buckets = append(buckets, output.Buckets...)
 	}
@@ -107,7 +107,7 @@ func (p *Provider) listS3BucketsFrom(ctx context.Context, global s3API, regional
 				Type:     "aws_s3_bucket",
 				Region:   region,
 				Account:  p.accountID,
-				Provider: "aws",
+				Provider: providerName,
 				Tags:     tags,
 				ARN:      "arn:aws:s3:::" + bucketName,
 			}
@@ -207,7 +207,7 @@ func (p *Provider) applyS3Tags(ctx context.Context, bucketName string, tags map[
 	// from the real existing tags or it would wipe them.
 	existingTags, err := getBucketTags(ctx, regionalClient, bucketName)
 	if err != nil {
-		return provider.NewProviderError("aws", "get_bucket_tagging", bucketName, err)
+		return provider.NewProviderError(providerName, "get_bucket_tagging", bucketName, err)
 	}
 
 	// Merge tags (new tags override existing)
@@ -232,7 +232,7 @@ func (p *Provider) applyS3Tags(ctx context.Context, bucketName string, tags map[
 	})
 
 	if err != nil {
-		return provider.NewProviderError("aws", "put_bucket_tagging", bucketName, err)
+		return provider.NewProviderError(providerName, "put_bucket_tagging", bucketName, err)
 	}
 
 	log.Debug("AWS S3: Successfully applied %d tags to bucket %s", len(tagSet), bucketName)

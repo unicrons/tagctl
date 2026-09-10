@@ -31,7 +31,7 @@ func (p *Provider) listClassicLoadBalancersFrom(ctx context.Context, client clas
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_classic_load_balancers", "", err)
+			return nil, provider.NewProviderError(providerName, "list_classic_load_balancers", "", err)
 		}
 		lbs = append(lbs, output.LoadBalancerDescriptions...)
 	}
@@ -47,7 +47,7 @@ func (p *Provider) listClassicLoadBalancersFrom(ctx context.Context, client clas
 		for _, batch := range chunk(names, elbTagBatchSize) {
 			output, err := client.DescribeTags(ctx, &elb.DescribeTagsInput{LoadBalancerNames: batch})
 			if err != nil {
-				return nil, provider.NewProviderError("aws", "describe_classic_elb_tags", "", err)
+				return nil, provider.NewProviderError(providerName, "describe_classic_elb_tags", "", err)
 			}
 			for _, desc := range output.TagDescriptions {
 				m := make(map[string]string, len(desc.Tags))
@@ -79,7 +79,7 @@ func (p *Provider) listClassicLoadBalancersFrom(ctx context.Context, client clas
 			Type:      "aws_elb",
 			Region:    region,
 			Account:   p.accountID,
-			Provider:  "aws",
+			Provider:  providerName,
 			Tags:      tags,
 			CreatedAt: lb.CreatedTime,
 		})
@@ -101,7 +101,7 @@ func (p *Provider) applyClassicELBTags(ctx context.Context, arn string, tags map
 		Tags:              tagList,
 	})
 	if err != nil {
-		return provider.NewProviderError("aws", "apply_classic_elb_tags", arn, err)
+		return provider.NewProviderError(providerName, "apply_classic_elb_tags", arn, err)
 	}
 
 	log.Debug("AWS ELB: Applied %d tags to %s", len(tags), arn)

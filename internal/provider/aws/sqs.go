@@ -38,7 +38,7 @@ func (p *Provider) listSQSQueuesFrom(ctx context.Context, client sqsAPI, region 
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_sqs_queues", "", err)
+			return nil, provider.NewProviderError(providerName, "list_sqs_queues", "", err)
 		}
 		for _, queueURL := range output.QueueUrls {
 			if queueURL != "" {
@@ -93,7 +93,7 @@ func (p *Provider) listSQSQueuesFrom(ctx context.Context, client sqsAPI, region 
 				Type:     "aws_sqs_queue",
 				Region:   region,
 				Account:  p.accountID,
-				Provider: "aws",
+				Provider: providerName,
 				Tags:     tags,
 			}
 		}()
@@ -150,7 +150,7 @@ func (p *Provider) applySQSTags(ctx context.Context, arn string, tags map[string
 	// SQS tagging needs the queue URL, not the ARN.
 	region, queueURL, err := sqsQueueURLFromARN(arn)
 	if err != nil {
-		return provider.NewProviderError("aws", "apply_sqs_tags", arn, err)
+		return provider.NewProviderError(providerName, "apply_sqs_tags", arn, err)
 	}
 
 	client := p.getSQSClient(region)
@@ -158,7 +158,7 @@ func (p *Provider) applySQSTags(ctx context.Context, arn string, tags map[string
 		QueueUrl: aws.String(queueURL),
 		Tags:     tags,
 	}); err != nil {
-		return provider.NewProviderError("aws", "apply_sqs_tags", arn, err)
+		return provider.NewProviderError(providerName, "apply_sqs_tags", arn, err)
 	}
 
 	log.Debug("AWS SQS: Applied %d tags to %s", len(tags), arn)

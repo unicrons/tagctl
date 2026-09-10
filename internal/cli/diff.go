@@ -87,7 +87,7 @@ func runDiff(cmd *cobra.Command, args []string) error {
 func resolveDiffInputs(args []string) (baseline, current string, err error) {
 	switch len(args) {
 	case 2:
-		return args[0], args[1], nil
+		return args[0], args[1], nil // #nosec G602 -- guarded by the switch on len(args)
 	case 1:
 		latest, findErr := findLatestScan()
 		if findErr != nil {

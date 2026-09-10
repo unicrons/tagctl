@@ -33,7 +33,7 @@ func (p *Provider) listEFSFileSystemsFrom(ctx context.Context, client efsAPI, re
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_efs_file_systems", "", err)
+			return nil, provider.NewProviderError(providerName, "list_efs_file_systems", "", err)
 		}
 		for _, fs := range output.FileSystems {
 			id := aws.ToString(fs.FileSystemId)
@@ -48,7 +48,7 @@ func (p *Provider) listEFSFileSystemsFrom(ctx context.Context, client efsAPI, re
 				Type:      "aws_efs_file_system",
 				Region:    region,
 				Account:   p.accountID,
-				Provider:  "aws",
+				Provider:  providerName,
 				Tags:      efsTagsToMap(fs.Tags),
 				CreatedAt: fs.CreationTime,
 			})
@@ -73,7 +73,7 @@ func (p *Provider) applyEFSTags(ctx context.Context, arn string, tags map[string
 		Tags:       tagList,
 	})
 	if err != nil {
-		return provider.NewProviderError("aws", "apply_efs_tags", arn, err)
+		return provider.NewProviderError(providerName, "apply_efs_tags", arn, err)
 	}
 
 	log.Debug("AWS EFS: Applied %d tags to %s", len(tags), arn)

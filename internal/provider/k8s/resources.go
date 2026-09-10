@@ -18,7 +18,7 @@ import (
 func (p *Provider) listPods(ctx context.Context, namespace string) ([]types.Resource, error) {
 	pods, err := p.clientset.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
-		return nil, provider.NewProviderError("kubernetes", "list_pods", namespace, err)
+		return nil, provider.NewProviderError(providerName, "list_pods", namespace, err)
 	}
 
 	resources := make([]types.Resource, 0, len(pods.Items))
@@ -34,7 +34,7 @@ func (p *Provider) listPods(ctx context.Context, namespace string) ([]types.Reso
 			Type:     ResourceTypePod,
 			Region:   namespace,
 			Account:  p.cluster.Name,
-			Provider: "kubernetes",
+			Provider: providerName,
 			Tags:     copyLabels(pod.Labels),
 		}
 
@@ -53,7 +53,7 @@ func (p *Provider) listPods(ctx context.Context, namespace string) ([]types.Reso
 func (p *Provider) listDeployments(ctx context.Context, namespace string) ([]types.Resource, error) {
 	deployments, err := p.clientset.AppsV1().Deployments(namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
-		return nil, provider.NewProviderError("kubernetes", "list_deployments", namespace, err)
+		return nil, provider.NewProviderError(providerName, "list_deployments", namespace, err)
 	}
 
 	resources := make([]types.Resource, 0, len(deployments.Items))
@@ -64,7 +64,7 @@ func (p *Provider) listDeployments(ctx context.Context, namespace string) ([]typ
 			Type:     ResourceTypeDeployment,
 			Region:   namespace,
 			Account:  p.cluster.Name,
-			Provider: "kubernetes",
+			Provider: providerName,
 			Tags:     copyLabels(deploy.Labels),
 		}
 
@@ -83,7 +83,7 @@ func (p *Provider) listDeployments(ctx context.Context, namespace string) ([]typ
 func (p *Provider) listServices(ctx context.Context, namespace string) ([]types.Resource, error) {
 	services, err := p.clientset.CoreV1().Services(namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
-		return nil, provider.NewProviderError("kubernetes", "list_services", namespace, err)
+		return nil, provider.NewProviderError(providerName, "list_services", namespace, err)
 	}
 
 	resources := make([]types.Resource, 0, len(services.Items))
@@ -94,7 +94,7 @@ func (p *Provider) listServices(ctx context.Context, namespace string) ([]types.
 			Type:     ResourceTypeService,
 			Region:   namespace,
 			Account:  p.cluster.Name,
-			Provider: "kubernetes",
+			Provider: providerName,
 			Tags:     copyLabels(svc.Labels),
 		}
 
@@ -113,7 +113,7 @@ func (p *Provider) listServices(ctx context.Context, namespace string) ([]types.
 func (p *Provider) listNamespaces(ctx context.Context) ([]types.Resource, error) {
 	namespaces, err := p.clientset.CoreV1().Namespaces().List(ctx, metav1.ListOptions{})
 	if err != nil {
-		return nil, provider.NewProviderError("kubernetes", "list_namespaces", "", err)
+		return nil, provider.NewProviderError(providerName, "list_namespaces", "", err)
 	}
 
 	resources := make([]types.Resource, 0, len(namespaces.Items))
@@ -129,7 +129,7 @@ func (p *Provider) listNamespaces(ctx context.Context) ([]types.Resource, error)
 			Type:     ResourceTypeNamespace,
 			Region:   "",
 			Account:  p.cluster.Name,
-			Provider: "kubernetes",
+			Provider: providerName,
 			Tags:     copyLabels(ns.Labels),
 		}
 
@@ -148,7 +148,7 @@ func (p *Provider) listNamespaces(ctx context.Context) ([]types.Resource, error)
 func (p *Provider) listConfigMaps(ctx context.Context, namespace string) ([]types.Resource, error) {
 	configMaps, err := p.clientset.CoreV1().ConfigMaps(namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
-		return nil, provider.NewProviderError("kubernetes", "list_configmaps", namespace, err)
+		return nil, provider.NewProviderError(providerName, "list_configmaps", namespace, err)
 	}
 
 	resources := make([]types.Resource, 0, len(configMaps.Items))
@@ -159,7 +159,7 @@ func (p *Provider) listConfigMaps(ctx context.Context, namespace string) ([]type
 			Type:     ResourceTypeConfigMap,
 			Region:   namespace,
 			Account:  p.cluster.Name,
-			Provider: "kubernetes",
+			Provider: providerName,
 			Tags:     copyLabels(cm.Labels),
 		}
 
@@ -178,7 +178,7 @@ func (p *Provider) listConfigMaps(ctx context.Context, namespace string) ([]type
 func (p *Provider) listSecrets(ctx context.Context, namespace string) ([]types.Resource, error) {
 	secrets, err := p.clientset.CoreV1().Secrets(namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
-		return nil, provider.NewProviderError("kubernetes", "list_secrets", namespace, err)
+		return nil, provider.NewProviderError(providerName, "list_secrets", namespace, err)
 	}
 
 	resources := make([]types.Resource, 0, len(secrets.Items))
@@ -194,7 +194,7 @@ func (p *Provider) listSecrets(ctx context.Context, namespace string) ([]types.R
 			Type:     ResourceTypeSecret,
 			Region:   namespace,
 			Account:  p.cluster.Name,
-			Provider: "kubernetes",
+			Provider: providerName,
 			Tags:     copyLabels(secret.Labels),
 		}
 
@@ -214,7 +214,7 @@ func (p *Provider) patchPodLabels(ctx context.Context, namespace, name string, l
 	patch := buildLabelPatch(labels)
 	_, err := p.clientset.CoreV1().Pods(namespace).Patch(ctx, name, k8stypes.MergePatchType, patch, metav1.PatchOptions{})
 	if err != nil {
-		return provider.NewProviderError("kubernetes", "patch_pod_labels", buildResourceID(ResourceTypePod, namespace, name), err)
+		return provider.NewProviderError(providerName, "patch_pod_labels", buildResourceID(ResourceTypePod, namespace, name), err)
 	}
 	return nil
 }
@@ -224,7 +224,7 @@ func (p *Provider) patchDeploymentLabels(ctx context.Context, namespace, name st
 	patch := buildLabelPatch(labels)
 	_, err := p.clientset.AppsV1().Deployments(namespace).Patch(ctx, name, k8stypes.MergePatchType, patch, metav1.PatchOptions{})
 	if err != nil {
-		return provider.NewProviderError("kubernetes", "patch_deployment_labels", buildResourceID(ResourceTypeDeployment, namespace, name), err)
+		return provider.NewProviderError(providerName, "patch_deployment_labels", buildResourceID(ResourceTypeDeployment, namespace, name), err)
 	}
 	return nil
 }
@@ -234,7 +234,7 @@ func (p *Provider) patchServiceLabels(ctx context.Context, namespace, name strin
 	patch := buildLabelPatch(labels)
 	_, err := p.clientset.CoreV1().Services(namespace).Patch(ctx, name, k8stypes.MergePatchType, patch, metav1.PatchOptions{})
 	if err != nil {
-		return provider.NewProviderError("kubernetes", "patch_service_labels", buildResourceID(ResourceTypeService, namespace, name), err)
+		return provider.NewProviderError(providerName, "patch_service_labels", buildResourceID(ResourceTypeService, namespace, name), err)
 	}
 	return nil
 }
@@ -244,7 +244,7 @@ func (p *Provider) patchNamespaceLabels(ctx context.Context, name string, labels
 	patch := buildLabelPatch(labels)
 	_, err := p.clientset.CoreV1().Namespaces().Patch(ctx, name, k8stypes.MergePatchType, patch, metav1.PatchOptions{})
 	if err != nil {
-		return provider.NewProviderError("kubernetes", "patch_namespace_labels", buildResourceID(ResourceTypeNamespace, "", name), err)
+		return provider.NewProviderError(providerName, "patch_namespace_labels", buildResourceID(ResourceTypeNamespace, "", name), err)
 	}
 	return nil
 }
@@ -254,7 +254,7 @@ func (p *Provider) patchConfigMapLabels(ctx context.Context, namespace, name str
 	patch := buildLabelPatch(labels)
 	_, err := p.clientset.CoreV1().ConfigMaps(namespace).Patch(ctx, name, k8stypes.MergePatchType, patch, metav1.PatchOptions{})
 	if err != nil {
-		return provider.NewProviderError("kubernetes", "patch_configmap_labels", buildResourceID(ResourceTypeConfigMap, namespace, name), err)
+		return provider.NewProviderError(providerName, "patch_configmap_labels", buildResourceID(ResourceTypeConfigMap, namespace, name), err)
 	}
 	return nil
 }
@@ -264,7 +264,7 @@ func (p *Provider) patchSecretLabels(ctx context.Context, namespace, name string
 	patch := buildLabelPatch(labels)
 	_, err := p.clientset.CoreV1().Secrets(namespace).Patch(ctx, name, k8stypes.MergePatchType, patch, metav1.PatchOptions{})
 	if err != nil {
-		return provider.NewProviderError("kubernetes", "patch_secret_labels", buildResourceID(ResourceTypeSecret, namespace, name), err)
+		return provider.NewProviderError(providerName, "patch_secret_labels", buildResourceID(ResourceTypeSecret, namespace, name), err)
 	}
 	return nil
 }

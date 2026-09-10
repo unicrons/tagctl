@@ -241,8 +241,8 @@ func ocsfEvent(f *types.Finding, scannedAt time.Time, opts OCSFOptions) OCSFComp
 		Metadata: OCSFMetadata{
 			Version: ocsfVersion,
 			Product: OCSFProduct{
-				Name:       "tagctl",
-				VendorName: "tagctl",
+				Name:       toolName,
+				VendorName: toolName,
 				Version:    opts.Version,
 				URLString:  "https://github.com/unicrons/tagctl",
 			},

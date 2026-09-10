@@ -17,6 +17,9 @@ import (
 	"github.com/unicrons/tagctl/internal/types"
 )
 
+// providerName identifies this provider in resources and errors.
+const providerName = "kubernetes"
+
 // Supported resource types
 const (
 	ResourceTypePod        = "k8s_pod"
@@ -53,7 +56,7 @@ func New(ctx context.Context, cluster config.KubernetesCluster) (*Provider, erro
 	if cluster.Kubeconfig == "in-cluster" {
 		cfg, err = rest.InClusterConfig()
 		if err != nil {
-			return nil, provider.NewProviderError("kubernetes", "in_cluster_config", "", err)
+			return nil, provider.NewProviderError(providerName, "in_cluster_config", "", err)
 		}
 	} else {
 		kubeconfig := cluster.Kubeconfig
@@ -79,13 +82,13 @@ func New(ctx context.Context, cluster config.KubernetesCluster) (*Provider, erro
 		clientConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, configOverrides)
 		cfg, err = clientConfig.ClientConfig()
 		if err != nil {
-			return nil, provider.NewProviderError("kubernetes", "load_kubeconfig", kubeconfig, err)
+			return nil, provider.NewProviderError(providerName, "load_kubeconfig", kubeconfig, err)
 		}
 	}
 
 	clientset, err := kubernetes.NewForConfig(cfg)
 	if err != nil {
-		return nil, provider.NewProviderError("kubernetes", "create_clientset", "", err)
+		return nil, provider.NewProviderError(providerName, "create_clientset", "", err)
 	}
 
 	resourceTypes := cluster.ResourceTypes
@@ -119,7 +122,7 @@ func NewWithClientset(clientset kubernetes.Interface, cluster config.KubernetesC
 
 // Name returns the provider identifier.
 func (p *Provider) Name() string {
-	return "kubernetes"
+	return providerName
 }
 
 // ClusterName returns the cluster name.
@@ -215,7 +218,7 @@ func (p *Provider) ApplyTags(ctx context.Context, resourceID string, tags map[st
 	// Parse resource ID: type/namespace/name or type/name for cluster-scoped
 	resourceType, namespace, name, err := parseResourceID(resourceID)
 	if err != nil {
-		return provider.NewProviderError("kubernetes", "apply_labels", resourceID, err)
+		return provider.NewProviderError(providerName, "apply_labels", resourceID, err)
 	}
 
 	switch resourceType {
@@ -232,7 +235,7 @@ func (p *Provider) ApplyTags(ctx context.Context, resourceID string, tags map[st
 	case ResourceTypeSecret:
 		return p.patchSecretLabels(ctx, namespace, name, tags)
 	default:
-		return provider.NewProviderError("kubernetes", "apply_labels", resourceID,
+		return provider.NewProviderError(providerName, "apply_labels", resourceID,
 			&UnsupportedResourceError{ResourceType: resourceType})
 	}
 }
@@ -246,7 +249,7 @@ func (p *Provider) getNamespaces(ctx context.Context) ([]string, error) {
 	// List all namespaces
 	nsList, err := p.clientset.CoreV1().Namespaces().List(ctx, metav1.ListOptions{})
 	if err != nil {
-		return nil, provider.NewProviderError("kubernetes", "list_namespaces", "", err)
+		return nil, provider.NewProviderError(providerName, "list_namespaces", "", err)
 	}
 
 	namespaces := make([]string, 0, len(nsList.Items))

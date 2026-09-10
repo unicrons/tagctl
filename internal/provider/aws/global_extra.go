@@ -56,7 +56,7 @@ func (p *Provider) listProtectionsFrom(ctx context.Context, client shieldAPI) ([
 				log.Debug("AWS Shield: no Shield Advanced subscription, skipping")
 				return nil, nil
 			}
-			return nil, provider.NewProviderError("aws", "list_shield_protections", "", err)
+			return nil, provider.NewProviderError(providerName, "list_shield_protections", "", err)
 		}
 		for _, pr := range output.Protections {
 			r := p.bulkResource(globalRegion, "aws_shield_protection", aws.ToString(pr.Id), aws.ToString(pr.Name), aws.ToString(pr.ProtectionArn), nil)
@@ -82,7 +82,7 @@ func (p *Provider) listGlobalWebACLsFrom(ctx context.Context, client wafGlobalAP
 	for {
 		output, err := client.ListWebACLs(ctx, &waf.ListWebACLsInput{NextMarker: marker})
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_waf_web_acls", "", err)
+			return nil, provider.NewProviderError(providerName, "list_waf_web_acls", "", err)
 		}
 		for _, acl := range output.WebACLs {
 			id := aws.ToString(acl.WebACLId)
@@ -122,7 +122,7 @@ func (p *Provider) listAcceleratorsFrom(ctx context.Context, client globalAccele
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_accelerators", "", err)
+			return nil, provider.NewProviderError(providerName, "list_accelerators", "", err)
 		}
 		accelerators = append(accelerators, output.Accelerators...)
 	}
@@ -155,7 +155,7 @@ func applyGlobalAcceleratorTagsWith(ctx context.Context, client globalAccelerato
 		gaTags = append(gaTags, gatypes.Tag{Key: aws.String(k), Value: aws.String(v)})
 	}
 	if _, err := client.TagResource(ctx, &globalaccelerator.TagResourceInput{ResourceArn: aws.String(arn), Tags: gaTags}); err != nil {
-		return provider.NewProviderError("aws", "apply_global_accelerator_tags", arn, err)
+		return provider.NewProviderError(providerName, "apply_global_accelerator_tags", arn, err)
 	}
 	log.Debug("AWS Global Accelerator: Applied %d tags to %s", len(tags), arn)
 	return nil

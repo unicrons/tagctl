@@ -54,7 +54,8 @@ func runApply(cmd *cobra.Command, args []string) error {
 	autoApprove, _ := cmd.Flags().GetBool("auto-approve")
 	useMock, _ := cmd.Flags().GetBool("mock")
 
-	ctx := context.Background()
+	ctx, stop := signalContext()
+	defer stop()
 
 	printBanner()
 
@@ -143,11 +144,12 @@ func printPlanSummary(planFile string, plan *types.Plan) {
 	fmt.Printf("Applying plan from %s\n", planFile)
 	fmt.Printf("Plan created at: %s\n", plan.CreatedAt.Format("2006-01-02 15:04:05"))
 	fmt.Println()
+	summary := plan.Summarize()
 	fmt.Printf("Changes to apply:\n")
-	fmt.Printf("  • %d resources will be modified\n", plan.Summary.TotalResources)
-	fmt.Printf("  • %d tags will be added\n", plan.Summary.TagsAdded)
-	fmt.Printf("  • %d tags will be updated\n", plan.Summary.TagsUpdated)
-	fmt.Printf("  • %d tags will be removed\n", plan.Summary.TagsRemoved)
+	fmt.Printf("  • %d resources will be modified\n", summary.TotalResources)
+	fmt.Printf("  • %d tags will be added\n", summary.TagsAdded)
+	fmt.Printf("  • %d tags will be updated\n", summary.TagsUpdated)
+	fmt.Printf("  • %d tags will be removed\n", summary.TagsRemoved)
 	fmt.Println()
 }
 

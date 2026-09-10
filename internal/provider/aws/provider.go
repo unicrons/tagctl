@@ -172,7 +172,7 @@ func New(ctx context.Context, account cfgpkg.AWSAccount) (*Provider, error) {
 	cfg, err := config.LoadDefaultConfig(ctx, opts...)
 	if err != nil {
 		log.Error("AWS: Failed to load config: %v", err)
-		return nil, provider.NewProviderError("aws", "load_config", "", err)
+		return nil, provider.NewProviderError(providerName, "load_config", "", err)
 	}
 	cfg.Region = initialRegion(cfg.Region, account.Regions)
 	log.Debug("AWS: Config loaded, default region=%s", cfg.Region)
@@ -187,7 +187,7 @@ func New(ctx context.Context, account cfgpkg.AWSAccount) (*Provider, error) {
 	identity, err := stsClient.GetCallerIdentity(ctx, &sts.GetCallerIdentityInput{})
 	if err != nil {
 		log.Error("AWS: Failed to get caller identity: %v", err)
-		return nil, provider.NewProviderError("aws", "get_identity", "", err)
+		return nil, provider.NewProviderError(providerName, "get_identity", "", err)
 	}
 	log.Info("AWS: Authenticated as account %s (ARN: %s) in %s",
 		aws.ToString(identity.Account), aws.ToString(identity.Arn), time.Since(stsStart).Round(time.Millisecond))
@@ -203,7 +203,7 @@ func New(ctx context.Context, account cfgpkg.AWSAccount) (*Provider, error) {
 		})
 		if err != nil {
 			log.Error("AWS: Failed to discover regions: %v", err)
-			return nil, provider.NewProviderError("aws", "describe_regions", "", err)
+			return nil, provider.NewProviderError(providerName, "describe_regions", "", err)
 		}
 		for _, r := range regionsOutput.Regions {
 			regions = append(regions, aws.ToString(r.RegionName))
@@ -557,7 +557,7 @@ func (p *Provider) ApplyTags(ctx context.Context, resourceID string, tags map[st
 	resourceType := p.getResourceType(resourceID)
 	apply, ok := p.tagAppliers()[resourceType]
 	if !ok {
-		return provider.NewProviderError("aws", "apply_tags", resourceID,
+		return provider.NewProviderError(providerName, "apply_tags", resourceID,
 			fmt.Errorf("unknown resource type: %s", resourceType))
 	}
 	return apply(ctx, resourceID, tags)

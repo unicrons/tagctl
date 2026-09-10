@@ -32,7 +32,7 @@ func (p *Provider) listLambdaFunctions(ctx context.Context, region string) ([]ty
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_lambda_functions", "", err)
+			return nil, provider.NewProviderError(providerName, "list_lambda_functions", "", err)
 		}
 
 		for _, fn := range output.Functions {
@@ -77,7 +77,7 @@ func (p *Provider) listLambdaFunctions(ctx context.Context, region string) ([]ty
 				Type:     "aws_lambda_function",
 				Region:   region,
 				Account:  p.accountID,
-				Provider: "aws",
+				Provider: providerName,
 				Tags:     tags,
 			}
 
@@ -154,7 +154,7 @@ func (p *Provider) applyLambdaTags(ctx context.Context, functionARN string, tags
 
 	if err != nil {
 		log.Error("AWS Lambda: Failed to apply tags to %s: %v", functionARN, err)
-		return provider.NewProviderError("aws", "tag_lambda_function", functionARN, err)
+		return provider.NewProviderError(providerName, "tag_lambda_function", functionARN, err)
 	}
 
 	log.Debug("AWS Lambda: Successfully applied %d tags to %s", len(tags), functionARN)

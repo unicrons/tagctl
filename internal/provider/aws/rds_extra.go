@@ -30,7 +30,7 @@ func (p *Provider) listRDSClustersFrom(ctx context.Context, client rdsExtraAPI, 
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_rds_clusters", "", err)
+			return nil, provider.NewProviderError(providerName, "list_rds_clusters", "", err)
 		}
 		for _, c := range output.DBClusters {
 			id := aws.ToString(c.DBClusterIdentifier)
@@ -41,7 +41,7 @@ func (p *Provider) listRDSClustersFrom(ctx context.Context, client rdsExtraAPI, 
 				Type:      dbClusterType(aws.ToString(c.Engine)),
 				Region:    region,
 				Account:   p.accountID,
-				Provider:  "aws",
+				Provider:  providerName,
 				Tags:      rdsTagListToMap(c.TagList),
 				CreatedAt: c.ClusterCreateTime,
 			})
@@ -63,7 +63,7 @@ func (p *Provider) listRDSSnapshotsFrom(ctx context.Context, client rdsExtraAPI,
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_rds_snapshots", "", err)
+			return nil, provider.NewProviderError(providerName, "list_rds_snapshots", "", err)
 		}
 		for _, s := range output.DBSnapshots {
 			id := aws.ToString(s.DBSnapshotIdentifier)
@@ -74,7 +74,7 @@ func (p *Provider) listRDSSnapshotsFrom(ctx context.Context, client rdsExtraAPI,
 				Type:      "aws_db_snapshot",
 				Region:    region,
 				Account:   p.accountID,
-				Provider:  "aws",
+				Provider:  providerName,
 				Tags:      rdsTagListToMap(s.TagList),
 				CreatedAt: s.SnapshotCreateTime,
 			})

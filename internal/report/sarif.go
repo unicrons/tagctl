@@ -144,7 +144,7 @@ func WriteSARIF(w io.Writer, scan *types.ScanResult, opts SARIFOptions) error {
 			{
 				Tool: SARIFTool{
 					Driver: SARIFDriver{
-						Name:           "tagctl",
+						Name:           toolName,
 						InformationURI: "https://github.com/unicrons/tagctl",
 						Version:        opts.Version,
 						Rules:          rulesFor(failures),

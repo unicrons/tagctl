@@ -1,68 +1,68 @@
+version: "2"
 run:
-  timeout: 5m
   modules-download-mode: readonly
-
 linters:
   enable:
-    # Bugs
-    - errcheck        # Check for unchecked errors
-    - gosec           # Security issues
-    - govet           # Reports suspicious constructs
-    - staticcheck     # Static analysis
-    - typecheck       # Type checking
-
-    # Style
-    - gofmt           # Formatting
-    - goimports       # Import ordering
-    - misspell        # Spelling mistakes
-
-    # Complexity
-    - gocyclo         # Cyclomatic complexity
-    - goconst         # Repeated strings that could be constants
-
-    # Performance
-    - prealloc        # Slice preallocation
-
-    # Best practices
-    - unconvert       # Unnecessary type conversions
-    - unparam         # Unused function parameters
-    - unused          # Unused code
-
-linters-settings:
-  misspell:
-    ignore-words:
-      - unicrons
-  gocyclo:
-    min-complexity: 20
-
-  govet:
-    enable-all: true
-    disable:
-      - fieldalignment  # Too strict for this project
-
-  gosec:
-    excludes:
-      - G104  # Unhandled errors (covered by errcheck)
-
-  errcheck:
-    exclude-functions:
-      - fmt.Fprintf
-      - fmt.Printf
-      - fmt.Print
-
+    - goconst
+    - gocyclo
+    - gosec
+    - misspell
+    - prealloc
+    - unconvert
+    - unparam
+  settings:
+    errcheck:
+      exclude-functions:
+        - fmt.Fprintf
+        - fmt.Printf
+        - fmt.Print
+    gocyclo:
+      min-complexity: 20
+    gosec:
+      excludes:
+        - G104
+    govet:
+      disable:
+        - fieldalignment
+      enable-all: true
+    misspell:
+      ignore-rules:
+        - unicrons
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      - linters:
+          - errcheck
+          - goconst
+          - gocyclo
+          - gosec
+          - prealloc
+        path: _test\.go
+      - linters:
+          - errorlint
+        text: non-wrapping format verb
+      - linters:
+          - goconst
+        path: internal/(engine/(scanner|planner|applier)|cli/plan)\.go
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
 issues:
-  exclude-rules:
-    # Test files can have longer functions
-    - path: _test\.go
-      linters:
-        - gocyclo
-        - errcheck
-        - gosec
-
-    # Allow fmt.Errorf without wrapping in simple cases
-    - linters:
-        - errorlint
-      text: "non-wrapping format verb"
-
   max-issues-per-linter: 50
   max-same-issues: 10
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$

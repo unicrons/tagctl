@@ -89,7 +89,7 @@ func (p *Provider) listAnalyzersFrom(ctx context.Context, client accessAnalyzerA
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_analyzers", "", err)
+			return nil, provider.NewProviderError(providerName, "list_analyzers", "", err)
 		}
 		for _, a := range output.Analyzers {
 			name := aws.ToString(a.Name)
@@ -113,7 +113,7 @@ func (p *Provider) listCertificateAuthoritiesFrom(ctx context.Context, client ac
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_certificate_authorities", "", err)
+			return nil, provider.NewProviderError(providerName, "list_certificate_authorities", "", err)
 		}
 		for _, ca := range output.CertificateAuthorities {
 			if ca.Status == acmpcatypes.CertificateAuthorityStatusDeleted {
@@ -142,7 +142,7 @@ func (p *Provider) listTrails(ctx context.Context, region string) ([]types.Resou
 func (p *Provider) listTrailsFrom(ctx context.Context, client cloudTrailAPI, region string) ([]types.Resource, error) {
 	output, err := client.DescribeTrails(ctx, &cloudtrail.DescribeTrailsInput{IncludeShadowTrails: aws.Bool(false)})
 	if err != nil {
-		return nil, provider.NewProviderError("aws", "list_trails", "", err)
+		return nil, provider.NewProviderError(providerName, "list_trails", "", err)
 	}
 	var trails []cloudtrailtypes.Trail
 	for _, t := range output.TrailList {
@@ -211,7 +211,7 @@ func (p *Provider) listConfigRulesFrom(ctx context.Context, client configAPI, re
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_config_rules", "", err)
+			return nil, provider.NewProviderError(providerName, "list_config_rules", "", err)
 		}
 		for _, r := range output.ConfigRules {
 			if r.CreatedBy != nil {
@@ -238,7 +238,7 @@ func (p *Provider) listDirectoriesFrom(ctx context.Context, client directoryAPI,
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_directories", "", err)
+			return nil, provider.NewProviderError(providerName, "list_directories", "", err)
 		}
 		for _, d := range output.DirectoryDescriptions {
 			id := aws.ToString(d.DirectoryId)
@@ -269,7 +269,7 @@ func (p *Provider) listFMSPoliciesFrom(ctx context.Context, client fmsAPI, regio
 				log.Debug("AWS Firewall Manager: not the administrator account in %s, skipping", region)
 				return nil, nil
 			}
-			return nil, provider.NewProviderError("aws", "list_fms_policies", "", err)
+			return nil, provider.NewProviderError(providerName, "list_fms_policies", "", err)
 		}
 		for _, pol := range output.PolicyList {
 			resources = append(resources, p.bulkResource(region, "aws_fms_policy", aws.ToString(pol.PolicyId), aws.ToString(pol.PolicyName), aws.ToString(pol.PolicyArn), nil))
@@ -297,7 +297,7 @@ func (p *Provider) listDetectorsFrom(ctx context.Context, client guardDutyAPI, r
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_detectors", "", err)
+			return nil, provider.NewProviderError(providerName, "list_detectors", "", err)
 		}
 		ids = append(ids, output.DetectorIds...)
 	}
@@ -328,7 +328,7 @@ func (p *Provider) listFirewallsFrom(ctx context.Context, client networkFirewall
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_firewalls", "", err)
+			return nil, provider.NewProviderError(providerName, "list_firewalls", "", err)
 		}
 		for _, f := range output.Firewalls {
 			name := aws.ToString(f.FirewallName)
@@ -352,7 +352,7 @@ func (p *Provider) listTrustAnchorsFrom(ctx context.Context, client rolesAnywher
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_trust_anchors", "", err)
+			return nil, provider.NewProviderError(providerName, "list_trust_anchors", "", err)
 		}
 		for _, ta := range output.TrustAnchors {
 			resources = append(resources, p.bulkResource(region, "aws_rolesanywhere_trust_anchor", aws.ToString(ta.TrustAnchorId), aws.ToString(ta.Name), aws.ToString(ta.TrustAnchorArn), ta.CreatedAt))
@@ -376,7 +376,7 @@ func (p *Provider) listRegionalWebACLsFrom(ctx context.Context, client wafRegion
 	for {
 		output, err := client.ListWebACLs(ctx, &wafregional.ListWebACLsInput{NextMarker: marker})
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_waf_regional_web_acls", "", err)
+			return nil, provider.NewProviderError(providerName, "list_waf_regional_web_acls", "", err)
 		}
 		for _, acl := range output.WebACLs {
 			id := aws.ToString(acl.WebACLId)
@@ -407,7 +407,7 @@ func (p *Provider) listWAFv2WebACLsFrom(ctx context.Context, client wafv2API, re
 	for {
 		output, err := client.ListWebACLs(ctx, &wafv2.ListWebACLsInput{Scope: scope, NextMarker: marker})
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_wafv2_web_acls", "", err)
+			return nil, provider.NewProviderError(providerName, "list_wafv2_web_acls", "", err)
 		}
 		for _, acl := range output.WebACLs {
 			resources = append(resources, p.bulkResource(region, "aws_wafv2_web_acl", aws.ToString(acl.Id), aws.ToString(acl.Name), aws.ToString(acl.ARN), nil))

@@ -33,7 +33,7 @@ func (p *Provider) listEKSClustersFrom(ctx context.Context, client eksAPI, regio
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_eks_clusters", "", err)
+			return nil, provider.NewProviderError(providerName, "list_eks_clusters", "", err)
 		}
 		names = append(names, output.Clusters...)
 	}
@@ -56,7 +56,7 @@ func (p *Provider) listEKSClustersFrom(ctx context.Context, client eksAPI, regio
 			Type:      "aws_eks_cluster",
 			Region:    region,
 			Account:   p.accountID,
-			Provider:  "aws",
+			Provider:  providerName,
 			Tags:      tags,
 			CreatedAt: c.CreatedAt,
 		})
@@ -74,7 +74,7 @@ func (p *Provider) applyEKSTags(ctx context.Context, arn string, tags map[string
 		Tags:        tags,
 	})
 	if err != nil {
-		return provider.NewProviderError("aws", "apply_eks_tags", arn, err)
+		return provider.NewProviderError(providerName, "apply_eks_tags", arn, err)
 	}
 
 	log.Debug("AWS EKS: Applied %d tags to %s", len(tags), arn)

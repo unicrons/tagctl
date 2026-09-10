@@ -3,6 +3,9 @@ package cli
 import (
 	"context"
 	"fmt"
+	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/spf13/viper"
 
@@ -13,6 +16,9 @@ import (
 	// TODO: Enable when ready
 	// "github.com/unicrons/tagctl/internal/provider/k8s"
 )
+
+// providerAWS is the provider name AWS resources and config entries carry.
+const providerAWS = "aws"
 
 // loadConfig loads the configuration from viper.
 func loadConfig() (*config.Config, error) {
@@ -91,4 +97,10 @@ func hasConfiguredProviders(cfg *config.Config) bool {
 	has := len(cfg.Clouds.AWS) > 0
 	log.Debug("Config: hasConfiguredProviders=%v (AWS=%d)", has, len(cfg.Clouds.AWS))
 	return has
+}
+
+// signalContext is cancelled on Ctrl-C or SIGTERM so in-flight cloud calls
+// stop instead of being killed half-way.
+func signalContext() (context.Context, context.CancelFunc) {
+	return signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 }

@@ -2,9 +2,14 @@ package engine
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/unicrons/tagctl/internal/provider"
 	"github.com/unicrons/tagctl/internal/types"
 )
 
@@ -125,5 +130,90 @@ func TestGroupChangesByResource_SeparatesRegions(t *testing.T) {
 	}
 	if got := len(grouped["aws/111/us-east-1//aws/lambda/fn"]); got != 2 {
 		t.Errorf("us-east-1 copy has %d changes, want 2", got)
+	}
+}
+
+type slowProvider struct {
+	mu    sync.Mutex
+	calls int
+	err   error
+}
+
+func (p *slowProvider) Name() string { return "aws" }
+func (p *slowProvider) ListResources(ctx context.Context) ([]types.Resource, error) {
+	return nil, nil
+}
+func (p *slowProvider) ApplyTags(ctx context.Context, id string, tags map[string]string) error {
+	time.Sleep(50 * time.Millisecond)
+	p.mu.Lock()
+	p.calls++
+	p.mu.Unlock()
+	return p.err
+}
+
+func changesFor(resources int, tagsPerResource int) []types.TagChange {
+	var changes []types.TagChange
+	for r := 0; r < resources; r++ {
+		res := types.Resource{ID: fmt.Sprintf("i-%d", r), Provider: "aws", Type: "aws_instance", Region: "us-east-1"}
+		for t := 0; t < tagsPerResource; t++ {
+			changes = append(changes, types.TagChange{Resource: res, Tag: fmt.Sprintf("tag%d", t), NewValue: "v", Action: types.ActionAdd})
+		}
+	}
+	return changes
+}
+
+func TestRealApplier_WaitsForEveryResource(t *testing.T) {
+	p := &slowProvider{}
+	result, err := NewApplier([]provider.Provider{p}).Apply(context.Background(), &types.Plan{Changes: changesFor(3, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.calls != 3 || result.SuccessCount != 3 || result.ErrorCount != 0 {
+		t.Errorf("calls = %d, result = %+v; Apply must not return before the providers finish", p.calls, result)
+	}
+}
+
+func TestRealApplier_FailedResourceReportsEveryChange(t *testing.T) {
+	p := &slowProvider{err: errors.New("denied")}
+	result, err := NewApplier([]provider.Provider{p}).Apply(context.Background(), &types.Plan{Changes: changesFor(1, 3)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.calls != 1 || result.ErrorCount != 3 || result.SuccessCount != 0 || len(result.Errors) != 3 {
+		t.Errorf("calls = %d, result = %+v", p.calls, result)
+	}
+}
+
+type accountAwareProvider struct {
+	slowProvider
+	account string
+	tagged  []string
+}
+
+func (p *accountAwareProvider) AccountID() string { return p.account }
+func (p *accountAwareProvider) ApplyTags(ctx context.Context, id string, tags map[string]string) error {
+	p.mu.Lock()
+	p.tagged = append(p.tagged, id)
+	p.mu.Unlock()
+	return nil
+}
+
+func TestRealApplier_RoutesChangesToTheirOwnAccount(t *testing.T) {
+	a := &accountAwareProvider{account: "111111111111"}
+	b := &accountAwareProvider{account: "222222222222"}
+	plan := &types.Plan{Changes: []types.TagChange{
+		{Resource: types.Resource{ID: "i-a", Provider: "aws", Account: "111111111111", Type: "aws_instance"}, Tag: "owner", NewValue: "x", Action: types.ActionAdd},
+		{Resource: types.Resource{ID: "i-b", Provider: "aws", Account: "222222222222", Type: "aws_instance"}, Tag: "owner", NewValue: "x", Action: types.ActionAdd},
+		{Resource: types.Resource{ID: "i-c", Provider: "aws", Account: "333333333333", Type: "aws_instance"}, Tag: "owner", NewValue: "x", Action: types.ActionAdd},
+	}}
+	result, err := NewApplier([]provider.Provider{a, b}).Apply(context.Background(), plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(a.tagged) != 1 || a.tagged[0] != "i-a" || len(b.tagged) != 1 || b.tagged[0] != "i-b" {
+		t.Errorf("a tagged %v, b tagged %v", a.tagged, b.tagged)
+	}
+	if result.ErrorCount != 1 || !strings.Contains(result.Errors[0].Error, `account "333333333333"`) {
+		t.Errorf("unconfigured account must fail, got %+v", result)
 	}
 }

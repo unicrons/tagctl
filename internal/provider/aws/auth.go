@@ -1,6 +1,10 @@
 package aws
 
 import (
+	"bufio"
+	"fmt"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -40,9 +44,20 @@ func assumeRoleWith(cfg aws.Config, client stscreds.AssumeRoleAPIClient, account
 		}
 		if account.MFASerial != "" {
 			o.SerialNumber = aws.String(account.MFASerial)
-			o.TokenProvider = stscreds.StdinTokenProvider
+			o.TokenProvider = mfaTokenFromStdin
 		}
 	})
 	cfg.Credentials = aws.NewCredentialsCache(provider)
 	return cfg
+}
+
+// mfaTokenFromStdin prompts on stderr so the code never lands in a report
+// redirected from stdout.
+func mfaTokenFromStdin() (string, error) {
+	fmt.Fprint(os.Stderr, "MFA token code: ")
+	code, err := bufio.NewReader(os.Stdin).ReadString('\n')
+	if err != nil {
+		return "", fmt.Errorf("reading MFA token: %w", err)
+	}
+	return strings.TrimSpace(code), nil
 }

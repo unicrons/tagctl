@@ -1,11 +1,15 @@
 package cli
 
 import (
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"text/tabwriter"
+	"unicode"
 
 	"github.com/unicrons/tagctl/internal/report"
 	"github.com/unicrons/tagctl/internal/types"
@@ -109,7 +113,7 @@ func outputScanTable(result *types.ScanResult, verbose bool) error {
 			}
 
 			fmt.Fprintf(w, "  %s\t%s\t%s\t%s\t%s\n",
-				statusStr, f.Resource.DisplayName(), f.Resource.Type, f.Tag, value)
+				statusStr, printable(f.Resource.DisplayName()), f.Resource.Type, printable(f.Tag), printable(value))
 			shown++
 		}
 		_ = w.Flush()
@@ -156,20 +160,64 @@ func outputScanJSON(result *types.ScanResult) error {
 
 // outputScanCSV prints scan results in CSV format to stdout.
 func outputScanCSV(result *types.ScanResult) error {
-	fmt.Println("resource_id,resource_name,resource_type,provider,account,region,arn,tag,status,reason,actual,expected")
+	return writeFindingsCSV(os.Stdout, result)
+}
+
+var csvHeader = []string{"resource_id", "resource_name", "resource_type", "provider", "account", "region", "arn", "tag", "status", "reason", "actual", "expected"}
+
+// writeFindingsCSV writes the findings with RFC 4180 quoting. Cells that a
+// spreadsheet would evaluate as a formula are prefixed with a quote, since
+// tag values are written by whoever can tag the resource.
+func writeFindingsCSV(w io.Writer, result *types.ScanResult) error {
+	cw := csv.NewWriter(w)
+	if err := cw.Write(csvHeader); err != nil {
+		return err
+	}
 	for _, f := range result.Findings {
-		fmt.Printf("%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n",
+		row := []string{
 			f.Resource.ID, f.Resource.Name, f.Resource.Type, f.Resource.Provider,
 			f.Resource.Account, f.Resource.Region, f.Resource.ARN,
-			f.Tag, f.Status, f.Reason, f.Actual, f.Expected)
+			f.Tag, string(f.Status), string(f.Reason), f.Actual, f.Expected,
+		}
+		for i := range row {
+			row[i] = csvSafe(row[i])
+		}
+		if err := cw.Write(row); err != nil {
+			return err
+		}
 	}
-	return nil
+	cw.Flush()
+	return cw.Error()
+}
+
+func csvSafe(cell string) string {
+	if cell != "" && strings.ContainsRune("=+-@\t\r", rune(cell[0])) {
+		return "'" + cell
+	}
+	return cell
+}
+
+// printable replaces control characters so a tag value cannot drive the
+// terminal through escape sequences.
+func printable(s string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return '?'
+		}
+		return r
+	}, s)
+}
+
+// createReport opens an output file readable only by the current user: scan
+// reports carry every tag value and ARN of the account.
+func createReport(path string) (*os.File, error) {
+	// #nosec G304 -- the output path is derived from the user's own output directory.
+	return os.OpenFile(filepath.Clean(path), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 }
 
 // writeScanJSON writes scan results to a JSON file.
 func writeScanJSON(result *types.ScanResult, path string) error {
-	// #nosec G304 -- the output path is derived from the user's own output directory.
-	file, err := os.Create(filepath.Clean(path))
+	file, err := createReport(path)
 	if err != nil {
 		return fmt.Errorf("failed to create JSON file: %w", err)
 	}
@@ -182,27 +230,18 @@ func writeScanJSON(result *types.ScanResult, path string) error {
 
 // writeScanCSV writes scan results to a CSV file.
 func writeScanCSV(result *types.ScanResult, path string) error {
-	// #nosec G304 -- the output path is derived from the user's own output directory.
-	file, err := os.Create(filepath.Clean(path))
+	file, err := createReport(path)
 	if err != nil {
 		return fmt.Errorf("failed to create CSV file: %w", err)
 	}
 	defer file.Close()
 
-	fmt.Fprintln(file, "resource_id,resource_name,resource_type,provider,account,region,arn,tag,status,reason,actual,expected")
-	for _, f := range result.Findings {
-		fmt.Fprintf(file, "%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n",
-			f.Resource.ID, f.Resource.Name, f.Resource.Type, f.Resource.Provider,
-			f.Resource.Account, f.Resource.Region, f.Resource.ARN,
-			f.Tag, f.Status, f.Reason, f.Actual, f.Expected)
-	}
-	return nil
+	return writeFindingsCSV(file, result)
 }
 
 // writeScanHTML writes scan results to an HTML file.
 func writeScanHTML(result *types.ScanResult, path string) error {
-	// #nosec G304 -- the output path is derived from the user's own output directory.
-	file, err := os.Create(filepath.Clean(path))
+	file, err := createReport(path)
 	if err != nil {
 		return fmt.Errorf("failed to create HTML file: %w", err)
 	}
@@ -235,9 +274,10 @@ func outputPlanTable(plan *types.Plan, planFile string) error {
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 		for _, c := range changes {
 			actionSymbol := "+"
-			if c.Action == types.ActionUpdate {
+			switch c.Action {
+			case types.ActionUpdate:
 				actionSymbol = "~"
-			} else if c.Action == types.ActionRemove {
+			case types.ActionRemove:
 				actionSymbol = "-"
 			}
 
@@ -248,7 +288,7 @@ func outputPlanTable(plan *types.Plan, planFile string) error {
 				source = fmt.Sprintf("(%s)", c.Reason)
 			}
 
-			fmt.Fprintf(w, "  %s %s:\t\"%s\"\t%s\n", actionSymbol, c.Tag, c.NewValue, source)
+			fmt.Fprintf(w, "  %s %s:\t\"%s\"\t%s\n", actionSymbol, printable(c.Tag), printable(c.NewValue), printable(source))
 		}
 		_ = w.Flush()
 		fmt.Println()

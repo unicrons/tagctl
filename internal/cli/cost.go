@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"context"
 	"fmt"
 	"sort"
 	"strings"
@@ -67,7 +66,8 @@ func runCost(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("--days must be at least 1")
 	}
 
-	ctx := context.Background()
+	ctx, stop := signalContext()
+	defer stop()
 
 	cfg, err := loadConfig()
 	if err != nil {

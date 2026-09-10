@@ -94,3 +94,23 @@ type PlanSummary struct {
 func (p *Plan) IsEmpty() bool {
 	return len(p.Changes) == 0
 }
+
+// Summarize recounts the summary from the changes, ignoring whatever the
+// plan file claims.
+func (p *Plan) Summarize() PlanSummary {
+	resources := make(map[string]bool, len(p.Changes))
+	summary := PlanSummary{TotalChanges: len(p.Changes)}
+	for _, c := range p.Changes {
+		resources[c.Resource.Identity()] = true
+		switch c.Action {
+		case ActionAdd:
+			summary.TagsAdded++
+		case ActionUpdate:
+			summary.TagsUpdated++
+		case ActionRemove:
+			summary.TagsRemoved++
+		}
+	}
+	summary.TotalResources = len(resources)
+	return summary
+}
