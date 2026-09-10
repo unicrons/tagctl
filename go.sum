@@ -34,8 +34,8 @@ github.com/aws/aws-sdk-go-v2/service/appsync v1.60.0 h1:GHaqk4I1wXiCnRDsNr90u5Xj
 github.com/aws/aws-sdk-go-v2/service/appsync v1.60.0/go.mod h1:LfEjiVP+TYEsX5CFroazubKcQN8HX+2oDQfW1sUmYYE=
 github.com/aws/aws-sdk-go-v2/service/athena v1.65.0 h1:FeD5q85aA0fm6uy1OOiqUGQZ2Zt41VEaHeAML1zz/Ho=
 github.com/aws/aws-sdk-go-v2/service/athena v1.65.0/go.mod h1:O9qW3p42OTHqdpLe5VRhX6lUvLfFHA3HfLSo5NLjAoA=
-github.com/aws/aws-sdk-go-v2/service/autoscaling v1.51.2 h1:MSSstL6YXAw2K68L1kph02WTQHKeb/lwmbsMhswpjuY=
-github.com/aws/aws-sdk-go-v2/service/autoscaling v1.51.2/go.mod h1:t5bdAowh8MWq51TuDmltU+wtxMl/VaegNwSBaznkUYc=
+github.com/aws/aws-sdk-go-v2/service/autoscaling v1.77.0 h1:prJL9O8SUvMxzeGxwplFAm0vRvdntmIZA8SbX2OjJ48=
+github.com/aws/aws-sdk-go-v2/service/autoscaling v1.77.0/go.mod h1:/R1WthdQ+kk4Gd3SNHG/YucIC6hV4FaQXd2At8eLutE=
 github.com/aws/aws-sdk-go-v2/service/backup v1.64.0 h1:+wse1x49hFkyZcrn7A9yjZDrY5dEov/Jyyc4MAPYgLY=
 github.com/aws/aws-sdk-go-v2/service/backup v1.64.0/go.mod h1:Icviuja3eutvd5i+sMuphBIfrXEeEczrEHqfIRtiK7w=
 github.com/aws/aws-sdk-go-v2/service/batch v1.74.0 h1:LTPXlivKDHTioNpyKv18fcyxnhEBDmqutThyt9sprzQ=
