@@ -1,0 +1,13 @@
+# Minimal valid configuration
+clouds:
+  aws:
+    - profile: default
+      regions:
+        - us-east-1
+
+policy:
+  required:
+    - name: environment
+      values:
+        - dev
+        - prod

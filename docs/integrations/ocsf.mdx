@@ -1,0 +1,270 @@
+---
+title: 'OCSF output'
+description: 'Every finding as an OCSF 1.4 Compliance Finding event'
+icon: 'diagram-project'
+---
+
+The [Open Cybersecurity Schema Framework](https://schema.ocsf.io) is the
+vendor-neutral event schema that Amazon Security Lake, most modern SIEMs and
+tools like Prowler speak. `--ocsf` makes tagctl one more producer on that bus:
+a tag policy check lands in the same table as a misconfigured security group,
+with the same account, region and resource fields, and can be queried, joined
+and alerted on with the same tooling.
+
+```bash
+tagctl scan --ocsf output/tagctl.ocsf.json
+tagctl evaluate --resources resources.json --ocsf -      # to stdout
+tagctl terraform --plan plan.json --ocsf tagctl.ocsf.json
+```
+
+The flag is available on every command that accepts the
+[CI gate flags](/commands#ci-gates): `scan`, `evaluate` and `terraform`. The
+file is written before the gate runs, so a failing build still produces it.
+
+<Note>
+`--ocsf` is an **additional** output. `output/scan-*.json` keeps its own
+format because `diff`, `normalize` and `--baseline` read it, and because it
+carries scan-level aggregates (`by_tag`, `by_account`, compliance percentages)
+that OCSF, being an event-per-finding schema, has no place for.
+</Note>
+
+## Why Compliance Finding
+
+OCSF defines several finding classes. tagctl uses **Compliance Finding**
+(`class_uid` 2003), which the schema describes as the result of evaluating a
+resource against an industry framework or security standard. A tag policy is a
+standard; each required tag is a control; each resource-tag pair is one
+evaluation with a Pass or Fail outcome. The class has a first-class
+`compliance` object for exactly that, so nothing has to be tucked into
+`unmapped` to be understood.
+
+The alternative, Detection Finding (2004), is what scanners that raise alerts
+use, and it is what Prowler emits. It would have been convenient for parity,
+but it would also have been a lie: a missing `owner` tag is not a detection of
+an attack, it is a failed control. If you already ingest Prowler's Detection
+Findings, both classes share the base finding attributes (`finding_info`,
+`resources`, `cloud`, `severity_id`, `status_id`), so the same queries work
+across both.
+
+The schema version is **1.4.0**, recorded in `metadata.version`.
+
+## What is emitted
+
+One event per finding, **including passes**. This is deliberate and mirrors
+the JUnit output: a compliance consumer needs the denominator. Without the
+passes a resource that disappears from the feed is indistinguishable from one
+that was deleted, and a compliance percentage cannot be recomputed downstream.
+Filter on `compliance.status_id = 3` if you only want failures.
+
+The output is a JSON array, pretty-printed, so it can be read by a person as
+well as loaded in bulk. For a line-delimited feed, pipe it through `jq -c
+'.[]'`.
+
+## Field mapping
+
+Every attribute below is either required or recommended by the schema for this
+class, or carries information a consumer would otherwise have to reconstruct.
+
+### Event identity
+
+| Attribute | Value | Why |
+|-----------|-------|-----|
+| `class_uid` / `class_name` | `2003` / `Compliance Finding` | See above |
+| `category_uid` / `category_name` | `2` / `Findings` | Fixed by the class |
+| `activity_id` / `activity_name` | `1` / `Create` | Every scan creates its findings afresh; tagctl does not track updates or closures of an earlier event |
+| `type_uid` / `type_name` | `200301` / `Compliance Finding: Create` | `class_uid × 100 + activity_id`, as the schema prescribes |
+| `time` / `time_dt` | Scan time as epoch milliseconds and RFC 3339 UTC | When the evaluation happened |
+
+### Outcome
+
+| Attribute | Value | Why |
+|-----------|-------|-----|
+| `compliance.standards` | `["tagctl tag policy"]` | Required. The standard being evaluated is your policy file |
+| `compliance.control` | The tag name | A required tag is one control of the policy |
+| `compliance.requirements` | The rule, when the tag has one (`one of: dev, staging, prod`, or the regex) | What a compliant value looks like; absent for tags that only need to be present |
+| `compliance.status_id` / `status` | `1` / `Pass` or `3` / `Fail` | The evaluation outcome |
+| `compliance.status_details` | The finding message | Human-readable reason, e.g. `required tag 'owner' is missing` |
+| `severity_id` / `severity` | Pass → `1` Informational; missing tag → `3` Medium; invalid value → `2` Low | Same reasoning as the SARIF levels: a resource with no owner tag cannot be attributed at all, while one with a misspelt value is at least identifiable |
+| `status_id` / `status` | `1` / `New` | The finding's lifecycle state. tagctl produces findings; it does not manage them, so every event is new. Do not confuse with `compliance.status`, which is the Pass/Fail outcome |
+| `message` | `<type> <resource>: <finding message>` | One line that reads on its own in a log viewer |
+| `remediation.desc` | Fail only: what tag to set on which resource, satisfying which rule, and that `tagctl plan` / `tagctl apply` do it | The consumer can act without opening tagctl |
+
+### Finding identity
+
+| Attribute | Value | Why |
+|-----------|-------|-----|
+| `finding_info.uid` | `<resource identity>#<tag>` | **The same identity SARIF uses as its partial fingerprint**, so a GitHub alert and an OCSF event for the same problem share an id and can be correlated. The resource identity is the ARN when there is one, otherwise `provider/account/region/id` with empty parts dropped |
+| `finding_info.title` / `desc` | The finding message, and the message prefixed with the resource | Short and long forms |
+| `finding_info.created_time` | Scan time | When this finding first existed, as far as tagctl knows |
+| `finding_info.types` | `["Tag Compliance"]` | Lets a consumer with many finding sources filter tagctl's out |
+| `finding_info.analytic` | `type_id` `1` (Rule), `name` and `uid` `tagctl/missing-or-invalid-tag/<tag>` | The rule that produced the finding, with the same id SARIF declares as its rule, one per tag |
+
+### Where
+
+| Attribute | Value | Why |
+|-----------|-------|-----|
+| `cloud.provider` | `AWS`, `Kubernetes`, or the provider name as-is | Required. Capitalised to match what Security Lake and other producers write |
+| `cloud.region` | Resource region | Omitted when unknown (a Terraform plan) |
+| `cloud.account.uid` | Account id | Omitted entirely when unknown, because the account object requires a name or uid |
+| `cloud.account.type_id` / `type` | `10` / `AWS Account` for AWS | Only set where the schema has a matching enum value |
+| `resources[0].uid` | ARN, or the fallback identity above | The subject of the check |
+| `resources[0].name` / `type` / `region` | Display name, tagctl resource type (`aws_db_instance`), region | |
+| `resources[0].tags` | Every tag on the resource as `{name, value}`, sorted by name | The full tag set, so a consumer can see what *is* there, not just what is missing |
+| `observables` | One `Resource UID` (`type_id` 10) observable with the resource identity | The standard OCSF hook for correlating events about the same resource |
+
+### Producer
+
+| Attribute | Value |
+|-----------|-------|
+| `metadata.version` | `1.4.0` |
+| `metadata.product` | `name` `tagctl`, `vendor_name` `tagctl`, `version` the tagctl build, `url_string` the repository |
+| `metadata.profiles` | `["cloud"]`, since every event carries the `cloud` object |
+| `osint` | `[]`. The schema marks it required for this class; tagctl has no threat intelligence to attach, so it is present and empty rather than missing |
+
+### Not mapped
+
+`unmapped` keeps the three tagctl fields that have no OCSF attribute, so no
+information is lost in the conversion:
+
+| Field | Value |
+|-------|-------|
+| `unmapped.reason` | `missing`, `invalid_value`, `invalid_format` or `compliant` |
+| `unmapped.expected` | The rule text, same as `compliance.requirements[0]` |
+| `unmapped.actual` | The value found, when there was one |
+
+## Example
+
+A failed finding from a real scan. The resource carries seven tags, none of
+them `owner`:
+
+```json
+{
+  "activity_id": 1,
+  "activity_name": "Create",
+  "category_uid": 2,
+  "category_name": "Findings",
+  "class_uid": 2003,
+  "class_name": "Compliance Finding",
+  "type_uid": 200301,
+  "type_name": "Compliance Finding: Create",
+  "time": 1788868155564,
+  "time_dt": "2026-09-08T11:49:15Z",
+  "severity_id": 3,
+  "severity": "Medium",
+  "status_id": 1,
+  "status": "New",
+  "message": "aws_db_instance payments-db-1: required tag 'owner' is missing",
+  "cloud": {
+    "provider": "AWS",
+    "region": "eu-west-1",
+    "account": { "uid": "123456789012", "type_id": 10, "type": "AWS Account" }
+  },
+  "compliance": {
+    "standards": ["tagctl tag policy"],
+    "control": "owner",
+    "status_id": 3,
+    "status": "Fail",
+    "status_details": ["required tag 'owner' is missing"]
+  },
+  "finding_info": {
+    "uid": "arn:aws:rds:eu-west-1:123456789012:db:payments-db-1#owner",
+    "title": "required tag 'owner' is missing",
+    "desc": "aws_db_instance payments-db-1: required tag 'owner' is missing",
+    "created_time": 1788868155564,
+    "types": ["Tag Compliance"],
+    "analytic": {
+      "type_id": 1,
+      "type": "Rule",
+      "name": "tagctl/missing-or-invalid-tag/owner",
+      "uid": "tagctl/missing-or-invalid-tag/owner"
+    }
+  },
+  "metadata": {
+    "version": "1.4.0",
+    "product": {
+      "name": "tagctl",
+      "vendor_name": "tagctl",
+      "version": "0.4.0",
+      "url_string": "https://github.com/unicrons/tagctl"
+    },
+    "profiles": ["cloud"]
+  },
+  "observables": [
+    {
+      "name": "resources[0].uid",
+      "type_id": 10,
+      "type": "Resource UID",
+      "value": "arn:aws:rds:eu-west-1:123456789012:db:payments-db-1"
+    }
+  ],
+  "osint": [],
+  "remediation": {
+    "desc": "Set tag 'owner' on aws_db_instance payments-db-1. Run 'tagctl plan' to propose the value and 'tagctl apply' to write it.",
+    "references": ["https://github.com/unicrons/tagctl#readme"]
+  },
+  "resources": [
+    {
+      "uid": "arn:aws:rds:eu-west-1:123456789012:db:payments-db-1",
+      "name": "payments-db-1",
+      "type": "aws_db_instance",
+      "region": "eu-west-1",
+      "tags": [
+        { "name": "Name", "value": "payments-db-1" },
+        { "name": "environment", "value": "dev" },
+        { "name": "project", "value": "prowler-cloud" },
+        { "name": "terraform", "value": "true" }
+      ]
+    }
+  ],
+  "unmapped": { "reason": "missing" }
+}
+```
+
+The passing event for the same resource's `environment` tag differs only in
+outcome: `severity_id` 1, `compliance.status` `Pass`, no `remediation`, and
+`unmapped.actual` `"dev"`.
+
+## Working with the output
+
+Failures only, one per line, ready for a log shipper:
+
+```bash
+jq -c '.[] | select(.compliance.status_id == 3)' tagctl.ocsf.json
+```
+
+Failures per control, which is the number a compliance dashboard wants:
+
+```bash
+jq -r '.[] | select(.compliance.status_id == 3) | .compliance.control' tagctl.ocsf.json \
+  | sort | uniq -c | sort -rn
+```
+
+Resources missing `owner` in one account:
+
+```bash
+jq -r '.[] | select(.compliance.control == "owner" and .compliance.status_id == 3
+                     and .cloud.account.uid == "123456789012")
+           | .resources[0].uid' tagctl.ocsf.json
+```
+
+### Amazon Security Lake
+
+Security Lake accepts OCSF events from a
+[custom source](https://docs.aws.amazon.com/security-lake/latest/userguide/custom-sources.html).
+Register tagctl as a source with event class `COMPLIANCE_FINDING`, convert the
+array to Parquet with the OCSF schema of your Security Lake version, and write
+it to the source's S3 prefix. Because `finding_info.uid` is stable across
+scans, a query grouping by it shows how long each gap has existed.
+
+### Anything else that reads OCSF
+
+Any consumer that understands class 2003 will ingest the file as-is. If yours
+expects newline-delimited JSON, the first `jq` recipe above produces it.
+
+## Stability
+
+The mapping in this page is the contract. Fields will be added, not renamed or
+removed, and a change of OCSF schema version will be announced in the
+changelog with the new `metadata.version`. `finding_info.uid` and
+`finding_info.analytic.uid` are shared with the SARIF output and will not
+change shape.

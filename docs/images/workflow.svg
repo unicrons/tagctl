@@ -1,0 +1,33 @@
+<svg width="700" height="200" viewBox="0 0 700 200" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background -->
+  <rect width="700" height="200" fill="transparent"/>
+
+  <!-- Scan Box -->
+  <rect x="50" y="40" width="160" height="120" rx="12" fill="#6366F1" fill-opacity="0.1" stroke="#6366F1" stroke-width="2"/>
+  <text x="130" y="75" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="20" font-weight="700" fill="#6366F1" text-anchor="middle">scan</text>
+  <text x="130" y="105" font-family="system-ui, -apple-system, sans-serif" font-size="13" fill="#64748b" text-anchor="middle">Discover resources</text>
+  <text x="130" y="125" font-family="system-ui, -apple-system, sans-serif" font-size="13" fill="#64748b" text-anchor="middle">Check compliance</text>
+  <text x="130" y="145" font-family="system-ui, -apple-system, sans-serif" font-size="13" fill="#64748b" text-anchor="middle">Report violations</text>
+
+  <!-- Arrow 1 -->
+  <path d="M220 100 L260 100" stroke="#6366F1" stroke-width="3" stroke-linecap="round"/>
+  <polygon points="270,100 255,92 255,108" fill="#6366F1"/>
+
+  <!-- Plan Box -->
+  <rect x="270" y="40" width="160" height="120" rx="12" fill="#818CF8" fill-opacity="0.1" stroke="#818CF8" stroke-width="2"/>
+  <text x="350" y="75" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="20" font-weight="700" fill="#818CF8" text-anchor="middle">plan</text>
+  <text x="350" y="105" font-family="system-ui, -apple-system, sans-serif" font-size="13" fill="#64748b" text-anchor="middle">Analyze violations</text>
+  <text x="350" y="125" font-family="system-ui, -apple-system, sans-serif" font-size="13" fill="#64748b" text-anchor="middle">Apply rules</text>
+  <text x="350" y="145" font-family="system-ui, -apple-system, sans-serif" font-size="13" fill="#64748b" text-anchor="middle">Generate fixes</text>
+
+  <!-- Arrow 2 -->
+  <path d="M440 100 L480 100" stroke="#818CF8" stroke-width="3" stroke-linecap="round"/>
+  <polygon points="490,100 475,92 475,108" fill="#818CF8"/>
+
+  <!-- Apply Box -->
+  <rect x="490" y="40" width="160" height="120" rx="12" fill="#A78BFA" fill-opacity="0.1" stroke="#A78BFA" stroke-width="2"/>
+  <text x="570" y="75" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="20" font-weight="700" fill="#A78BFA" text-anchor="middle">apply</text>
+  <text x="570" y="105" font-family="system-ui, -apple-system, sans-serif" font-size="13" fill="#64748b" text-anchor="middle">Review changes</text>
+  <text x="570" y="125" font-family="system-ui, -apple-system, sans-serif" font-size="13" fill="#64748b" text-anchor="middle">Confirm action</text>
+  <text x="570" y="145" font-family="system-ui, -apple-system, sans-serif" font-size="13" fill="#64748b" text-anchor="middle">Update tags</text>
+</svg>

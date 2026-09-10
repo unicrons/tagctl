@@ -1,0 +1,432 @@
+# Contributing to tagctl
+
+Thank you for your interest in contributing to tagctl! This guide will help you get started.
+
+## Current State
+
+**Supported Providers:**
+- ✅ **AWS** - EC2, S3, RDS, Lambda (stable)
+- 🔜 **Kubernetes** - Coming soon
+- 🔜 **GCP** - Coming soon
+- 🔜 **Azure** - Coming soon
+
+## Code of Conduct
+
+Be respectful, inclusive, and constructive. We're all here to build something useful.
+
+## Getting Started
+
+### Prerequisites
+
+- Go 1.23 or later
+- Git
+- Make
+- AWS credentials (for testing with real resources)
+
+### Setup
+
+```bash
+# Clone the repository
+git clone https://github.com/unicrons/tagctl.git
+cd tagctl
+
+# Install development tools and enable pre-commit hooks
+make setup
+
+# Run tests
+make test
+
+# Build
+make build
+```
+
+### Verify Setup
+
+```bash
+./bin/tagctl version
+./bin/tagctl --help
+
+# Test with mock data
+./bin/tagctl scan --mock
+```
+
+## Development Workflow
+
+### 1. Create a Branch
+
+```bash
+git checkout -b feature/your-feature-name
+# or
+git checkout -b fix/issue-description
+```
+
+### 2. Make Changes
+
+Follow the existing code style and patterns. Key guidelines:
+
+- **Formatting**: Run `make fmt` before committing
+- **Linting**: Run `make lint` and fix any issues
+- **Testing**: Add tests for new functionality
+- **Documentation**: Update docs if behavior changes
+
+### 3. Test Your Changes
+
+```bash
+# Run all tests
+make test
+
+# Run tests with coverage
+make coverage
+
+# Run specific package tests
+go test -v ./internal/engine/...
+
+# Run a specific test
+go test -v -run TestMockScanner ./internal/engine/
+```
+
+### 4. Commit
+
+Commits follow [Conventional Commits](https://www.conventionalcommits.org):
+`type(scope): summary`, subject line of at most 60 characters, imperative mood.
+The scope is the area touched (`aws`, `cli`, `engine`, `docs`, `ci`...):
+
+```
+feat(aws): discover Lightsail instances
+
+- List instances in the regions Lightsail supports
+- Tag them through the Lightsail API, not the Tagging API
+
+Closes #123
+```
+
+Types:
+- `feat` - New feature
+- `fix` - Bug fix
+- `docs` - Documentation only
+- `test` - Adding tests
+- `refactor` - Code refactoring
+- `chore` - Maintenance tasks (`chore(merge): take changes` when landing a
+  contribution as a merge commit)
+
+Release notes are generated from these subjects, so `feat`, `fix` and `docs`
+commits are what users will read.
+
+### 5. Push and Create PR
+
+```bash
+git push origin feature/your-feature-name
+```
+
+Then create a Pull Request on GitHub.
+
+## Project Structure
+
+```
+tagctl/
+├── cmd/tagctl/           # Entry point
+├── internal/
+│   ├── cli/              # Command implementations
+│   │   ├── root.go       # Root command, global flags
+│   │   ├── scan.go       # Scan command
+│   │   ├── plan.go       # Plan command
+│   │   ├── apply.go      # Apply command
+│   │   ├── output.go     # Output formatters (table, JSON, CSV, HTML)
+│   │   └── providers.go  # Provider initialization
+│   ├── config/           # Configuration parsing
+│   ├── engine/           # Core business logic
+│   │   ├── scanner.go    # Resource discovery
+│   │   ├── evaluator.go  # Policy evaluation (generates Findings)
+│   │   ├── planner.go    # Change planning (inference, defaults)
+│   │   └── applier.go    # Tag application
+│   ├── log/              # Leveled logging (error, info, debug)
+│   ├── provider/         # Cloud providers
+│   │   ├── provider.go   # Interface definition
+│   │   ├── aws/          # AWS implementation (EC2, S3, RDS, Lambda)
+│   │   └── k8s/          # Kubernetes (coming soon)
+│   └── types/            # Domain types
+│       ├── resource.go   # Resource type
+│       ├── violation.go  # Violation and Finding types
+│       ├── scan.go       # ScanResult type
+│       └── plan.go       # Plan type
+├── docs/                 # Documentation (Mintlify)
+├── test/testutil/        # Test utilities and fixtures
+└── output/               # Generated reports (scan-*.json, plan-*.json)
+```
+
+See [Architecture](docs/architecture.mdx) for details.
+
+## Data Flow
+
+tagctl follows a file-based workflow where each command outputs to a file:
+
+```
+┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│   tagctl scan   │────▶│  tagctl plan    │────▶│  tagctl apply   │
+│                 │     │                 │     │                 │
+│ output/scan-*.json    │ output/plan-*.json    │ applies changes │
+└─────────────────┘     └─────────────────┘     └─────────────────┘
+```
+
+- `scan` discovers resources and evaluates against policy → generates **Findings** (PASS/FAILED)
+- `plan` reads scan results and generates fix suggestions → uses **inference** and **default** rules
+- `apply` reads plan and applies tag changes to cloud resources
+
+## Adding Features
+
+### Adding a New Command
+
+1. Create `internal/cli/newcmd.go`:
+
+```go
+package cli
+
+import "github.com/spf13/cobra"
+
+var newCmd = &cobra.Command{
+    Use:   "newcmd",
+    Short: "Short description",
+    Long:  `Longer description...`,
+    RunE:  runNewCmd,
+}
+
+func init() {
+    newCmd.Flags().String("flag", "", "flag description")
+}
+
+func runNewCmd(cmd *cobra.Command, args []string) error {
+    // Implementation
+    return nil
+}
+```
+
+2. Register in `root.go`:
+
+```go
+func init() {
+    // ...
+    rootCmd.AddCommand(newCmd)
+}
+```
+
+3. Add tests in `internal/cli/newcmd_test.go`
+
+4. Document in `docs/commands.md`
+
+### Adding a New Provider
+
+We're looking for contributors to help implement:
+- **Kubernetes** - Label management for pods, deployments, services
+- **GCP** - Compute Engine, Cloud Storage, GKE
+- **Azure** - VMs, Storage Accounts, AKS
+
+1. Create `internal/provider/newcloud/provider.go`:
+
+```go
+package newcloud
+
+import (
+    "context"
+    "github.com/unicrons/tagctl/internal/types"
+)
+
+type Provider struct {
+    // client, config, etc.
+}
+
+func New(ctx context.Context, cfg Config) (*Provider, error) {
+    // Initialize client, validate credentials
+    return &Provider{}, nil
+}
+
+func (p *Provider) Name() string {
+    return "newcloud"
+}
+
+func (p *Provider) ListResources(ctx context.Context) ([]types.Resource, error) {
+    var resources []types.Resource
+    // List resources and populate:
+    // - ID, ARN (or equivalent), Name
+    // - Type (e.g., "gcp_compute_instance")
+    // - Region, Account/Project
+    // - Tags/Labels
+    return resources, nil
+}
+
+func (p *Provider) ApplyTags(ctx context.Context, resourceID string, tags map[string]string) error {
+    // Apply tags to resource using cloud API
+    return nil
+}
+```
+
+2. Add config types in `internal/config/config.go`
+
+3. Register provider in `internal/cli/providers.go`
+
+4. Add comprehensive tests (use mock clients)
+
+5. Update documentation in `docs/providers/`
+
+### Adding a Rule Type
+
+1. Add types in `internal/config/config.go`
+2. Implement logic in `internal/engine/planner.go`
+3. Add tests
+4. Document in `docs/rules.md`
+
+## Testing Guidelines
+
+### Test File Naming
+
+- `foo.go` → `foo_test.go`
+- Same package for unit tests
+- `_test` package suffix for black-box tests
+
+### Test Structure
+
+```go
+func TestFunctionName(t *testing.T) {
+    tests := []struct {
+        name string
+        // inputs
+        // expected outputs
+    }{
+        {
+            name: "descriptive case name",
+            // ...
+        },
+    }
+
+    for _, tt := range tests {
+        t.Run(tt.name, func(t *testing.T) {
+            // test logic
+        })
+    }
+}
+```
+
+### Coverage Goals
+
+| Package | Goal | Current |
+|---------|------|---------|
+| `internal/types/` | 95%+ | 96.8% |
+| `internal/config/` | 80%+ | 78.6% |
+| `internal/engine/` | 80%+ | 37.6% |
+| `internal/cli/` | 50%+ | 11.5% |
+
+### Key Types to Understand
+
+```go
+// Finding represents a compliance check (PASS or FAILED)
+type Finding struct {
+    Resource Resource      `json:"resource"`
+    Tag      string        `json:"tag"`
+    Status   FindingStatus `json:"status"`   // "PASS" or "FAILED"
+    Reason   ViolationReason `json:"reason"` // "compliant", "missing", "invalid_value", etc.
+    Actual   string        `json:"actual,omitempty"`
+}
+
+// Violation is deprecated, use Finding instead
+type Violation struct {
+    Resource Resource        `json:"resource"`
+    Tag      string          `json:"tag"`
+    Status   FindingStatus   `json:"status"` // Always "FAILED"
+    Reason   ViolationReason `json:"reason"`
+}
+```
+
+## Pull Request Guidelines
+
+### PR Title
+
+Use the same prefixes as commits:
+
+```
+feat(azure): add Azure provider support
+fix(engine): correct tag inheritance for EBS volumes
+docs(configuration): improve configuration examples
+```
+
+### PR Description
+
+Include:
+- What changes were made
+- Why the changes were needed
+- How to test the changes
+- Related issues (e.g., "Closes #123")
+
+### PR Checklist
+
+- [ ] Tests pass (`make test`)
+- [ ] Code is formatted (`make fmt`)
+- [ ] Linter passes (`make lint`)
+- [ ] Documentation updated (if needed)
+- [ ] Commit messages are clear
+
+## Code Style
+
+### Go Style
+
+Follow standard Go conventions:
+
+- `gofmt` formatting
+- Effective Go guidelines
+- Go Code Review Comments
+
+### Naming
+
+- Interfaces: `Scanner`, `Planner` (noun)
+- Implementations: `AWSScanner`, `MockPlanner`
+- Constructors: `NewScanner()`, `NewMockPlanner()`
+
+### Error Handling
+
+```go
+// Good: wrap errors with context
+if err != nil {
+    return fmt.Errorf("failed to scan resources: %w", err)
+}
+
+// Bad: lose context
+if err != nil {
+    return err
+}
+```
+
+### Comments
+
+```go
+// Good: explain why, not what
+// Skip CloudWatch log groups because they're auto-created
+// and tagging them provides no value.
+
+// Bad: explain what (obvious from code)
+// Loop through resources
+for _, r := range resources {
+```
+
+## Getting Help
+
+- **Questions**: Open a GitHub Discussion
+- **Bugs**: Open a GitHub Issue
+- **Features**: Open a GitHub Issue with `[Feature Request]` prefix
+
+## Releases
+
+A release is a tag. Pushing `vX.Y.Z` runs the `Release` workflow, which
+builds the binaries with GoReleaser (`.goreleaser.yaml`), attaches them with
+their checksums to a GitHub Release and writes the notes from the commit
+subjects since the previous tag.
+
+```bash
+git tag -a v1.0.0 -m "v1.0.0"
+git push origin v1.0.0
+```
+
+## Recognition
+
+Contributors are recognized in:
+- Release notes
+- README.md (for significant contributions)
+
+Thank you for contributing! 🎉

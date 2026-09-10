@@ -1,0 +1,68 @@
+[
+  {
+    "id": "default/nginx-deployment",
+    "type": "k8s_deployment",
+    "name": "nginx-deployment",
+    "region": "default",
+    "account": "prod-cluster",
+    "provider": "kubernetes",
+    "tags": {
+      "app": "nginx",
+      "env": "prod"
+    }
+  },
+  {
+    "id": "default/api-service",
+    "type": "k8s_service",
+    "name": "api-service",
+    "region": "default",
+    "account": "prod-cluster",
+    "provider": "kubernetes",
+    "tags": {
+      "app": "api"
+    }
+  },
+  {
+    "id": "backend/worker-pod-abc123",
+    "type": "k8s_pod",
+    "name": "worker-pod-abc123",
+    "region": "backend",
+    "account": "prod-cluster",
+    "provider": "kubernetes",
+    "tags": {
+      "app": "worker",
+      "pod-template-hash": "abc123"
+    }
+  },
+  {
+    "id": "app/redis-configmap",
+    "type": "k8s_configmap",
+    "name": "redis-configmap",
+    "region": "app",
+    "account": "prod-cluster",
+    "provider": "kubernetes",
+    "tags": {}
+  },
+  {
+    "id": "app/db-credentials",
+    "type": "k8s_secret",
+    "name": "db-credentials",
+    "region": "app",
+    "account": "prod-cluster",
+    "provider": "kubernetes",
+    "tags": {
+      "managed-by": "helm"
+    }
+  },
+  {
+    "id": "monitoring",
+    "type": "k8s_namespace",
+    "name": "monitoring",
+    "region": "",
+    "account": "prod-cluster",
+    "provider": "kubernetes",
+    "tags": {
+      "team": "platform"
+    }
+  }
+]

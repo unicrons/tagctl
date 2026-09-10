@@ -1,0 +1,118 @@
+[
+  {
+    "resource": {
+      "id": "i-0abc123def456789",
+      "type": "aws_instance",
+      "name": "web-prod-api-1",
+      "region": "us-east-1",
+      "account": "production",
+      "provider": "aws",
+      "tags": {
+        "Name": "web-prod-api-1"
+      }
+    },
+    "tag": "environment",
+    "reason": "missing",
+    "expected": "",
+    "actual": ""
+  },
+  {
+    "resource": {
+      "id": "i-0abc123def456789",
+      "type": "aws_instance",
+      "name": "web-prod-api-1",
+      "region": "us-east-1",
+      "account": "production",
+      "provider": "aws",
+      "tags": {
+        "Name": "web-prod-api-1"
+      }
+    },
+    "tag": "owner",
+    "reason": "missing",
+    "expected": "",
+    "actual": ""
+  },
+  {
+    "resource": {
+      "id": "i-0def456789abc123",
+      "type": "aws_instance",
+      "name": "api-staging-worker-2",
+      "region": "us-east-1",
+      "account": "staging",
+      "provider": "aws",
+      "tags": {
+        "Name": "api-staging-worker-2",
+        "environment": "staging"
+      }
+    },
+    "tag": "owner",
+    "reason": "missing",
+    "expected": "",
+    "actual": ""
+  },
+  {
+    "resource": {
+      "id": "legacy-data-bucket",
+      "type": "aws_s3_bucket",
+      "name": "legacy-data-bucket",
+      "region": "us-east-1",
+      "account": "production",
+      "provider": "aws",
+      "tags": {}
+    },
+    "tag": "environment",
+    "reason": "missing",
+    "expected": "",
+    "actual": ""
+  },
+  {
+    "resource": {
+      "id": "legacy-data-bucket",
+      "type": "aws_s3_bucket",
+      "name": "legacy-data-bucket",
+      "region": "us-east-1",
+      "account": "production",
+      "provider": "aws",
+      "tags": {}
+    },
+    "tag": "owner",
+    "reason": "missing",
+    "expected": "",
+    "actual": ""
+  },
+  {
+    "resource": {
+      "id": "db-prod-main",
+      "type": "aws_db_instance",
+      "name": "db-prod-main",
+      "region": "us-east-1",
+      "account": "production",
+      "provider": "aws",
+      "tags": {
+        "environment": "prod"
+      }
+    },
+    "tag": "owner",
+    "reason": "missing",
+    "expected": "",
+    "actual": ""
+  },
+  {
+    "resource": {
+      "id": "default/api-service",
+      "type": "k8s_service",
+      "name": "api-service",
+      "region": "default",
+      "account": "prod-cluster",
+      "provider": "kubernetes",
+      "tags": {
+        "app": "api"
+      }
+    },
+    "tag": "env",
+    "reason": "missing",
+    "expected": "",
+    "actual": ""
+  }
+]

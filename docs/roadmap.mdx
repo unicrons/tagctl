@@ -1,0 +1,99 @@
+---
+title: 'Roadmap'
+description: 'Where tagctl is going, and the reasoning behind it'
+---
+
+## The problem tagctl is aiming at
+
+Tagging tools are good at telling you *what* is untagged. They are bad at
+everything that happens next: proving it matters, catching it before it ships,
+noticing when it gets worse, and cleaning up the mess a taxonomy leaves behind.
+
+Three findings shaped this roadmap:
+
+- **Untagged spend is unattributable forever.** Cost allocation tags are not
+  retroactive. A resource that ran untagged for two weeks has two weeks of spend
+  that can never be assigned to a team. A compliance percentage does not convey
+  that; a dollar figure does.
+- **Tags that depend on human discipline fail at scale.** The failure is rarely
+  a missing tag. It is `prod`, `production`, `Production` and `PROD` coexisting,
+  which silently splits every cost report that groups by that tag.
+- **The gap that matters is between what IaC declares and what actually runs.**
+  Catching a missing tag in review is cheap. Catching it after a quarter of
+  unattributable spend is not.
+
+## Design principles
+
+1. **One static binary, file-based workflow.** Every command reads and writes
+   plain files. No daemon, no database, no state to reconcile.
+2. **Every feature works in CI.** If a human has to look at it for it to be
+   useful, it is not finished.
+3. **Never write to the cloud without a plan the operator can read first.**
+   `scan` and `plan` are safe; only `apply` mutates.
+4. **The evaluator is the single source of truth.** Terraform plans, live
+   resources and saved scans all flow through the same policy engine, so they
+   cannot disagree.
+
+## The five features
+
+### 1. `tagctl diff` — compliance drift between two scans
+
+Compares two scan files and reports what changed: newly failing resources,
+resolved findings, and the movement in coverage per tag and per account.
+
+A compliance number in isolation says nothing. `62%` is a crisis if last week
+was `88%` and a triumph if last week was `40%`. Drift is the signal teams act
+on, and it is the thing you can gate a pipeline on.
+
+### 2. CI gates — thresholds, SARIF and JUnit
+
+`--fail-under` sets a compliance floor. `--fail-on-new` compares against a
+baseline scan and fails only on regressions, which is what lets a team adopt
+tagctl on a large non-compliant estate without turning the build red forever.
+
+Findings are emitted as **SARIF** (so GitHub renders them natively in the
+Security tab), **JUnit** (so any CI system shows them as test results) and
+**OCSF** Compliance Finding events (so a security data lake or SIEM ingests
+them next to everything else). See [OCSF output](/integrations/ocsf).
+
+### 3. `tagctl normalize` — tag value drift
+
+Finds tag values that are near-duplicates of each other — case, separators,
+whitespace, and edit-distance neighbours — clusters them, and proposes a
+canonical value. Emits an ordinary remediation plan, so the existing
+`apply` path does the work.
+
+This is the failure mode no other tool addresses, and it is the one that
+quietly corrupts cost reporting.
+
+### 4. `tagctl terraform` — shift left onto the IaC
+
+Evaluates the tags in a `terraform plan -json` or state file against the same
+policy the live scan uses, before anything is created. A missing tag becomes a
+failed pull request instead of unattributable spend.
+
+### 5. `tagctl cost` — what non-compliance actually costs
+
+Joins compliance data with AWS Cost Explorer and answers the question that gets
+tagging work funded: *how much of this bill cannot be attributed to anyone?*
+
+Reports total spend split by tagged and untagged, per-tag-key attribution
+coverage in currency, and the biggest untagged spenders.
+
+## How they fit together
+
+```
+terraform  ──▶ shift left: block it before it exists
+    │
+    ▼
+  scan  ──▶  evaluate  ──▶  plan  ──▶  apply
+    │            │
+    │            ├──▶ diff   ──▶ has it got worse since the baseline?
+    │            ├──▶ CI gate ──▶ fail the build (SARIF / JUnit)
+    │            └──▶ normalize ─▶ collapse prod/Production/PROD
+    ▼
+   cost ──▶ how many dollars are unattributable?
+```
+
+Each stage reuses the same policy and the same `Finding` model, so a violation
+means the same thing wherever it is reported.

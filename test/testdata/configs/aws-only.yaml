@@ -1,0 +1,72 @@
+# AWS-only configuration
+clouds:
+  aws:
+    - profile: production
+      regions:
+        - us-east-1
+        - us-west-2
+        - eu-west-1
+    - profile: development
+      regions:
+        - us-east-1
+
+policy:
+  required:
+    - name: environment
+      description: Deployment environment
+      values:
+        - dev
+        - staging
+        - prod
+    - name: team
+      description: Owning team
+      values:
+        - platform
+        - backend
+        - frontend
+        - data
+    - name: cost-center
+      pattern: "^[A-Z]{2}-\\d{4}$"
+
+rules:
+  infer:
+    - tag: environment
+      from_name:
+        - pattern: "-prod-|-production-"
+          value: prod
+        - pattern: "-stg-|-staging-"
+          value: staging
+        - pattern: "-dev-|-development-"
+          value: dev
+
+    - tag: team
+      from_name:
+        - pattern: "^api-|^backend-"
+          value: backend
+        - pattern: "^web-|^frontend-"
+          value: frontend
+        - pattern: "^data-|^analytics-"
+          value: data
+
+  inherit:
+    - resource: aws_ebs_volume
+      from: attached_instance
+      tags:
+        - environment
+        - team
+
+  defaults:
+    - resource: aws_s3_bucket
+      when:
+        tag:team: absent
+      set:
+        team: platform
+        needs-review: "true"
+
+ignore:
+  resources:
+    - ".*-temp-.*"
+    - ".*-test-.*"
+  tags:
+    aws:cloudformation:stack-name:
+      - "*"

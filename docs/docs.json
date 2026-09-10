@@ -1,0 +1,103 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "tagctl",
+  "colors": {
+    "primary": "#6366F1",
+    "light": "#818CF8",
+    "dark": "#4F46E5"
+  },
+  "favicon": "/favicon.svg",
+  "navigation": {
+    "anchors": [
+      {
+        "anchor": "Documentation",
+        "icon": "book-open",
+        "groups": [
+          {
+            "group": "Getting Started",
+            "pages": [
+              "introduction",
+              "getting-started",
+              "configuration",
+              "roadmap"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "commands",
+              "rules",
+              "credentials"
+            ]
+          },
+          {
+            "group": "Cloud Providers",
+            "pages": [
+              "providers/aws",
+              "providers/kubernetes"
+            ]
+          },
+          {
+            "group": "Integrations",
+            "pages": [
+              "integrations/ocsf"
+            ]
+          },
+          {
+            "group": "Contributing",
+            "pages": [
+              "development",
+              "architecture"
+            ]
+          }
+        ]
+      }
+    ],
+    "global": {
+      "anchors": [
+        {
+          "anchor": "GitHub",
+          "href": "https://github.com/unicrons/tagctl",
+          "icon": "github"
+        },
+        {
+          "anchor": "Community",
+          "href": "https://github.com/unicrons/tagctl/discussions",
+          "icon": "discord"
+        }
+      ]
+    }
+  },
+  "logo": {
+    "light": "/logo/logo.png",
+    "dark": "/logo/logo.png"
+  },
+  "appearance": {
+    "default": "dark"
+  },
+  "background": {
+    "color": {
+      "light": "#FAFAFC",
+      "dark": "#0F0D1A"
+    }
+  },
+  "navbar": {
+    "links": [
+      {
+        "label": "GitHub",
+        "href": "https://github.com/unicrons/tagctl"
+      }
+    ],
+    "primary": {
+      "type": "button",
+      "label": "Get Started",
+      "href": "/getting-started"
+    }
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/unicrons/tagctl"
+    }
+  }
+}

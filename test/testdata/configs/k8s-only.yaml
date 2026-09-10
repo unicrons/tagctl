@@ -1,0 +1,51 @@
+# Kubernetes-only configuration
+clouds:
+  kubernetes:
+    - name: production
+      kubeconfig: ~/.kube/config
+      context: prod-cluster
+      namespaces: []
+    - name: staging
+      kubeconfig: ~/.kube/config
+      context: staging-cluster
+      namespaces:
+        - default
+        - app
+        - api
+
+policy:
+  required:
+    - name: app
+      description: Application name
+    - name: env
+      description: Environment
+      values:
+        - dev
+        - staging
+        - prod
+    - name: team
+      description: Owning team
+
+rules:
+  infer:
+    - tag: env
+      from_name:
+        - pattern: ".*-prod$"
+          value: prod
+        - pattern: ".*-staging$"
+          value: staging
+        - pattern: ".*-dev$"
+          value: dev
+
+  defaults:
+    - resource: k8s_*
+      when:
+        tag:team: absent
+      set:
+        team: platform
+
+ignore:
+  resources:
+    - "^kube-system/.*"
+    - "^kube-public/.*"
+    - "^kube-node-lease/.*"

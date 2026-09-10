@@ -1,0 +1,451 @@
+package aws
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/acm"
+	"github.com/aws/aws-sdk-go-v2/service/backup"
+	"github.com/aws/aws-sdk-go-v2/service/cloudformation"
+	cfntypes "github.com/aws/aws-sdk-go-v2/service/cloudformation/types"
+	"github.com/aws/aws-sdk-go-v2/service/cloudwatch"
+	"github.com/aws/aws-sdk-go-v2/service/codebuild"
+	codebuildtypes "github.com/aws/aws-sdk-go-v2/service/codebuild/types"
+	"github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider"
+	"github.com/aws/aws-sdk-go-v2/service/elasticbeanstalk"
+	"github.com/aws/aws-sdk-go-v2/service/eventbridge"
+	"github.com/aws/aws-sdk-go-v2/service/fsx"
+	fsxtypes "github.com/aws/aws-sdk-go-v2/service/fsx/types"
+	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
+	smtypes "github.com/aws/aws-sdk-go-v2/service/secretsmanager/types"
+	"github.com/aws/aws-sdk-go-v2/service/sfn"
+
+	"github.com/unicrons/tagctl/internal/log"
+	"github.com/unicrons/tagctl/internal/provider"
+	"github.com/unicrons/tagctl/internal/types"
+)
+
+// Application, operations and security services.
+
+type stepFunctionsAPI interface {
+	ListStateMachines(ctx context.Context, params *sfn.ListStateMachinesInput, optFns ...func(*sfn.Options)) (*sfn.ListStateMachinesOutput, error)
+}
+
+type secretsManagerAPI interface {
+	ListSecrets(ctx context.Context, params *secretsmanager.ListSecretsInput, optFns ...func(*secretsmanager.Options)) (*secretsmanager.ListSecretsOutput, error)
+}
+
+type cloudFormationAPI interface {
+	DescribeStacks(ctx context.Context, params *cloudformation.DescribeStacksInput, optFns ...func(*cloudformation.Options)) (*cloudformation.DescribeStacksOutput, error)
+}
+
+type cloudWatchAPI interface {
+	DescribeAlarms(ctx context.Context, params *cloudwatch.DescribeAlarmsInput, optFns ...func(*cloudwatch.Options)) (*cloudwatch.DescribeAlarmsOutput, error)
+}
+
+type eventBridgeAPI interface {
+	ListRules(ctx context.Context, params *eventbridge.ListRulesInput, optFns ...func(*eventbridge.Options)) (*eventbridge.ListRulesOutput, error)
+}
+
+type acmAPI interface {
+	ListCertificates(ctx context.Context, params *acm.ListCertificatesInput, optFns ...func(*acm.Options)) (*acm.ListCertificatesOutput, error)
+}
+
+type cognitoAPI interface {
+	ListUserPools(ctx context.Context, params *cognitoidentityprovider.ListUserPoolsInput, optFns ...func(*cognitoidentityprovider.Options)) (*cognitoidentityprovider.ListUserPoolsOutput, error)
+}
+
+type codeBuildAPI interface {
+	ListProjects(ctx context.Context, params *codebuild.ListProjectsInput, optFns ...func(*codebuild.Options)) (*codebuild.ListProjectsOutput, error)
+	BatchGetProjects(ctx context.Context, params *codebuild.BatchGetProjectsInput, optFns ...func(*codebuild.Options)) (*codebuild.BatchGetProjectsOutput, error)
+}
+
+type backupAPI interface {
+	ListBackupVaults(ctx context.Context, params *backup.ListBackupVaultsInput, optFns ...func(*backup.Options)) (*backup.ListBackupVaultsOutput, error)
+}
+
+type fsxAPI interface {
+	DescribeFileSystems(ctx context.Context, params *fsx.DescribeFileSystemsInput, optFns ...func(*fsx.Options)) (*fsx.DescribeFileSystemsOutput, error)
+}
+
+type beanstalkAPI interface {
+	DescribeEnvironments(ctx context.Context, params *elasticbeanstalk.DescribeEnvironmentsInput, optFns ...func(*elasticbeanstalk.Options)) (*elasticbeanstalk.DescribeEnvironmentsOutput, error)
+}
+
+// codeBuildBatchSize is the maximum number of projects per BatchGetProjects call.
+const codeBuildBatchSize = 100
+
+// cognitoPageSize is the maximum ListUserPools page size.
+const cognitoPageSize = 60
+
+func (p *Provider) listStateMachines(ctx context.Context, region string) ([]types.Resource, error) {
+	return p.listStateMachinesFrom(ctx, p.getStepFunctionsClient(region), region)
+}
+
+func (p *Provider) listStateMachinesFrom(ctx context.Context, client stepFunctionsAPI, region string) ([]types.Resource, error) {
+	if !p.requireBulkTags(region, "Step Functions") {
+		return nil, nil
+	}
+	var resources []types.Resource
+	paginator := sfn.NewListStateMachinesPaginator(client, &sfn.ListStateMachinesInput{})
+	for paginator.HasMorePages() {
+		output, err := paginator.NextPage(ctx)
+		if err != nil {
+			return nil, provider.NewProviderError("aws", "list_state_machines", "", err)
+		}
+		for _, sm := range output.StateMachines {
+			name := aws.ToString(sm.Name)
+			arn := aws.ToString(sm.StateMachineArn)
+			resources = append(resources, types.Resource{
+				ID: name, Name: name, ARN: arn, Type: "aws_sfn_state_machine",
+				Region: region, Account: p.accountID, Provider: "aws",
+				Tags: p.bulkTags(region, arn), CreatedAt: sm.CreationDate,
+			})
+		}
+	}
+	log.Debug("AWS Step Functions: Found %d state machines in %s", len(resources), region)
+	return resources, nil
+}
+
+func (p *Provider) listSecrets(ctx context.Context, region string) ([]types.Resource, error) {
+	return p.listSecretsFrom(ctx, p.getSecretsManagerClient(region), region)
+}
+
+func (p *Provider) listSecretsFrom(ctx context.Context, client secretsManagerAPI, region string) ([]types.Resource, error) {
+	var resources []types.Resource
+	paginator := secretsmanager.NewListSecretsPaginator(client, &secretsmanager.ListSecretsInput{})
+	for paginator.HasMorePages() {
+		output, err := paginator.NextPage(ctx)
+		if err != nil {
+			return nil, provider.NewProviderError("aws", "list_secrets", "", err)
+		}
+		for _, s := range output.SecretList {
+			name := aws.ToString(s.Name)
+			resources = append(resources, types.Resource{
+				ID: name, Name: name, ARN: aws.ToString(s.ARN), Type: "aws_secretsmanager_secret",
+				Region: region, Account: p.accountID, Provider: "aws",
+				Tags: secretTagsToMap(s.Tags), CreatedAt: s.CreatedDate,
+			})
+		}
+	}
+	log.Debug("AWS Secrets Manager: Found %d secrets in %s", len(resources), region)
+	return resources, nil
+}
+
+func secretTagsToMap(tags []smtypes.Tag) map[string]string {
+	result := make(map[string]string)
+	for _, tag := range tags {
+		if tag.Key != nil && tag.Value != nil {
+			result[*tag.Key] = *tag.Value
+		}
+	}
+	return result
+}
+
+func (p *Provider) listStacks(ctx context.Context, region string) ([]types.Resource, error) {
+	return p.listStacksFrom(ctx, p.getCloudFormationClient(region), region)
+}
+
+func (p *Provider) listStacksFrom(ctx context.Context, client cloudFormationAPI, region string) ([]types.Resource, error) {
+	var resources []types.Resource
+	paginator := cloudformation.NewDescribeStacksPaginator(client, &cloudformation.DescribeStacksInput{})
+	for paginator.HasMorePages() {
+		output, err := paginator.NextPage(ctx)
+		if err != nil {
+			return nil, provider.NewProviderError("aws", "list_stacks", "", err)
+		}
+		for _, s := range output.Stacks {
+			if s.StackStatus == cfntypes.StackStatusDeleteComplete {
+				continue
+			}
+			name := aws.ToString(s.StackName)
+			resources = append(resources, types.Resource{
+				ID: name, Name: name, ARN: aws.ToString(s.StackId), Type: "aws_cloudformation_stack",
+				Region: region, Account: p.accountID, Provider: "aws",
+				Tags: cfnTagsToMap(s.Tags), CreatedAt: s.CreationTime,
+			})
+		}
+	}
+	log.Debug("AWS CloudFormation: Found %d stacks in %s", len(resources), region)
+	return resources, nil
+}
+
+func cfnTagsToMap(tags []cfntypes.Tag) map[string]string {
+	result := make(map[string]string)
+	for _, tag := range tags {
+		if tag.Key != nil && tag.Value != nil {
+			result[*tag.Key] = *tag.Value
+		}
+	}
+	return result
+}
+
+func (p *Provider) listAlarms(ctx context.Context, region string) ([]types.Resource, error) {
+	return p.listAlarmsFrom(ctx, p.getCloudWatchClient(region), region)
+}
+
+func (p *Provider) listAlarmsFrom(ctx context.Context, client cloudWatchAPI, region string) ([]types.Resource, error) {
+	if !p.requireBulkTags(region, "CloudWatch alarms") {
+		return nil, nil
+	}
+	var resources []types.Resource
+	paginator := cloudwatch.NewDescribeAlarmsPaginator(client, &cloudwatch.DescribeAlarmsInput{})
+	for paginator.HasMorePages() {
+		output, err := paginator.NextPage(ctx)
+		if err != nil {
+			return nil, provider.NewProviderError("aws", "list_alarms", "", err)
+		}
+		for _, a := range output.MetricAlarms {
+			resources = append(resources, p.alarmResource(region, aws.ToString(a.AlarmName), aws.ToString(a.AlarmArn), "aws_cloudwatch_metric_alarm"))
+		}
+		for _, a := range output.CompositeAlarms {
+			resources = append(resources, p.alarmResource(region, aws.ToString(a.AlarmName), aws.ToString(a.AlarmArn), "aws_cloudwatch_composite_alarm"))
+		}
+	}
+	log.Debug("AWS CloudWatch: Found %d alarms in %s", len(resources), region)
+	return resources, nil
+}
+
+func (p *Provider) alarmResource(region, name, arn, resourceType string) types.Resource {
+	return types.Resource{
+		ID: name, Name: name, ARN: arn, Type: resourceType,
+		Region: region, Account: p.accountID, Provider: "aws",
+		Tags: p.bulkTags(region, arn),
+	}
+}
+
+func (p *Provider) listEventRules(ctx context.Context, region string) ([]types.Resource, error) {
+	return p.listEventRulesFrom(ctx, p.getEventBridgeClient(region), region)
+}
+
+func (p *Provider) listEventRulesFrom(ctx context.Context, client eventBridgeAPI, region string) ([]types.Resource, error) {
+	if !p.requireBulkTags(region, "EventBridge") {
+		return nil, nil
+	}
+	var resources []types.Resource
+	var next *string
+	for {
+		output, err := client.ListRules(ctx, &eventbridge.ListRulesInput{NextToken: next})
+		if err != nil {
+			return nil, provider.NewProviderError("aws", "list_event_rules", "", err)
+		}
+		for _, r := range output.Rules {
+			name := aws.ToString(r.Name)
+			arn := aws.ToString(r.Arn)
+			resources = append(resources, types.Resource{
+				ID: name, Name: name, ARN: arn, Type: "aws_cloudwatch_event_rule",
+				Region: region, Account: p.accountID, Provider: "aws",
+				Tags: p.bulkTags(region, arn),
+			})
+		}
+		if output.NextToken == nil || len(output.Rules) == 0 {
+			break
+		}
+		next = output.NextToken
+	}
+	log.Debug("AWS EventBridge: Found %d rules in %s", len(resources), region)
+	return resources, nil
+}
+
+func (p *Provider) listCertificates(ctx context.Context, region string) ([]types.Resource, error) {
+	return p.listCertificatesFrom(ctx, p.getACMClient(region), region)
+}
+
+func (p *Provider) listCertificatesFrom(ctx context.Context, client acmAPI, region string) ([]types.Resource, error) {
+	if !p.requireBulkTags(region, "ACM") {
+		return nil, nil
+	}
+	var resources []types.Resource
+	paginator := acm.NewListCertificatesPaginator(client, &acm.ListCertificatesInput{})
+	for paginator.HasMorePages() {
+		output, err := paginator.NextPage(ctx)
+		if err != nil {
+			return nil, provider.NewProviderError("aws", "list_certificates", "", err)
+		}
+		for _, c := range output.CertificateSummaryList {
+			arn := aws.ToString(c.CertificateArn)
+			resources = append(resources, types.Resource{
+				ID: nameFromARN(arn), Name: aws.ToString(c.DomainName), ARN: arn, Type: "aws_acm_certificate",
+				Region: region, Account: p.accountID, Provider: "aws",
+				Tags: p.bulkTags(region, arn), CreatedAt: c.CreatedAt,
+			})
+		}
+	}
+	log.Debug("AWS ACM: Found %d certificates in %s", len(resources), region)
+	return resources, nil
+}
+
+func (p *Provider) listUserPools(ctx context.Context, region string) ([]types.Resource, error) {
+	return p.listUserPoolsFrom(ctx, p.getCognitoClient(region), region)
+}
+
+func (p *Provider) listUserPoolsFrom(ctx context.Context, client cognitoAPI, region string) ([]types.Resource, error) {
+	if !p.requireBulkTags(region, "Cognito") {
+		return nil, nil
+	}
+	var resources []types.Resource
+	paginator := cognitoidentityprovider.NewListUserPoolsPaginator(client, &cognitoidentityprovider.ListUserPoolsInput{MaxResults: aws.Int32(cognitoPageSize)})
+	for paginator.HasMorePages() {
+		output, err := paginator.NextPage(ctx)
+		if err != nil {
+			return nil, provider.NewProviderError("aws", "list_user_pools", "", err)
+		}
+		for _, u := range output.UserPools {
+			id := aws.ToString(u.Id)
+			arn := fmt.Sprintf("arn:aws:cognito-idp:%s:%s:userpool/%s", region, p.accountID, id)
+			resources = append(resources, types.Resource{
+				ID: id, Name: aws.ToString(u.Name), ARN: arn, Type: "aws_cognito_user_pool",
+				Region: region, Account: p.accountID, Provider: "aws",
+				Tags: p.bulkTags(region, arn), CreatedAt: u.CreationDate,
+			})
+		}
+	}
+	log.Debug("AWS Cognito: Found %d user pools in %s", len(resources), region)
+	return resources, nil
+}
+
+func (p *Provider) listCodeBuildProjects(ctx context.Context, region string) ([]types.Resource, error) {
+	return p.listCodeBuildProjectsFrom(ctx, p.getCodeBuildClient(region), region)
+}
+
+func (p *Provider) listCodeBuildProjectsFrom(ctx context.Context, client codeBuildAPI, region string) ([]types.Resource, error) {
+	var names []string
+	paginator := codebuild.NewListProjectsPaginator(client, &codebuild.ListProjectsInput{})
+	for paginator.HasMorePages() {
+		output, err := paginator.NextPage(ctx)
+		if err != nil {
+			return nil, provider.NewProviderError("aws", "list_codebuild_projects", "", err)
+		}
+		names = append(names, output.Projects...)
+	}
+
+	var resources []types.Resource
+	for _, batch := range chunk(names, codeBuildBatchSize) {
+		output, err := client.BatchGetProjects(ctx, &codebuild.BatchGetProjectsInput{Names: batch})
+		if err != nil {
+			return nil, provider.NewProviderError("aws", "describe_codebuild_projects", "", err)
+		}
+		for _, pr := range output.Projects {
+			name := aws.ToString(pr.Name)
+			resources = append(resources, types.Resource{
+				ID: name, Name: name, ARN: aws.ToString(pr.Arn), Type: "aws_codebuild_project",
+				Region: region, Account: p.accountID, Provider: "aws",
+				Tags: codeBuildTagsToMap(pr.Tags), CreatedAt: pr.Created,
+			})
+		}
+	}
+	log.Debug("AWS CodeBuild: Found %d projects in %s", len(resources), region)
+	return resources, nil
+}
+
+func codeBuildTagsToMap(tags []codebuildtypes.Tag) map[string]string {
+	result := make(map[string]string)
+	for _, tag := range tags {
+		if tag.Key != nil && tag.Value != nil {
+			result[*tag.Key] = *tag.Value
+		}
+	}
+	return result
+}
+
+func (p *Provider) listBackupVaults(ctx context.Context, region string) ([]types.Resource, error) {
+	return p.listBackupVaultsFrom(ctx, p.getBackupClient(region), region)
+}
+
+func (p *Provider) listBackupVaultsFrom(ctx context.Context, client backupAPI, region string) ([]types.Resource, error) {
+	if !p.requireBulkTags(region, "Backup") {
+		return nil, nil
+	}
+	var resources []types.Resource
+	paginator := backup.NewListBackupVaultsPaginator(client, &backup.ListBackupVaultsInput{})
+	for paginator.HasMorePages() {
+		output, err := paginator.NextPage(ctx)
+		if err != nil {
+			return nil, provider.NewProviderError("aws", "list_backup_vaults", "", err)
+		}
+		for _, v := range output.BackupVaultList {
+			name := aws.ToString(v.BackupVaultName)
+			arn := aws.ToString(v.BackupVaultArn)
+			resources = append(resources, types.Resource{
+				ID: name, Name: name, ARN: arn, Type: "aws_backup_vault",
+				Region: region, Account: p.accountID, Provider: "aws",
+				Tags: p.bulkTags(region, arn), CreatedAt: v.CreationDate,
+			})
+		}
+	}
+	log.Debug("AWS Backup: Found %d vaults in %s", len(resources), region)
+	return resources, nil
+}
+
+func (p *Provider) listFSxFileSystems(ctx context.Context, region string) ([]types.Resource, error) {
+	return p.listFSxFileSystemsFrom(ctx, p.getFSxClient(region), region)
+}
+
+func (p *Provider) listFSxFileSystemsFrom(ctx context.Context, client fsxAPI, region string) ([]types.Resource, error) {
+	var resources []types.Resource
+	paginator := fsx.NewDescribeFileSystemsPaginator(client, &fsx.DescribeFileSystemsInput{})
+	for paginator.HasMorePages() {
+		output, err := paginator.NextPage(ctx)
+		if err != nil {
+			return nil, provider.NewProviderError("aws", "list_fsx_file_systems", "", err)
+		}
+		for _, fs := range output.FileSystems {
+			id := aws.ToString(fs.FileSystemId)
+			r := types.Resource{
+				ID: id, Name: id, ARN: aws.ToString(fs.ResourceARN), Type: "aws_fsx_file_system",
+				Region: region, Account: p.accountID, Provider: "aws",
+				Tags: fsxTagsToMap(fs.Tags), CreatedAt: fs.CreationTime,
+			}
+			if name, ok := r.Tags["Name"]; ok {
+				r.Name = name
+			}
+			resources = append(resources, r)
+		}
+	}
+	log.Debug("AWS FSx: Found %d file systems in %s", len(resources), region)
+	return resources, nil
+}
+
+func fsxTagsToMap(tags []fsxtypes.Tag) map[string]string {
+	result := make(map[string]string)
+	for _, tag := range tags {
+		if tag.Key != nil && tag.Value != nil {
+			result[*tag.Key] = *tag.Value
+		}
+	}
+	return result
+}
+
+func (p *Provider) listBeanstalkEnvironments(ctx context.Context, region string) ([]types.Resource, error) {
+	return p.listBeanstalkEnvironmentsFrom(ctx, p.getBeanstalkClient(region), region)
+}
+
+func (p *Provider) listBeanstalkEnvironmentsFrom(ctx context.Context, client beanstalkAPI, region string) ([]types.Resource, error) {
+	if !p.requireBulkTags(region, "Elastic Beanstalk") {
+		return nil, nil
+	}
+	var resources []types.Resource
+	var next *string
+	for {
+		output, err := client.DescribeEnvironments(ctx, &elasticbeanstalk.DescribeEnvironmentsInput{NextToken: next})
+		if err != nil {
+			return nil, provider.NewProviderError("aws", "list_beanstalk_environments", "", err)
+		}
+		for _, e := range output.Environments {
+			name := aws.ToString(e.EnvironmentName)
+			arn := aws.ToString(e.EnvironmentArn)
+			resources = append(resources, types.Resource{
+				ID: aws.ToString(e.EnvironmentId), Name: name, ARN: arn, Type: "aws_elastic_beanstalk_environment",
+				Region: region, Account: p.accountID, Provider: "aws",
+				Tags: p.bulkTags(region, arn), CreatedAt: e.DateCreated,
+			})
+		}
+		if output.NextToken == nil || len(output.Environments) == 0 {
+			break
+		}
+		next = output.NextToken
+	}
+	log.Debug("AWS Elastic Beanstalk: Found %d environments in %s", len(resources), region)
+	return resources, nil
+}

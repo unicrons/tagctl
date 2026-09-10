@@ -1,0 +1,1 @@
+# Paths the secret scan skips, one per line (see .githooks/check-secrets.sh)

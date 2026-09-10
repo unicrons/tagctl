@@ -1,0 +1,11 @@
+# Invalid: bad regex pattern
+clouds:
+  aws:
+    - profile: default
+      regions:
+        - us-east-1
+
+policy:
+  required:
+    - name: owner
+      pattern: "[invalid(regex"

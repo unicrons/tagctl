@@ -1,0 +1,7 @@
+# Invalid: missing clouds section
+policy:
+  required:
+    - name: environment
+      values:
+        - dev
+        - prod

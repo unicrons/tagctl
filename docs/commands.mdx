@@ -1,0 +1,1200 @@
+---
+title: 'Commands'
+description: 'Complete CLI reference for tagctl'
+icon: 'terminal'
+---
+
+## Global Flags
+
+These flags work with all commands:
+
+| Flag | Short | Default | Description |
+|------|-------|---------|-------------|
+| `--config` | `-c` | `./tagctl.yaml` | Path to configuration file |
+| `--output` | `-o` | `table` | Output format: `table` or `json`; `csv` is honoured by `scan` only |
+| `--log-level` | `-l` | `error` | Log level: `error`, `info`, `debug`; an unknown value falls back to `info` with a warning |
+| `--version` | - | - | Print the version and exit |
+| `--help` | `-h` | - | Show help for command |
+
+### Log Levels
+
+| Level | Description |
+|-------|-------------|
+| `error` | Only show errors (default) |
+| `info` | Show what each step is doing |
+| `debug` | Show detailed trace for troubleshooting. All levels write to stderr, so stdout stays pipeable |
+
+## tagctl init
+
+Generate a new configuration file with example settings.
+
+```bash
+tagctl init [flags]
+```
+
+<ParamField path="--name" type="string" default="tagctl.yaml">
+  Name of the config file to create
+</ParamField>
+
+<CodeGroup>
+```bash Basic
+tagctl init
+```
+
+```bash Custom name
+tagctl init --name production.yaml
+```
+</CodeGroup>
+
+## tagctl validate
+
+Validate the configuration file.
+
+```bash
+tagctl validate [flags]
+```
+
+<Accordion title="Example output">
+```
+Validating tagctl.yaml...
+
+✓ Cloud providers configured: 1
+✓ Required tags defined: 3
+✓ Optional tags defined: 2
+✓ Auto-fix rules defined: 4
+✓ Ignore rules defined: 2
+
+Configuration is valid!
+```
+</Accordion>
+
+<Accordion title="Example with problems">
+```
+Validating tagctl.yaml...
+
+✓ Cloud providers configured: 1
+✓ Required tags defined: 1
+
+Warnings:
+  ⚠ clouds.aws should be a list of accounts: write '- regions:' (or '- profile:') instead of 'regions:'
+
+Errors:
+  ✗ aws[0]: invalid region "eu-west1"
+Error: configuration has 1 error(s)
+```
+</Accordion>
+
+Warnings do not fail the command; errors do. The same validation runs at the
+start of every other command, so `scan` refuses a broken file before calling
+AWS. See [Configuration → Validation](/configuration#validation) for the full
+list of checks.
+
+| Exit Code | Meaning |
+|-----------|---------|
+| 0 | Configuration is valid |
+| 1 | Configuration has errors |
+
+## tagctl scan
+
+Scan cloud resources and report tag compliance.
+
+```bash
+tagctl scan [flags]
+```
+
+<ParamField path="--region" type="string[]" default="all regions">
+  AWS region(s) to scan; overrides `regions` in the config file. If omitted, all available regions are discovered and scanned. Also filters S3 buckets by their region.
+</ParamField>
+
+<ParamField path="--profile, -p" type="string">
+  AWS profile from `~/.aws/config`; overrides `profile` in the config (which must have zero or one AWS entry)
+</ParamField>
+
+<ParamField path="--role" type="string">
+  IAM role ARN to assume. `--external-id`, `--session-duration` (900–43200, default 3600), `--role-session-name` (default `tagctl`) and `--mfa-serial` (TOTP read from stdin) refine it
+</ParamField>
+
+<ParamField path="--verbose" type="boolean" default="false">
+  Show all findings; by default the table stops after the first 10 (`... and N more findings`)
+</ParamField>
+
+<ParamField path="--mock" type="boolean" default="false">
+  Use mock data for demonstration
+</ParamField>
+
+<CodeGroup>
+```bash Scan all regions (default)
+tagctl scan
+```
+
+```bash Scan specific region
+tagctl scan --region eu-west-1
+```
+
+```bash Scan multiple regions
+tagctl scan --region eu-west-1 --region us-east-1
+```
+
+```bash Another profile or an assumed role
+tagctl scan --profile production
+tagctl scan --role arn:aws:iam::123456789012:role/TagAudit --external-id 4f2c9a
+```
+
+```bash Verbose with debug logging
+tagctl scan --verbose --log-level debug
+```
+
+```bash JSON output
+tagctl scan --output json
+```
+
+```bash CSV export
+tagctl scan --output csv > compliance.csv
+```
+</CodeGroup>
+
+<Accordion title="Table output example">
+```
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                  Tag Compliance Report
+                  2026-02-02 10:51:48
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Overall: 65% compliant █████████████░░░░░░░ (98/150 resources)
+
+By Account:
+  ACCOUNT         TOTAL  COMPLIANT  COMPLIANCE
+  ───────         ─────  ─────────  ──────────
+  aws/production  100    85         85% ████████░░
+  aws/staging     50     13         26% ██░░░░░░░░
+
+By Required Tag:
+  TAG          PRESENT  MISSING  INVALID  COMPLIANCE
+  ───          ───────  ───────  ───────  ──────────
+  environment  140      10       0        93% █████████░
+  cost-center  98       52       5        62% ██████░░░░
+  owner        75       75       10       43% ████░░░░░░
+
+Findings:
+  STATUS  RESOURCE       TYPE          TAG          VALUE
+  ──────  ────────       ────          ───          ─────
+  FAILED  web-staging-1  aws_instance  cost-center  (missing)
+  FAILED  api-staging-2  aws_instance  owner        (missing)
+  ... and 65 more findings (use --verbose to see all)
+
+Summary: 313 PASS | 67 FAILED
+
+Run 'tagctl plan' to see suggested fixes.
+
+Detailed results saved to:
+  • JSON: /path/to/output/scan-20260202-105148.json
+  • CSV:  /path/to/output/scan-20260202-105148.csv
+  • HTML: /path/to/output/scan-20260202-105148.html
+```
+</Accordion>
+
+### Output Files
+
+Every scan automatically generates reports in the `output/` directory:
+
+| Format | File | Description |
+|--------|------|-------------|
+| JSON | `scan-TIMESTAMP.json` | Complete scan results with all metadata and findings |
+| CSV | `scan-TIMESTAMP.csv` | All findings (PASS/FAILED) with resource ARNs |
+| HTML | `scan-TIMESTAMP.html` | Standalone visual report: per-tag coverage, resource-type × tag matrix, accounts and a findings table with status filter and pager (25–250 rows or all). No external assets, opens offline; printing shows every row of the active filter |
+
+Each finding includes:
+- **Status**: `PASS` (tag present and valid) or `FAILED` (missing or invalid)
+- **Resource ARN**: Full AWS ARN for the resource
+- **Reason**: Why the finding was generated
+
+<Tip>
+The `--output` flag controls what's printed to stdout. Output files are **always** generated regardless of this flag.
+</Tip>
+
+<Accordion title="JSON output example">
+```json
+{
+  "scanned_at": "2026-02-02T10:51:48Z",
+  "total_resources": 150,
+  "compliant_count": 98,
+  "violation_count": 52,
+  "compliance_percent": 65.3,
+  "findings": [
+    {
+      "resource": {
+        "id": "i-0abc123",
+        "arn": "arn:aws:ec2:us-east-1:123456789012:instance/i-0abc123",
+        "name": "web-prod-api-1",
+        "type": "aws_instance"
+      },
+      "tag": "environment",
+      "status": "PASS",
+      "reason": "compliant",
+      "actual": "prod"
+    },
+    {
+      "resource": {...},
+      "tag": "cost-center",
+      "status": "FAILED",
+      "reason": "missing"
+    }
+  ],
+  "violations": [...],
+  "by_account": {...},
+  "by_tag": {...}
+}
+```
+</Accordion>
+
+## tagctl plan
+
+Generate a plan to fix tag violations based on scan results.
+
+```bash
+tagctl plan [flags]
+```
+
+<ParamField path="--scan" type="string" default="latest in output/">
+  Path to scan results file to use. If not specified, uses the most recent scan.
+</ParamField>
+
+<ParamField path="--out" type="string" default="output/plan-TIMESTAMP.json">
+  Save plan to specific file
+</ParamField>
+
+<CodeGroup>
+```bash Generate plan from latest scan
+tagctl plan
+```
+
+```bash Use specific scan file
+tagctl plan --scan output/scan-20260202-143052.json
+```
+
+```bash Custom output file (a bare name lands in output/, a path is used as is)
+tagctl plan --out fixes.json
+```
+
+```bash JSON output
+tagctl plan --output json
+```
+</CodeGroup>
+
+<Accordion title="Plan output example">
+```
+Planned changes:
+
+aws_instance (web-prod-api-1)
+  + environment:  "prod"     (inferred: name contains '-prod-')
+
+aws_s3_bucket (legacy-data-2019)
+  + owner:        "platform-team@company.com"  (default)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Summary: 2 resources will be modified
+  2 tags will be added
+  0 tags will be updated
+  0 tags will be removed
+
+Plan saved to: output/plan-20260202-105148.json
+Run 'tagctl apply' to execute this plan.
+```
+</Accordion>
+
+### Change Symbols
+
+| Symbol | Meaning |
+|--------|---------|
+| `+` | Tag will be added |
+| `~` | Tag will be updated |
+| `-` | Tag will be removed |
+
+### Change Reasons
+
+| Reason | Description |
+|--------|-------------|
+| `inferred` | Value derived from resource name |
+| `inherited` | Reserved for inheritance rules, which `plan` does not apply yet (only the `--mock` planner emits it) |
+| `default` | Default value applied |
+
+## tagctl apply
+
+Apply the planned tag changes.
+
+```bash
+tagctl apply [flags]
+```
+
+<ParamField path="--plan" type="string" default="latest in output/">
+  Plan file to apply. If not specified, uses the most recent plan.
+</ParamField>
+
+<ParamField path="--profile, -p" type="string">
+  AWS profile from `~/.aws/config`; overrides `profile` in the config (which must have zero or one AWS entry)
+</ParamField>
+
+<ParamField path="--role" type="string">
+  IAM role ARN to assume. `--external-id`, `--session-duration` (900–43200, default 3600), `--role-session-name` (default `tagctl`) and `--mfa-serial` (TOTP read from stdin) refine it
+</ParamField>
+
+<ParamField path="--auto-approve" type="boolean" default="false">
+  Skip confirmation prompt
+</ParamField>
+
+<ParamField path="--mock" type="boolean" default="false">
+  Simulate the apply without calling any cloud API. Also used automatically when the config has no cloud provider
+</ParamField>
+
+<CodeGroup>
+```bash Interactive apply (uses latest plan)
+tagctl apply
+```
+
+```bash Apply specific plan
+tagctl apply --plan output/plan-20260202-143052.json
+```
+
+```bash Auto-approve (CI/CD)
+tagctl apply --auto-approve
+```
+
+```bash Full workflow
+tagctl scan
+tagctl plan
+tagctl apply
+```
+</CodeGroup>
+
+<Accordion title="Apply output example">
+```
+Applying plan from output/plan-20260202-105148.json
+Plan created at: 2026-02-02 10:51:48
+
+Changes to apply:
+  • 3 resources will be modified
+  • 5 tags will be added
+  • 0 tags will be updated
+  • 0 tags will be removed
+
+Do you want to apply these changes? [y/N]: y
+
+Applying changes...
+
+  [1/5] aws_instance.i-0abc123 (environment: prod) ✓
+  [2/5] aws_instance.i-0abc123 (team: backend) ✓
+  [3/5] aws_ebs_volume.vol-xyz789 (environment: prod) ✓
+  [4/5] aws_s3_bucket.legacy-bucket (owner: platform@co.com) ✓
+  [5/5] aws_s3_bucket.legacy-bucket (needs-review: true) ✓
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Applied successfully: 5 changes
+Errors: 0
+Duration: 312ms
+
+Run 'tagctl scan' to verify compliance.
+```
+</Accordion>
+
+| Exit Code | Meaning |
+|-----------|---------|
+| 0 | All changes applied successfully |
+| 1 | Some changes failed (`Errors: N` and a `Failed changes:` list are printed) |
+
+## tagctl evaluate
+
+Evaluate resources from external JSON input against the tag policy. This command is designed for integration with tools like [Prowler](https://github.com/prowler-cloud/prowler).
+
+```bash
+tagctl evaluate [flags]
+```
+
+<ParamField path="--resources" type="string" default="-">
+  Path to JSON file with resources, or `-` for stdin
+</ParamField>
+
+<ParamField path="--policy" type="string" default="auto-discover">
+  Path to tagctl.yaml policy file. If not specified, auto-discovers from current directory.
+</ParamField>
+
+<CodeGroup>
+```bash Evaluate from file
+tagctl evaluate --resources resources.json
+```
+
+```bash Evaluate from stdin
+cat resources.json | tagctl evaluate
+```
+
+```bash With specific policy
+tagctl evaluate --resources resources.json --policy custom.yaml
+```
+
+The policy must define at least one required or optional tag; `--policy` files
+are loaded as-is, without the `tagctl validate` checks that the auto-discovered
+`tagctl.yaml` gets.
+
+```bash Filter failed findings with jq
+tagctl evaluate --resources resources.json | jq '.findings[] | select(.status == "FAILED")'
+```
+</CodeGroup>
+
+### Input Format
+
+Resources must be provided as a JSON array:
+
+```json
+[
+  {
+    "id": "i-0abc123def456",
+    "arn": "arn:aws:ec2:us-east-1:123456789:instance/i-0abc123def456",
+    "type": "aws_instance",
+    "name": "web-prod-api-1",
+    "region": "us-east-1",
+    "account": "123456789",
+    "provider": "aws",
+    "tags": {
+      "environment": "prod",
+      "team": "backend"
+    }
+  }
+]
+```
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `id` | Yes | Resource identifier |
+| `arn` | No | AWS ARN (optional) |
+| `type` | Yes | Resource type (e.g., `aws_instance`, `aws_s3_bucket`) |
+| `name` | No | Human-readable name |
+| `region` | No | Cloud region |
+| `account` | No | Cloud account ID |
+| `provider` | No | Cloud provider (`aws`, `gcp`, `azure`) |
+| `tags` | Yes | Map of tag key-value pairs |
+
+### Output Format
+
+The command outputs JSON with findings and summary:
+
+```json
+{
+  "findings": [
+    {
+      "resource": {
+        "id": "i-0abc123def456",
+        "type": "aws_instance",
+        "name": "web-prod-api-1"
+      },
+      "tag": "cost-center",
+      "status": "FAILED",
+      "reason": "missing"
+    },
+    {
+      "resource": {
+        "id": "i-0abc123def456",
+        "type": "aws_instance",
+        "name": "web-prod-api-1"
+      },
+      "tag": "environment",
+      "status": "PASS",
+      "reason": "compliant",
+      "actual": "prod"
+    }
+  ],
+  "summary": {
+    "total_resources": 1,
+    "total_findings": 2,
+    "passed": 1,
+    "failed": 1
+  }
+}
+```
+
+### Finding Status
+
+| Status | Description |
+|--------|-------------|
+| `PASS` | Tag is present and valid |
+| `FAILED` | Tag is missing or invalid |
+
+### Finding Reasons
+
+| Reason | Description |
+|--------|-------------|
+| `compliant` | Tag present with valid value |
+| `missing` | Required tag not present |
+| `invalid_value` | Tag value not in allowed list |
+| `invalid_format` | Tag value doesn't match pattern |
+
+### Integration Examples
+
+<Tabs>
+  <Tab title="Prowler Integration">
+```bash
+# Export resources from Prowler (future)
+prowler aws --services ec2 s3 -M json | jq '.resources' > resources.json
+
+# Evaluate with tagctl
+tagctl evaluate --resources resources.json
+```
+  </Tab>
+  <Tab title="AWS CLI">
+```bash
+# Get resources via AWS Resource Groups Tagging API
+aws resourcegroupstaggingapi get-resources --output json | \
+  jq '[.ResourceTagMappingList[] | {
+    id: .ResourceARN | split("/")[-1],
+    arn: .ResourceARN,
+    type: .ResourceARN | split(":")[2],
+    tags: (.Tags // [] | map({(.Key): .Value}) | add // {})
+  }]' | tagctl evaluate
+```
+  </Tab>
+  <Tab title="CI/CD Pipeline">
+```yaml
+# GitHub Actions example
+- name: Check tag compliance
+  run: |
+    cat resources.json | tagctl evaluate --policy .tagctl.yaml > results.json
+    FAILED=$(jq '.summary.failed' results.json)
+    if [ "$FAILED" -gt 0 ]; then
+      echo "Found $FAILED non-compliant resources"
+      exit 1
+    fi
+```
+  </Tab>
+</Tabs>
+
+| Exit Code | Meaning |
+|-----------|---------|
+| 0 | Evaluation completed successfully |
+| 1 | Error loading resources or policy |
+
+## tagctl diff
+
+Compares two scans and reports what moved between them.
+
+A compliance percentage on its own says little: `62%` is a crisis if last week
+was `88%`, and a triumph if last week was `40%`. `diff` reports the drift, which
+is both the number teams act on and the one a pipeline can be gated on.
+
+```bash
+# Compare the two most recent scans in output/
+tagctl diff
+
+# Compare two specific scans
+tagctl diff output/scan-20260101-120000.json output/scan-20260201-120000.json
+
+# Treat one file as the baseline and compare it against the latest scan
+tagctl diff baseline.json
+
+# Machine-readable
+tagctl diff -o json
+```
+
+### Flags
+
+| Flag | Description |
+|------|-------------|
+| `--fail-on-regression` | Exit non-zero if any finding regressed |
+
+### What counts as drift
+
+A finding is identified by the resource it belongs to **plus** the tag it
+checks, so one resource failing two tags is two findings that move
+independently.
+
+| Category | Meaning |
+|----------|---------|
+| **Regressed** | Fails now, did not fail in the baseline |
+| **Resolved** | Failed in the baseline, does not fail now |
+| **Still failing** | Failed in both scans |
+| **New resources** | Present only in the current scan |
+| **Removed resources** | Present only in the baseline scan |
+
+A resource with the same ID in a different account is a different resource.
+
+### Example output
+
+```
+Baseline: output/scan-20260101-100000.json (2026-01-01 10:00:00)
+Current:  output/scan-20260201-100000.json (2026-02-01 10:00:00)
+
+Compliance: 88.0% → 62.0% (-26.0%)
+
+Regressed: 2    Resolved: 1    Still failing: 0
+New resources: 1    Removed resources: 1
+
+Regressions:
+  ✗ aws_instance i-1 (111) — required tag 'owner' is missing
+  ✗ aws_lb i-9 (111) — required tag 'owner' is missing
+
+Resolved:
+  ✓ aws_instance i-2 (111) — tag 'owner' is now compliant
+
+By tag:
+  owner                     88.0% →  62.0%  (-26.0%)
+```
+
+### Gating a pipeline on drift
+
+Adopting tagctl on an estate that is already non-compliant does not have to turn
+the build red on day one. Gate on the *change* instead of the absolute number:
+
+```bash
+tagctl scan
+tagctl diff baseline-scan.json --fail-on-regression
+```
+
+The build fails only when something got worse than the committed baseline.
+
+## tagctl cost
+
+Joins your tag policy with AWS Cost Explorer and answers the question that gets
+tagging work funded: **how much of this bill cannot be attributed to anyone?**
+
+Cost allocation tags are not retroactive. Spend that landed on an untagged
+resource can never be assigned to a team, however diligently you tag afterwards.
+The number this reports is a permanent loss, not a backlog item — which is why
+it argues for the work in a way a compliance percentage never does.
+
+```bash
+# The last 30 days, for the tags your policy requires
+tagctl cost
+
+# A specific window
+tagctl cost --days 90
+
+# Specific tags, whatever the policy says
+tagctl cost --tag owner --tag cost-center
+
+# Fail when attribution is too low
+tagctl cost --fail-under 80
+```
+
+### Flags
+
+| Flag | Description |
+|------|-------------|
+| `--days <n>` | How many days back to report on (default `30`, minimum `1`) |
+| `--tag <tag>` | Tag to report on (repeatable; defaults to the policy's required tags) |
+| `--fail-under <pct>` | Fail if any tag accounts for less than this share of spend |
+| `--profile <name>`, `-p` | AWS profile (defaults to the first configured account). Cost Explorer is always called through `us-east-1` |
+| `--role <arn>` | IAM role to assume; `--external-id`, `--session-duration`, `--role-session-name` and `--mfa-serial` refine it |
+| `--output json` | Machine-readable report instead of the table |
+
+### Activate your cost allocation tags first
+
+<Warning>
+  Cost Explorer only groups by a tag once it has been **activated as a cost
+  allocation tag** in the Billing console, under *Cost allocation tags*. A tag
+  that has never been activated reports as accounting for nothing at all, which
+  looks identical to nothing being tagged.
+
+  Activation is also not retroactive: it applies from the month you enable it.
+</Warning>
+
+### IAM permissions
+
+`cost` needs one extra permission beyond the read-only scan policy:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": ["ce:GetCostAndUsage"],
+      "Resource": "*"
+    }
+  ]
+}
+```
+
+Cost Explorer is a global service reached through `us-east-1`, and it reports
+for the whole payer account, so a single profile is enough regardless of how
+many accounts you scan.
+
+<Note>
+  Cost Explorer charges per paginated API request. `cost` makes one request per
+  tag per page of results, so a report over a handful of tags costs cents, not
+  dollars.
+</Note>
+
+### Example output
+
+```
+Period: 2026-01-08 to 2026-02-07 (30 days)
+Total spend: 184320.55 USD
+
+  cost-center
+      attributed:      36864.11 USD  (20.0%)
+      unattributed:   147456.44 USD  (80.0%)
+      top values:
+        cc-platform                      21033.20 USD
+        cc-data                          15830.91 USD
+
+  owner
+      attributed:     165888.50 USD  (90.0%)
+      unattributed:    18432.05 USD  (10.0%)
+      top values:
+        platform@example.com             98221.33 USD
+        data@example.com                 67667.17 USD
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Worst attribution: cost-center, leaving 147456.44 USD unattributable over 30 days.
+At this rate that is 1794053.35 USD a year of spend nobody can be billed for.
+```
+
+Tags are listed worst-attributed first, because that is the one worth fixing.
+
+### How the numbers are derived
+
+Cost Explorer groups spend by tag key and returns one group per value, plus a
+group with an **empty value** covering everything that does not carry the tag.
+That empty group is the unattributed figure.
+
+Every tag is measured over the same total spend, so the totals are not summed
+across tags: `owner` at 90% and `cost-center` at 20% describe the same bill from
+two angles.
+
+## tagctl terraform
+
+Evaluates the tags in a Terraform plan or state file against the same policy
+the live scan uses, before anything is created.
+
+Cost allocation tags are not retroactive. A resource that runs untagged for two
+weeks has two weeks of spend that can never be attributed to anyone. Catching a
+missing tag in a pull request costs nothing.
+
+```bash
+# The usual pattern
+terraform plan -out=tfplan
+terraform show -json tfplan | tagctl terraform
+
+# Or from a file
+terraform show -json tfplan > plan.json
+tagctl terraform --plan plan.json
+
+# Only what this change creates or updates
+tagctl terraform --plan plan.json --changed-only
+
+# Check what is already deployed
+terraform show -json > state.json
+tagctl terraform --state state.json
+```
+
+### Flags
+
+| Flag | Description |
+|------|-------------|
+| `--plan <file>` | `terraform show -json` output for a plan (`-` for stdin, the default) |
+| `--state <file>` | `terraform show -json` output for a state file |
+| `--changed-only` | Only evaluate resources the plan creates or updates; rejected together with `--state` |
+| `--output json` | Machine-readable findings instead of the table |
+
+`--plan` and `--state` are mutually exclusive.
+
+All the [CI gate flags](#ci-gates) work here too, so a plan can fail a pull
+request and annotate it with SARIF.
+
+### What gets evaluated
+
+| Input | Evaluated |
+|-------|-----------|
+| Managed resources with a tag attribute | Yes |
+| Data sources | No — read-only lookups cannot be tagged |
+| Types with no tag attribute (an IAM policy, say) | No — flagging them would be noise |
+| A resource whose tags are unset (`"tags": null`) | Yes, reported as untagged |
+| With `--changed-only`: create and update | Yes |
+| With `--changed-only`: delete and no-op | No — a resource being destroyed needs no tags, and a no-op is already live |
+
+Child modules are walked recursively, at any depth.
+
+### default_tags are respected
+
+Tags are read from `tags_all` when Terraform provides it, which is the set that
+includes the AWS provider's `default_tags`. Reading `tags` alone would report a
+violation on every resource the provider tags for you:
+
+```hcl
+provider "aws" {
+  default_tags {
+    tags = {
+      owner       = "team@example.com"
+      environment = "prod"
+    }
+  }
+}
+```
+
+The Google and Kubernetes providers use `labels`, which is read the same way.
+
+### Example output
+
+```
+Source: plan.json (resources being created or updated)
+Checked 2 resources against the tag policy
+
+1 of 2 resources would be non-compliant (50.0% compliant):
+
+  aws_s3_bucket.logs
+      ✗ required tag 'owner' is missing
+      ✗ required tag 'environment' is missing
+
+Fix the tags in your Terraform, or set them with the provider's default_tags.
+```
+
+Resources are grouped by Terraform address, which is what the author has to go
+and edit.
+
+### Blocking a pull request
+
+```yaml
+- name: Check tags on the plan
+  run: |
+    terraform show -json tfplan > plan.json
+    tagctl terraform --plan plan.json --changed-only \
+      --fail-under 100 --sarif tagctl.sarif
+```
+
+`--changed-only --fail-under 100` is the useful combination for a pull request:
+everything this change touches must be fully compliant, without holding the
+author responsible for the rest of the estate.
+
+## tagctl normalize
+
+Finds tag values that mean the same thing but are spelled differently, and
+proposes one canonical spelling for each group.
+
+`prod`, `Production`, `PROD` and `production` are four different strings to
+every cost report that groups by that tag, so one inconsistency across a large
+fleet silently splits your spend across four buckets. A missing-tag check never
+catches this: every one of those resources *is* tagged.
+
+```bash
+# Report drift in the most recent scan
+tagctl normalize
+
+# Read from a specific scan or resource file
+tagctl normalize --scan output/scan-20260201-120000.json
+tagctl normalize --resources resources.json
+
+# Write a remediation plan, then apply it
+tagctl normalize --out output/normalize-plan.json
+tagctl apply --plan output/normalize-plan.json
+
+# Fail a pipeline when drift appears
+tagctl normalize --fail-on-drift
+```
+
+### Flags
+
+| Flag | Description |
+|------|-------------|
+| `--scan <file>` | Scan file to read resources from (default: most recent scan) |
+| `--resources <file>` | Resource JSON, as accepted by `tagctl evaluate`; mutually exclusive with `--scan` |
+| `--max-distance <n>` | Edit distance for typo matching; `0` disables it, negative values are rejected (default `1`) |
+| `--abbreviations` | Group a value with a longer one it is a prefix of (default `true`) |
+| `--ignore-tag <tag>` | Tag key to leave alone (repeatable) |
+| `--out <file>` | Write a remediation plan to this path |
+| `--fail-on-drift` | Exit non-zero if any drift is found |
+| `--output json` | Machine-readable report instead of the table |
+
+Values listed under `policy.optional[].values` count as canonical spellings, the same as `policy.required[].values`.
+
+### How values are grouped
+
+Three signals, in decreasing order of confidence:
+
+| Signal | Matches | Example |
+|--------|---------|---------|
+| `casing` | Differ only in case, separators or spacing | `team-platform` / `Team_Platform` / `team platform` |
+| `typo` | Within `--max-distance` edits of each other | `staging` / `stagng` |
+| `abbreviation` | One is a prefix of the other, at least 3 characters | `prod` / `production` |
+
+### Safety rules
+
+These are what keep the proposals trustworthy:
+
+- **A value your policy allows is never rewritten**, and is preferred as the
+  canonical spelling even when a different spelling is more common.
+- **Two values the policy both allows are never collapsed into each other.**
+  Without this, `dev` and `devops` would be merged, which would be wrong.
+- **The `Name` tag is always skipped.** Its values are unique by design, so
+  clustering it would propose renaming half the estate.
+- **Nothing is written.** `normalize` reports, and optionally emits a plan you
+  review before running `apply`.
+
+### Choosing the canonical value
+
+1. A value the policy allows, if the group contains one.
+2. Otherwise the most common spelling.
+3. Ties break case-insensitively by name, then in favour of the plainer,
+   lower-case form, so a tie never leaves a shouted value as canonical.
+
+### Example output
+
+```
+Source: resources.json
+Scanned 29 resources across 2 tag(s)
+
+Found 3 cluster(s) of inconsistent values, affecting 16 resource(s):
+
+  environment → "production"  (allowed by policy, 12 resources)
+      "Production"               5 resources [casing]
+      "PROD"                     3 resources [abbreviation]
+      "prod"                     2 resources [abbreviation]
+
+  environment → "staging"  (allowed by policy, 6 resources)
+      "stagng"                   1 resource  [typo]
+
+  team → "platform"  (most common, 22 resources)
+      "Platform"                 5 resources [casing]
+```
+
+### Configuration
+
+```yaml
+normalize:
+  max_distance: 2             # edit distance for typos (default 1, 0 disables)
+  match_abbreviations: true   # group prod with production (default true)
+  ignore_tags:                # on top of Name, always ignored
+    - build-id
+    - commit-sha
+```
+
+Flags override the config file.
+
+## CI gates
+
+`scan` and `evaluate` both accept the same set of gate flags, which turn tagctl
+from a report into a build step.
+
+### Flags
+
+| Flag | Description |
+|------|-------------|
+| `--fail-under <pct>` | Fail if compliance is below this percentage |
+| `--fail-on-new` | Fail if any finding regressed against `--baseline` |
+| `--baseline <file>` | Baseline scan `--fail-on-new` compares against |
+| `--sarif <path>` | Also write findings as SARIF (`-` for stdout) |
+| `--junit <path>` | Also write findings as JUnit XML (`-` for stdout) |
+| `--ocsf <path>` | Also write findings as OCSF Compliance Finding events (`-` for stdout) |
+
+Reports are written **before** the gate runs, so a failing build still uploads
+its findings.
+
+### Choosing a gate
+
+The two checks answer different questions.
+
+`--fail-under` is an absolute bar: *this estate must be at least this
+compliant*. Use it once you are near the target.
+
+`--fail-on-new` is relative: *whatever state we are in, do not make it worse*.
+This is what lets a team adopt tagctl on a large non-compliant estate without
+turning the build red for months.
+
+```bash
+# Absolute bar
+tagctl scan --fail-under 90
+
+# Do not regress against a committed baseline
+tagctl scan --fail-on-new --baseline baseline-scan.json
+
+# Both
+tagctl scan --fail-under 75 --fail-on-new --baseline baseline-scan.json
+```
+
+Without a `--baseline`, `--fail-on-new` is a usage error rather than a silent
+pass: there is nothing to compare against, and quietly passing would hide a
+regression.
+
+### SARIF
+
+SARIF 2.1.0 output uploads straight into GitHub code scanning, so violations
+appear in the Security tab and as pull request annotations.
+
+- One **rule per tag**, so alerts group by the tag that failed.
+- A **missing** required tag is `error`; an invalid value is `warning`. A
+  resource with no owner tag cannot be attributed at all, while one with a
+  misspelt value is at least identifiable.
+- Only failures are emitted. A SARIF result means "look at this".
+- Each result carries a **partial fingerprint** of the resource and tag, so
+  GitHub keeps an alert attached across scans instead of closing and reopening
+  it every run.
+
+Cloud resources have no source file, so results are anchored to your policy file
+(`tagctl.yaml` by default, or whatever `--config` points at) and carry the
+resource identity as a SARIF *logical location*.
+
+### JUnit
+
+JUnit XML is understood by essentially every CI system.
+
+- Cases are grouped into **one suite per tag**, which makes it obvious when
+  every failure is the same tag.
+- **Passing findings are included**, so the reported ratio is truthful rather
+  than a wall of failures with no denominator.
+- Each failure body carries the resource, type, account, region, expected and
+  actual values, and the ARN, so it can be acted on without opening the scan.
+
+### OCSF
+
+`--ocsf` writes every finding as an [OCSF](https://schema.ocsf.io) 1.4
+**Compliance Finding** event (`class_uid` 2003), the class the schema defines
+for "results of evaluations performed against resources to check compliance
+with a standard", which is exactly what a tag policy check is.
+
+- **Passing findings are included** with `compliance.status` `Pass`, for the
+  same reason JUnit includes them: a consumer needs the denominator.
+- `finding_info.uid` is the same `resource#tag` identity SARIF uses as its
+  fingerprint, so a SARIF alert and an OCSF event for the same problem share
+  an id.
+- The policy rule travels in `compliance.requirements`; the tag name is the
+  `compliance.control`.
+
+The full field mapping, an example event and ingestion notes are in
+[OCSF output](/integrations/ocsf).
+
+### GitHub Actions
+
+```yaml
+name: Tag compliance
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'
+  pull_request:
+
+permissions:
+  contents: read
+  security-events: write   # required to upload SARIF
+
+jobs:
+  tag-compliance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Install tagctl
+        run: go install github.com/unicrons/tagctl/cmd/tagctl@latest
+
+      - name: Scan
+        run: |
+          tagctl scan \
+            --sarif tagctl.sarif \
+            --junit tagctl-junit.xml \
+            --ocsf tagctl.ocsf.json \
+            --fail-on-new --baseline .tagctl/baseline-scan.json
+
+      # Runs even when the gate failed, so findings are always visible.
+      - name: Upload SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: tagctl.sarif
+
+      - name: Publish test report
+        if: always()
+        uses: mikepenz/action-junit-report@v4
+        with:
+          report_paths: tagctl-junit.xml
+```
+
+Commit `.tagctl/baseline-scan.json` and refresh it whenever you deliberately
+accept the current state. Every regression after that fails the build.
+
+### Exit codes
+
+| Code | Meaning |
+|------|---------|
+| `0` | The gate passed, or no gate was requested |
+| `1` | The gate failed, or the command errored |
+
+The reason is printed to stderr:
+
+```
+Error: compliance gate failed: compliance is 33.3%, below the required 80.0%
+```
+
+## tagctl version
+
+Print version information.
+
+```bash
+tagctl version
+```
+
+Prints the banner followed by:
+
+```
+  Version: v1.0.0
+  Built:   2026-02-02_10:00:00
+```
+
+Binaries built with `go install` report `dev` and `unknown`; `make build`
+stamps the git revision and build time.
+
+## CI/CD Integration
+
+<Tabs>
+  <Tab title="GitHub Actions">
+```yaml
+name: Tag Compliance
+
+on:
+  schedule:
+    - cron: '0 9 * * 1'  # Every Monday
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+
+      - name: Install tagctl
+        run: go install github.com/unicrons/tagctl/cmd/tagctl@latest
+
+      - name: Run scan
+        run: tagctl scan --log-level info
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+      - name: Upload reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: compliance-reports
+          path: output/
+```
+  </Tab>
+  <Tab title="GitLab CI">
+```yaml
+tag-compliance:
+  stage: audit
+  image: golang:1.24
+  script:
+    - go install github.com/unicrons/tagctl/cmd/tagctl@latest
+    - tagctl scan --log-level info
+  artifacts:
+    paths:
+      - output/
+    reports:
+      dotenv: output/scan-*.json
+  only:
+    - schedules
+```
+  </Tab>
+</Tabs>

@@ -1,0 +1,277 @@
+---
+title: Introduction
+description: 'Audit, fix, and enforce cloud resource tags across AWS'
+---
+
+<img
+  className="block dark:hidden"
+  src="/logo/light.svg"
+  alt="tagctl logo"
+  width="200"
+/>
+<img
+  className="hidden dark:block"
+  src="/logo/dark.svg"
+  alt="tagctl logo"
+  width="200"
+/>
+
+## What is tagctl?
+
+**tagctl** is a command-line tool that helps you manage cloud resource tags across your infrastructure. It audits your AWS resources for tag compliance, suggests fixes using intelligent rules, and applies them safely with full preview and confirmation.
+
+### The Problem
+
+Cloud resource tagging is critical for:
+- **Cost allocation**: Know which team or project is spending what
+- **Security compliance**: Identify resource owners and data classification
+- **Operations**: Filter resources by environment, service, or tier
+- **Automation**: Enable tag-based policies and automation rules
+
+But maintaining consistent tags is hard:
+- Resources are created by different teams with different conventions
+- Legacy resources accumulate without proper tagging
+- Manual tagging is error-prone and time-consuming
+- Cloud consoles don't enforce tag schemas
+
+### The Solution
+
+tagctl provides a declarative, policy-driven approach to tag management:
+
+1. **Define your policy** - Specify required tags and valid values
+2. **Audit compliance** - Scan all resources and identify violations
+3. **Auto-fix intelligently** - Infer tag values from naming patterns or fall back to defaults
+4. **Apply safely** - Review all changes before they're made
+
+<CardGroup cols={2}>
+  <Card
+    title="Quick Start"
+    icon="rocket"
+    href="/getting-started"
+  >
+    Get up and running in 5 minutes
+  </Card>
+  <Card
+    title="Configuration"
+    icon="gear"
+    href="/configuration"
+  >
+    Learn how to configure tagctl
+  </Card>
+  <Card
+    title="AWS Provider"
+    icon="aws"
+    href="/providers/aws"
+  >
+    106 resource types, matching the AWS services Prowler audits
+  </Card>
+  <Card
+    title="More Providers"
+    icon="cloud"
+    href="/roadmap"
+  >
+    Kubernetes, GCP, Azure coming soon
+  </Card>
+</CardGroup>
+
+## The Workflow
+
+tagctl follows a three-step workflow inspired by infrastructure-as-code tools like Terraform:
+
+<img
+  className="block dark:hidden"
+  src="/images/workflow.svg"
+  alt="tagctl workflow: scan, plan, apply"
+/>
+<img
+  className="hidden dark:block"
+  src="/images/workflow-dark.svg"
+  alt="tagctl workflow: scan, plan, apply"
+/>
+
+<Steps>
+  <Step title="Scan">
+    Discover all taggable resources across your AWS accounts. Evaluate each resource against your tag policy and generate a compliance report with PASS/FAILED findings.
+    ```bash
+    tagctl scan
+    # → output/scan-TIMESTAMP.json
+    ```
+    The scan outputs:
+    - Overall compliance percentage
+    - Compliance breakdown by account
+    - Compliance by tag (PASS/FAILED status)
+    - List of specific violations
+  </Step>
+  <Step title="Plan">
+    Analyze violations from the scan results and generate a plan of tag changes. tagctl uses two types of rules to infer correct tag values:
+    - **Inference**: Extract tags from resource naming conventions
+    - **Defaults**: Apply fallback values for untagged resources
+    ```bash
+    tagctl plan                              # Uses latest scan
+    tagctl plan --scan output/scan-*.json    # Use specific scan
+    # → output/plan-TIMESTAMP.json
+    ```
+    The plan shows exactly what will change, why, and is saved to a file for review.
+  </Step>
+  <Step title="Apply">
+    Apply the planned changes to your cloud resources. You'll see a summary and be asked to confirm before any modifications are made.
+    ```bash
+    tagctl apply                              # Uses latest plan
+    tagctl apply --plan output/plan-*.json    # Use specific plan
+    ```
+    For CI/CD pipelines, use `--auto-approve` to skip the confirmation prompt.
+  </Step>
+</Steps>
+
+## Supported Providers
+
+| Provider | Resources | Status |
+|----------|-----------|--------|
+| **AWS** | 106 resource types across compute, networking, storage, databases, analytics, messaging, security and developer tools — the full table is on the [AWS provider](/providers/aws) page | ✅ Stable |
+| **Kubernetes** | Pods, Deployments, Services, Namespaces, ConfigMaps, Secrets | 🔜 Coming Soon |
+| **GCP** | Compute Engine, Cloud Storage, GKE | 🔜 Coming Soon |
+| **Azure** | Virtual Machines, Storage Accounts, AKS | 🔜 Coming Soon |
+
+## Key Features
+
+<AccordionGroup>
+  <Accordion title="Multi-account support">
+    Manage tags across multiple AWS accounts and regions from a single configuration file. Apply the same tag policy consistently across your entire infrastructure.
+  </Accordion>
+  <Accordion title="Intelligent auto-fix">
+    Don't just report problems—fix them. tagctl can automatically infer tag values from:
+    - **Resource names**: Extract environment from naming conventions like `web-prod-api-1`
+    - **Defaults**: Apply fallback values for resources that can't be classified
+  </Accordion>
+  <Accordion title="Safe operations">
+    Every change is previewed before it's applied. The plan/apply workflow ensures you always know exactly what will happen. Use `--output json` for programmatic review.
+  </Accordion>
+  <Accordion title="CI/CD integration">
+    Built for automation:
+    - JSON output for programmatic consumption
+    - Meaningful exit codes for pipeline logic
+    - Non-interactive mode with `--auto-approve`
+    - Scheduled compliance audits with GitHub Actions or GitLab CI
+  </Accordion>
+  <Accordion title="External tool integration">
+    Use `tagctl evaluate` to check tag compliance on resources discovered by other tools:
+    - Integrate with [Prowler](https://github.com/prowler-cloud/prowler) for security scanning
+    - Process resources from AWS Resource Groups Tagging API
+    - Evaluate JSON exports from any infrastructure tool
+  </Accordion>
+  <Accordion title="Flexible policy">
+    Define your tag policy with:
+    - **Required tags**: Tags that must be present on all resources
+    - **Allowed values**: Restrict tags to a predefined set of values
+    - **Pattern validation**: Use regex to enforce formats (e.g., email addresses)
+    - **Ignore rules**: Exclude specific resources or tags from scanning
+  </Accordion>
+</AccordionGroup>
+
+## Example Configuration
+
+Here's a complete example showing a typical production setup:
+
+```yaml
+# tagctl.yaml
+clouds:
+  aws:
+    - profile: production
+      regions: [us-east-1, eu-west-1]
+    - profile: staging
+      regions: [us-east-1]
+
+policy:
+  required:
+    - name: environment
+      description: Deployment environment
+      values: [dev, staging, prod]
+    - name: owner
+      description: Team or person responsible
+      pattern: "^.+@company\\.com$"
+    - name: cost-center
+      description: Finance cost allocation
+      pattern: "^[A-Z]{2,4}-\\d{3,6}$"
+
+rules:
+  infer:
+    - tag: environment
+      from_name:
+        - pattern: ".*-prod-.*"
+          value: prod
+        - pattern: ".*-staging-.*"
+          value: staging
+        - pattern: ".*-dev-.*"
+          value: dev
+
+  defaults:
+    - resource: "*"
+      when:
+        tag:owner: absent
+      set:
+        owner: platform-team@company.com
+        needs-review: "true"
+
+ignore:
+  resources:
+    - "aws_iam_*"
+    - "*-ephemeral"
+```
+
+## Example Output
+
+```bash
+$ tagctl scan
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                  Tag Compliance Report
+                  2026-02-02 10:51:48
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Overall: 65% compliant (98/150 resources)
+
+By Account:
+  ACCOUNT         TOTAL  COMPLIANT  COMPLIANCE
+  aws/production  100    85         85% ████████░░
+  aws/staging     50     13         26% ██░░░░░░░░
+
+By Required Tag:
+  TAG          STATUS  PRESENT  MISSING  COMPLIANCE
+  environment  PASS    140      10       93%
+  owner        FAILED  75       75       50%
+  cost-center  FAILED  98       52       65%
+
+Top Violations:
+  • i-0abc123 (web-staging-1): required tag 'cost-center' is missing
+  • i-0def456 (api-staging-2): required tag 'owner' is missing
+  • vol-xyz789: required tag 'environment' is missing
+
+Run 'tagctl plan' to see suggested fixes.
+```
+
+## Use Cases
+
+<CardGroup cols={2}>
+  <Card title="Cost Optimization" icon="dollar-sign">
+    Ensure every resource has cost allocation tags for accurate showback/chargeback to teams and projects.
+  </Card>
+  <Card title="Security Compliance" icon="shield-check">
+    Enforce data classification, owner, and compliance tags required by security policies and audits.
+  </Card>
+  <Card title="DevOps Automation" icon="robot">
+    Enable tag-based automation rules, such as auto-shutdown of dev resources or backup policies by tier.
+  </Card>
+  <Card title="Migration Projects" icon="arrow-right-arrow-left">
+    Clean up and standardize tags across merged accounts or during cloud migration projects.
+  </Card>
+</CardGroup>
+
+## Getting Help
+
+- **Documentation**: You're looking at it
+- **GitHub Issues**: [Report bugs or request features](https://github.com/unicrons/tagctl/issues)
+- **Discussions**: [Ask questions and share ideas](https://github.com/unicrons/tagctl/discussions)
+
+## Next Steps
+
+Ready to get started? Head to the [Quick Start guide](/getting-started) to install tagctl and run your first scan.

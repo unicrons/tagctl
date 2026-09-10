@@ -1,0 +1,240 @@
+---
+title: 'Auto-Fix Rules'
+description: 'Inference and default rules'
+icon: 'wand-magic-sparkles'
+---
+
+tagctl can automatically generate tag values using two types of rules:
+
+<CardGroup cols={2}>
+  <Card title="Inference" icon="magnifying-glass">
+    Derive tags from resource names
+  </Card>
+  <Card title="Defaults" icon="shield">
+    Apply fallback values
+  </Card>
+</CardGroup>
+
+Rules are applied in this order during `tagctl plan`.
+
+## Inference Rules
+
+Inference rules extract tag values from resource naming conventions.
+
+### How It Works
+
+```
+Resource name: "web-prod-api-server-1"
+                     ↓
+Pattern match: "-prod-" found
+                     ↓
+Tag applied: environment = "prod"
+```
+
+### Configuration
+
+```yaml
+rules:
+  infer:
+    - tag: environment
+      from_name:
+        - pattern: "-prod-|-production-"
+          value: prod
+        - pattern: "-staging-|-stg-"
+          value: staging
+        - pattern: "-dev-|-development-"
+          value: dev
+
+    - tag: team
+      from_name:
+        - pattern: "^web-|^frontend-"
+          value: frontend
+        - pattern: "^api-|^backend-"
+          value: backend
+```
+
+### Pattern Syntax
+
+Patterns use Go regular expressions:
+
+| Pattern | Matches |
+|---------|---------|
+| `-prod-` | Contains "-prod-" |
+| `^web-` | Starts with "web-" |
+| `-api$` | Ends with "-api" |
+| `-prod-\|-production-` | Contains either |
+| `-(dev\|stg\|prod)-` | Contains -dev-, -stg-, or -prod- |
+
+<Tip>
+  Patterns are evaluated in order—first match wins. Put more specific patterns first.
+</Tip>
+
+### Example
+
+Given this configuration:
+
+```yaml
+rules:
+  infer:
+    - tag: environment
+      from_name:
+        - pattern: "-prod-"
+          value: prod
+        - pattern: "-dev-"
+          value: dev
+```
+
+| Resource Name | Inferred Tag |
+|--------------|--------------|
+| `web-prod-api-1` | `environment: prod` |
+| `db-dev-postgres` | `environment: dev` |
+| `cache-redis-main` | *(no match)* |
+
+## Inheritance Rules
+
+Not available yet. `rules.inherit` (child resource, relationship, tags to
+copy) is parsed and counted by `tagctl validate` so existing files keep
+loading, but `plan` never applies it: discovery does not record parent-child
+relationships (instance → volume, ASG → instance, VPC → anything). The
+`inherited` change reason only appears in the `--mock` planner.
+
+## Default Rules
+
+Default rules apply fallback values when tags are missing. Use as a safety net.
+
+### How It Works
+
+```
+Resource: legacy-bucket (no owner tag)
+           ↓
+Default rule: when owner absent, set owner
+           ↓
+Tag applied: owner = "platform-team@company.com"
+```
+
+### Configuration
+
+```yaml
+rules:
+  defaults:
+    # Global default for missing owner
+    - resource: "*"
+      when:
+        tag:owner: absent
+      set:
+        owner: platform-team@company.com
+        needs-review: "true"
+
+    # Specific defaults for S3 buckets
+    - resource: "aws_s3_bucket"
+      when:
+        tag:data-classification: absent
+      set:
+        data-classification: internal
+
+    # Defaults for untagged EC2 instances
+    - resource: "aws_instance"
+      when:
+        tag:environment: absent
+      set:
+        environment: unknown
+        requires-classification: "true"
+```
+
+### Resource Patterns
+
+| Pattern | Matches |
+|---------|---------|
+| `*` | All resources |
+| `aws_*` | All AWS resources |
+| `aws_instance` | Only EC2 instances |
+| `aws_s3_*` | S3 buckets and related |
+| `k8s_*` | All Kubernetes resources (coming soon) |
+
+### Conditions
+
+| Condition | Meaning |
+|-----------|---------|
+| `tag:NAME: absent` | Tag is not present |
+
+<Note>
+  More conditions like `tag:NAME: present` and `created_before` are planned for future releases.
+</Note>
+
+## Rule Priority
+
+When multiple rules could apply:
+
+```
+1. Existing tags (never overwritten)
+        ↓
+2. Inference rules (from resource name)
+        ↓
+3. Default rules (fallback values)
+```
+
+### Example Flow
+
+Resource: `web-prod-api-1` (EC2 instance)
+
+<Steps>
+  <Step title="Check existing tags">
+    None found
+  </Step>
+  <Step title="Apply inference">
+    Pattern "-prod-" matches → `environment: prod`
+  </Step>
+  <Step title="Apply defaults">
+    owner absent → `owner: platform@company.com`
+
+    (environment present, skip)
+  </Step>
+</Steps>
+
+**Final tags:**
+- `environment: prod` (inferred)
+- `owner: platform@company.com` (default)
+
+## Debugging Rules
+
+### Preview Changes
+
+Always use `tagctl plan` to preview before applying:
+
+```bash
+tagctl plan --output json | jq '.changes[] | {
+  resource: .resource.name,
+  tag: .tag,
+  value: .new_value,
+  reason: .reason
+}'
+```
+
+### Check Specific Resources
+
+```bash
+tagctl plan | grep "web-prod"
+```
+
+### Verbose Scanning
+
+```bash
+tagctl scan --verbose
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Inference rules">
+    - Be specific with patterns—use anchors (`^`, `$`)
+    - Order matters—put specific patterns first
+    - Test with `tagctl plan` before applying
+    - Document naming conventions for your team
+  </Accordion>
+
+  <Accordion title="Default rules">
+    - Use sparingly—defaults indicate missing governance
+    - Add review flags to mark resources for follow-up
+    - Be conservative—generic defaults may be wrong
+  </Accordion>
+</AccordionGroup>

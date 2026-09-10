@@ -1,0 +1,232 @@
+---
+title: 'Getting Started'
+description: 'Get tagctl up and running in 5 minutes'
+---
+
+## Prerequisites
+
+- **Go 1.24+** (for building from source)
+- **AWS credentials** configured
+
+## Installation
+
+<Tabs>
+  <Tab title="Go Install">
+    ```bash
+    go install github.com/unicrons/tagctl/cmd/tagctl@latest
+    ```
+  </Tab>
+  <Tab title="Build from Source">
+    ```bash
+    git clone https://github.com/unicrons/tagctl.git
+    cd tagctl
+    make build
+    ```
+    The binary will be at `./bin/tagctl`.
+  </Tab>
+  <Tab title="Download Binary">
+    Download the latest release from [GitHub Releases](https://github.com/unicrons/tagctl/releases).
+  </Tab>
+</Tabs>
+
+## Verify Installation
+
+```bash
+tagctl version
+# prints the banner, then:
+#   Version: v1.0.0
+#   Built:   2026-02-02_10:00:00
+```
+
+## Your First Scan
+
+<Steps>
+  <Step title="Initialize Configuration">
+    ```bash
+    tagctl init
+    ```
+    This creates `tagctl.yaml` with a template configuration.
+  </Step>
+
+  <Step title="Configure Cloud Access">
+    Edit `tagctl.yaml` to point to your cloud accounts:
+
+    <CodeGroup>
+    ```yaml AWS (all regions)
+    clouds:
+      aws:
+        - profile: default
+          # regions not specified = scan all available regions
+    ```
+
+    ```yaml AWS (specific regions)
+    clouds:
+      aws:
+        - profile: default
+          regions:
+            - us-east-1
+            - eu-west-1
+    ```
+    </CodeGroup>
+
+    Verify your credentials:
+    ```bash
+    aws sts get-caller-identity
+    ```
+  </Step>
+
+  <Step title="Define Your Tag Policy">
+    Edit the `policy` section to define required tags:
+
+    ```yaml
+    policy:
+      required:
+        # Environment must be one of these values
+        - name: environment
+          description: Deployment environment
+          values: [dev, staging, prod]
+
+        # Cost center must match this pattern
+        - name: cost-center
+          description: Finance cost allocation code
+          pattern: "^[A-Z]{2,4}-\\d{3,6}$"
+
+        # Owner must be an email
+        - name: owner
+          description: Team or person responsible
+          pattern: "^.+@.+$"
+    ```
+  </Step>
+
+  <Step title="Validate Configuration">
+    ```bash
+    tagctl validate
+    ```
+
+    <Accordion title="Expected output">
+    ```
+    Validating tagctl.yaml...
+
+    ✓ Cloud providers configured: 1
+    ✓ Required tags defined: 3
+    ✓ Optional tags defined: 0
+    ✓ Auto-fix rules defined: 2
+    ✓ Ignore rules defined: 2
+
+    Configuration is valid!
+    ```
+    </Accordion>
+  </Step>
+
+  <Step title="Scan Your Resources">
+    ```bash
+    tagctl scan
+    ```
+
+    You'll see a compliance report showing:
+    - Overall compliance percentage
+    - Compliance by account
+    - Compliance by tag (with PASS/FAILED status)
+    - List of specific findings
+
+    Reports are automatically saved to `output/`:
+    - `scan-TIMESTAMP.json` - Full results with all findings
+    - `scan-TIMESTAMP.csv` - All findings for spreadsheets
+    - `scan-TIMESTAMP.html` - Visual report for sharing
+  </Step>
+
+  <Step title="Generate a Fix Plan">
+    ```bash
+    tagctl plan
+    ```
+
+    This reads the latest scan results and generates fixes using:
+    - **Inference**: Derive tags from resource names
+    - **Defaults**: Apply default values
+
+    The plan is saved to `output/plan-TIMESTAMP.json`.
+
+    <Tip>
+    You can specify a different scan file with `--scan`:
+    ```bash
+    tagctl plan --scan output/scan-20260202-143052.json
+    ```
+    </Tip>
+  </Step>
+
+  <Step title="Review and Apply">
+    Review the plan, then apply:
+    ```bash
+    tagctl apply
+    ```
+    You'll be asked to confirm before any changes are made.
+
+    <Tip>
+    You can specify a different plan file with `--plan`:
+    ```bash
+    tagctl apply --plan output/plan-20260202-143052.json
+    ```
+    </Tip>
+  </Step>
+</Steps>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Configuration Reference" icon="gear" href="/configuration">
+    All configuration options
+  </Card>
+  <Card title="Auto-fix Rules" icon="wand-magic-sparkles" href="/rules">
+    Inference and defaults
+  </Card>
+  <Card title="Commands" icon="terminal" href="/commands">
+    Detailed command reference
+  </Card>
+  <Card title="Credentials" icon="key" href="/credentials">
+    Authentication setup
+  </Card>
+</CardGroup>
+
+## Troubleshooting
+
+Use debug logging for detailed trace:
+```bash
+tagctl scan --log-level debug
+```
+
+<AccordionGroup>
+  <Accordion title="No config file found">
+    Make sure `tagctl.yaml` exists in your current directory, or specify it:
+    ```bash
+    tagctl scan --config /path/to/tagctl.yaml
+    ```
+  </Accordion>
+
+  <Accordion title="AWS Authentication Errors">
+    Verify your credentials:
+    ```bash
+    aws sts get-caller-identity --profile your-profile
+    ```
+    Make sure the profile name in `tagctl.yaml` (or `--profile`) matches. Keys
+    are never read from the file: put them in `~/.aws/credentials` or export
+    them.
+  </Accordion>
+
+  <Accordion title="Scanning the wrong regions">
+    The regions to scan never come from the AWS profile or `AWS_REGION`: set
+    `regions` in `tagctl.yaml` or pass `--region`; leave the list empty to
+    discover every region through `ec2:DescribeRegions`.
+  </Accordion>
+
+  <Accordion title="No resources found">
+    Check that:
+    1. The regions/namespaces in your config contain resources
+    2. Your credentials have read permissions
+    3. Resource types aren't excluded in the `ignore` section
+
+    Use debug logging to see exactly what's scanned:
+    ```bash
+    tagctl scan --log-level debug --region us-east-1
+    ```
+  </Accordion>
+</AccordionGroup>

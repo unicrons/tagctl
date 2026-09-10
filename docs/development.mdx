@@ -1,0 +1,359 @@
+---
+title: 'Development'
+description: 'Contributing guide and development setup'
+icon: 'code'
+---
+
+## Current State
+
+| Provider | Status |
+|----------|--------|
+| **AWS** | ✅ Stable (106 resource types, see [AWS provider](/providers/aws)) |
+| **Kubernetes** | 🔜 Coming Soon |
+| **GCP** | 🔜 Coming Soon |
+| **Azure** | 🔜 Coming Soon |
+
+## Quick Start
+
+```bash
+# Clone the repository
+git clone https://github.com/unicrons/tagctl.git
+cd tagctl
+
+# Install tools and enable pre-commit hooks
+make setup
+
+# Build and test
+make build
+make test
+
+# Test with mock data
+./bin/tagctl scan --mock
+```
+
+## Development Setup
+
+### 1. Install Development Tools
+
+```bash
+make tools
+```
+
+This installs:
+
+| Tool | Purpose |
+|------|---------|
+| **trufflehog** | Secret detection |
+| **golangci-lint** | Go linter (14 linters enabled in `.golangci.yml`) |
+
+### 2. Enable Pre-commit Hooks
+
+```bash
+make hooks
+```
+
+To disable:
+
+```bash
+make hooks-uninstall
+```
+
+## Pre-commit Checks
+
+Every commit runs these checks automatically:
+
+| Check | Tool | Description |
+|-------|------|-------------|
+| Secrets | trufflehog | AWS keys, tokens, private keys |
+| Format | gofmt | Code formatting |
+| Lint | golangci-lint | Static analysis |
+| Build | go build | Compilation check |
+| Tests | go test | Unit tests |
+
+### Running Checks Manually
+
+```bash
+# All checks
+make check
+
+# Individual checks
+make check-secrets
+make check-fmt
+make lint
+make test
+```
+
+### Bypassing Checks
+
+<Warning>
+  Only use in emergencies. Skipping checks can introduce bugs or security issues.
+</Warning>
+
+```bash
+git commit --no-verify
+```
+
+## Code Quality
+
+### Formatting
+
+```bash
+make fmt
+```
+
+### Linting
+
+The project uses golangci-lint with these linters:
+
+<Tabs>
+  <Tab title="Bug Detection">
+    - `errcheck` - Unchecked errors
+    - `gosec` - Security issues
+    - `govet` - Suspicious constructs
+    - `staticcheck` - Static analysis
+  </Tab>
+  <Tab title="Style">
+    - `gofmt` - Formatting
+    - `goimports` - Import ordering
+    - `misspell` - Spelling mistakes
+  </Tab>
+  <Tab title="Complexity">
+    - `gocyclo` - Cyclomatic complexity (max 20)
+    - `goconst` - Repeated strings
+  </Tab>
+</Tabs>
+
+Configuration is in `.golangci.yml`.
+
+### Secret Detection
+
+Trufflehog scans for:
+- AWS credentials
+- Private keys (RSA, DSA, EC, PGP)
+- API tokens (GitHub, Slack)
+- High-entropy strings
+
+Add false positives to `.trufflehog-ignore` (one path per line).
+
+## Makefile Targets
+
+```bash
+make help          # Show all targets
+
+# Building
+make build         # Build binary
+make install       # Install to $GOPATH/bin
+make clean         # Remove artifacts
+
+# Testing
+make test          # Tests with race detector
+make test-short    # Quick tests
+make coverage      # Coverage report
+
+# Code Quality
+make fmt           # Format code
+make vet           # Run go vet
+make lint          # Run golangci-lint
+
+# Development
+make setup         # Install tools + hooks
+make tools         # Install trufflehog, golangci-lint
+make hooks         # Enable pre-commit hooks
+make check         # Run all checks
+```
+
+## Project Structure
+
+```
+tagctl/
+├── cmd/tagctl/           # Entry point
+├── internal/
+│   ├── cli/              # Commands
+│   │   ├── root.go       # Global flags, banner
+│   │   ├── scan.go       # Scan command → output/scan-*.json
+│   │   ├── plan.go       # Plan command → output/plan-*.json
+│   │   ├── apply.go      # Apply command
+│   │   ├── output.go     # Table, JSON, CSV, HTML formatters
+│   │   ├── evaluate.go   # Evaluate resources from JSON
+│   │   ├── diff.go       # Compliance drift between two scans
+│   │   ├── normalize.go  # Tag value drift detection
+│   │   ├── terraform.go  # Terraform plan/state checking
+│   │   ├── cost.go       # Cost attribution reporting
+│   │   ├── gate.go       # CI gate flags
+│   │   ├── init.go, validate.go, paths.go, progress.go
+│   │   ├── auth.go       # AWS auth flags shared by scan/apply/cost
+│   │   └── providers.go  # Provider initialization
+│   ├── config/           # Configuration parsing
+│   ├── engine/           # Core logic
+│   │   ├── scanner.go    # Resource discovery
+│   │   ├── evaluator.go  # Policy evaluation → Findings (PASS/FAILED)
+│   │   ├── planner.go    # Change planning (inference, defaults)
+│   │   ├── applier.go    # Tag application
+│   │   ├── differ.go     # Drift between two scans
+│   │   └── normalizer.go # Tag value clustering
+│   ├── report/           # SARIF, JUnit, OCSF, gate, HTML report
+│   ├── terraform/        # terraform show -json parsing
+│   ├── log/              # Leveled logging (error, info, debug)
+│   ├── provider/         # Cloud providers
+│   │   ├── provider.go   # Interface
+│   │   ├── aws/          # AWS, one file per service group
+│   │   └── k8s/          # Kubernetes (not wired yet)
+│   └── types/            # Domain types
+│       ├── resource.go, violation.go, scan.go, plan.go
+│       └── diff.go, normalize.go, cost.go
+├── docs/                 # Documentation (Mintlify)
+├── output/               # Generated reports
+└── .githooks/            # Git hooks
+```
+
+## Data Flow
+
+Each command passes data to the next via JSON files:
+
+```bash
+tagctl scan                              # → output/scan-TIMESTAMP.json
+tagctl plan                              # Uses latest scan → output/plan-TIMESTAMP.json
+tagctl plan --scan output/scan-*.json    # Use specific scan
+tagctl apply                             # Uses latest plan
+tagctl apply --plan output/plan-*.json   # Use specific plan
+```
+
+## Key Types
+
+### Finding (PASS/FAILED)
+
+The evaluator generates **Findings** for each resource+tag combination:
+
+```go
+type Finding struct {
+    Resource Resource      `json:"resource"`
+    Tag      string        `json:"tag"`
+    Status   FindingStatus `json:"status"`   // "PASS" or "FAILED"
+    Reason   ViolationReason `json:"reason"` // "compliant", "missing", "invalid_value"
+    Expected string        `json:"expected,omitempty"`
+    Actual   string        `json:"actual,omitempty"`
+}
+```
+
+| Status | Reason | Meaning |
+|--------|--------|---------|
+| PASS | compliant | Tag present and valid |
+| FAILED | missing | Required tag not present |
+| FAILED | invalid_value | Value not in allowed list |
+| FAILED | invalid_format | Value doesn't match pattern |
+
+### Resource
+
+```go
+type Resource struct {
+    ID        string            `json:"id"`
+    ARN       string            `json:"arn,omitempty"` // Full AWS ARN
+    Type      string            `json:"type"`     // e.g., "aws_instance"
+    Name      string            `json:"name"`
+    Region    string            `json:"region"`
+    Account   string            `json:"account"`
+    Provider  string            `json:"provider"` // "aws"
+    Tags      map[string]string `json:"tags"`
+    CreatedAt *time.Time        `json:"created_at,omitempty"`
+}
+```
+
+## Testing
+
+### Running Tests
+
+```bash
+# All tests with race detection
+make test
+
+# Quick tests
+make test-short
+
+# Specific package
+go test -v ./internal/engine/...
+
+# With coverage
+make coverage
+open coverage.html
+```
+
+### Writing Tests
+
+Use table-driven tests:
+
+```go
+func TestEvaluateResourceFindings(t *testing.T) {
+    tests := []struct {
+        name       string
+        resource   types.Resource
+        wantPass   int
+        wantFailed int
+    }{
+        {
+            name: "compliant resource",
+            resource: types.Resource{
+                Tags: map[string]string{"environment": "prod"},
+            },
+            wantPass:   1,
+            wantFailed: 0,
+        },
+        {
+            name: "missing tag",
+            resource: types.Resource{
+                Tags: map[string]string{},
+            },
+            wantPass:   0,
+            wantFailed: 1,
+        },
+    }
+
+    for _, tt := range tests {
+        t.Run(tt.name, func(t *testing.T) {
+            findings := evaluator.EvaluateResourceFindings(tt.resource)
+            pass, failed := countFindings(findings)
+            if pass != tt.wantPass || failed != tt.wantFailed {
+                t.Errorf("got %d pass, %d failed; want %d, %d",
+                    pass, failed, tt.wantPass, tt.wantFailed)
+            }
+        })
+    }
+}
+```
+
+## Contributing
+
+<Steps>
+  <Step title="Fork the repository">
+    Create your own fork on GitHub
+  </Step>
+  <Step title="Create a branch">
+    ```bash
+    git checkout -b feature/my-feature
+    ```
+  </Step>
+  <Step title="Make changes">
+    Ensure checks pass with `make check`
+  </Step>
+  <Step title="Commit">
+    Use conventional commits
+  </Step>
+  <Step title="Push and create PR">
+    ```bash
+    git push origin feature/my-feature
+    ```
+  </Step>
+</Steps>
+
+### Commit Messages
+
+Follow conventional commits, `type(scope): summary`, subject of at most 60
+characters. Release notes are generated from them.
+
+```
+feat(azure): add support for Azure resources
+fix(engine): handle empty tag values correctly
+docs(credentials): update credentials documentation
+test(engine): add evaluator edge case tests
+refactor(provider): simplify provider interface
+chore(merge): take changes
+```

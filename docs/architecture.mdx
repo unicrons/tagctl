@@ -1,0 +1,352 @@
+---
+title: 'Architecture'
+description: 'Internal design and components'
+icon: 'sitemap'
+---
+
+## Overview
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                         CLI Layer                           │
+│  scan / plan / apply / evaluate / diff / normalize / terraform / cost   │
+└─────────────────────────┬───────────────────────────────────┘
+                          │
+                          │ output/scan-*.json
+                          │ output/plan-*.json
+                          │
+┌─────────────────────────▼───────────────────────────────────┐
+│                      Engine Layer                           │
+│         Scanner / Evaluator / Planner / Applier            │
+└─────────────────────────┬───────────────────────────────────┘
+                          │
+┌─────────────────────────▼───────────────────────────────────┐
+│                    Provider Interface                       │
+│        ListResources() / ApplyTags() / Name()              │
+└────────┬────────────────────────────────────────────────────┘
+         │
+┌────────▼────────┐
+│  AWS Provider   │   ┌─────────────────────┐
+│  106 resource   │   │  Coming Soon:       │
+│  types, one     │   │  - Kubernetes       │
+│  file per       │   │  - GCP              │
+│  service        │   │  - Azure            │
+└─────────────────┘   └─────────────────────┘
+```
+
+## Directory Structure
+
+```
+tagctl/
+├── cmd/tagctl/           # Entry point
+│   └── main.go
+├── internal/
+│   ├── cli/              # Command implementations
+│   │   ├── root.go       # Root command, global flags
+│   │   ├── scan.go       # Scan command → scan-*.json
+│   │   ├── plan.go       # Plan command → plan-*.json
+│   │   ├── apply.go      # Apply command
+│   │   ├── output.go     # Output formatters (table, JSON, CSV, HTML)
+│   │   ├── evaluate.go   # Evaluate resources from JSON (Prowler integration)
+│   │   ├── diff.go       # Compliance drift between two scans
+│   │   ├── normalize.go  # Tag value drift detection
+│   │   ├── terraform.go  # Terraform plan/state checking
+│   │   ├── cost.go       # Cost attribution reporting
+│   │   ├── gate.go       # CI gate flags (--fail-under, --sarif, --junit, --ocsf)
+│   │   ├── init.go       # Config scaffolding
+│   │   ├── validate.go   # Config validation
+│   │   ├── paths.go      # output/ directory and file naming
+│   │   ├── progress.go   # Spinner
+│   │   ├── auth.go       # AWS auth flags shared by scan/apply/cost
+│   │   └── providers.go  # Provider initialization
+│   ├── config/           # Configuration parsing
+│   │   └── config.go
+│   ├── engine/           # Core business logic
+│   │   ├── scanner.go    # Resource discovery
+│   │   ├── evaluator.go  # Policy evaluation → Findings
+│   │   ├── planner.go    # Change planning (inference, defaults)
+│   │   ├── applier.go    # Tag application
+│   │   ├── differ.go     # Drift between two scans
+│   │   └── normalizer.go # Tag value clustering
+│   ├── report/           # SARIF, JUnit, OCSF, gate thresholds, HTML report
+│   ├── terraform/        # terraform show -json parsing
+│   ├── log/              # Leveled logging (error, info, debug)
+│   ├── provider/         # Cloud providers
+│   │   ├── provider.go   # Interface definition
+│   │   ├── aws/          # AWS, one file per service group
+│   │   └── k8s/          # Kubernetes (not wired into the CLI yet)
+│   └── types/            # Domain types
+│       ├── resource.go   # Resource type with ARN
+│       ├── violation.go  # Violation + Finding types
+│       ├── scan.go       # ScanResult with Findings
+│       ├── plan.go       # Plan with TagChanges
+│       ├── diff.go       # DiffResult
+│       ├── normalize.go  # NormalizeResult
+│       └── cost.go       # CostReport
+├── output/               # Generated reports
+└── docs/                 # Documentation (Mintlify)
+```
+
+## Core Components
+
+### CLI Layer
+
+Handles user interaction using [Cobra](https://github.com/spf13/cobra).
+
+<CardGroup cols={2}>
+  <Card title="root.go" icon="house">
+    Global flags, config initialization
+  </Card>
+  <Card title="output.go" icon="table">
+    Table, JSON, CSV formatters
+  </Card>
+</CardGroup>
+
+### Engine Layer
+
+Core business logic, abstracted behind interfaces.
+
+```go
+// Scanner discovers resources and checks compliance
+type Scanner interface {
+    Scan(ctx context.Context) (*types.ScanResult, error)
+}
+
+// Evaluator evaluates resources against policy
+type Evaluator struct {
+    policy   config.PolicyConfig
+    compiled map[string]*regexp.Regexp
+}
+
+// Applier applies tag changes
+type Applier interface {
+    Apply(ctx context.Context, plan *types.Plan) (*ApplyResult, error)
+}
+```
+
+### Provider Layer
+
+Abstracts cloud-specific operations.
+
+```go
+type Provider interface {
+    Name() string
+    ListResources(ctx context.Context) ([]types.Resource, error)
+    ApplyTags(ctx context.Context, resourceID string, tags map[string]string) error
+}
+```
+
+## Data Flow
+
+Commands pass data via JSON files in the `output/` directory:
+
+```
+tagctl scan  ──▶  output/scan-TIMESTAMP.json
+                          │
+tagctl plan  ◀────────────┘
+      │
+      └──────▶  output/plan-TIMESTAMP.json
+                          │
+tagctl apply ◀────────────┘
+```
+
+<Steps>
+  <Step title="Scan → output/scan-*.json">
+    1. Load configuration (`tagctl.yaml`)
+    2. Initialize AWS provider with credentials
+    3. Call `ListResources()` - runs every service lister in every region
+    4. Pass resources to Evaluator
+    5. Generate **Findings** (PASS/FAILED) for each resource+tag
+    6. Write results to `output/scan-TIMESTAMP.json`
+    7. Also write CSV and HTML reports
+  </Step>
+
+  <Step title="Plan → output/plan-*.json">
+    1. Load scan results (latest or specified with `--scan`)
+    2. Apply inference rules (extract tags from resource names)
+    3. Apply default rules (fallback values)
+    4. Generate `Plan` with proposed changes
+    5. Write plan to `output/plan-TIMESTAMP.json`
+  </Step>
+
+  <Step title="Apply">
+    1. Load plan file (latest or specified with `--plan`)
+    2. Show summary and ask for confirmation
+    3. Group changes by resource and region
+    4. Call `ApplyTags()` on AWS provider
+    5. Report success/failure for each change
+  </Step>
+</Steps>
+
+## Types
+
+### Resource
+
+```go
+type Resource struct {
+    ID        string            `json:"id"`
+    ARN       string            `json:"arn,omitempty"`
+    Type      string            `json:"type"`
+    Name      string            `json:"name"`
+    Region    string            `json:"region"`
+    Account   string            `json:"account"`
+    Provider  string            `json:"provider"`
+    Tags      map[string]string `json:"tags"`
+    CreatedAt *time.Time        `json:"created_at,omitempty"`
+}
+```
+
+### Finding
+
+The evaluator generates **Findings** with PASS or FAILED status:
+
+```go
+type Finding struct {
+    Resource Resource        `json:"resource"`
+    Tag      string          `json:"tag"`
+    Status   FindingStatus   `json:"status"`   // "PASS" or "FAILED"
+    Reason   ViolationReason `json:"reason"`   // "compliant", "missing", etc.
+    Expected string          `json:"expected,omitempty"`
+    Actual   string          `json:"actual,omitempty"`
+}
+
+// FindingStatus values
+const (
+    StatusPass   FindingStatus = "PASS"
+    StatusFailed FindingStatus = "FAILED"
+)
+```
+
+### Violation (deprecated)
+
+```go
+type Violation struct {
+    Resource Resource        `json:"resource"`
+    Tag      string          `json:"tag"`
+    Status   FindingStatus   `json:"status"` // Always "FAILED"
+    Reason   ViolationReason `json:"reason"`
+    Expected string          `json:"expected,omitempty"`
+    Actual   string          `json:"actual,omitempty"`
+}
+```
+
+<Note>
+Use `Findings` instead of `Violations` in new code. Violations are kept for backward compatibility.
+</Note>
+
+### TagChange
+
+```go
+type TagChange struct {
+    Resource Resource     `json:"resource"`
+    Tag      string       `json:"tag"`
+    Action   ChangeAction `json:"action"`
+    OldValue string       `json:"old_value,omitempty"`
+    NewValue string       `json:"new_value,omitempty"`
+    Reason   ChangeReason `json:"reason"`
+    Source   string       `json:"source,omitempty"`
+}
+```
+
+## Provider Implementation
+
+### Adding a New Provider
+
+<Steps>
+  <Step title="Create package">
+    Create `internal/provider/newcloud/`
+  </Step>
+  <Step title="Implement interface">
+    Implement `Provider` interface with `Name()`, `ListResources()`, `ApplyTags()`
+  </Step>
+  <Step title="Add config">
+    Add config struct to `internal/config/config.go`
+  </Step>
+  <Step title="Register provider">
+    Update `internal/cli/providers.go` to initialize new provider
+  </Step>
+</Steps>
+
+Example skeleton:
+
+```go
+package newcloud
+
+import (
+    "context"
+    "github.com/unicrons/tagctl/internal/types"
+)
+
+type Provider struct {
+    // client, config, etc.
+}
+
+func New(ctx context.Context, cfg Config) (*Provider, error) {
+    // Initialize client
+    return &Provider{}, nil
+}
+
+func (p *Provider) Name() string {
+    return "newcloud"
+}
+
+func (p *Provider) ListResources(ctx context.Context) ([]types.Resource, error) {
+    // List and return resources
+    return nil, nil
+}
+
+func (p *Provider) ApplyTags(ctx context.Context, id string, tags map[string]string) error {
+    // Apply tags to resource
+    return nil
+}
+```
+
+## Concurrency
+
+- Providers list resources concurrently per region/namespace
+- The AWS provider runs every (region × service) lister in its own goroutine,
+  plus one for S3 and one per global lister (Route 53, CloudFront, IAM,
+  Shield, WAF Classic global, WAFv2 CloudFront, Global Accelerator)
+- Before any lister starts, one `tag:GetResources` sweep per region is launched
+  in the background (`internal/provider/aws/tags.go`). Listers block on their
+  region's sweep only when they need a tag lookup, so discovery and the bulk
+  tag read overlap. Services whose Describe call returns tags inline never wait
+- When the sweep fails, services with a per-resource tag API fall back to it
+  with a semaphore of 16 concurrent calls; services without one are skipped
+- The SDK HTTP client uses a 5s connect timeout, so an unreachable regional
+  endpoint costs seconds, not minutes
+- Applier processes changes with configurable concurrency
+- All operations respect context cancellation
+
+```go
+// Example from scanner
+var wg sync.WaitGroup
+for _, p := range s.providers {
+    wg.Add(1)
+    go func(p provider.Provider) {
+        defer wg.Done()
+        resources, _ := p.ListResources(ctx)
+        // ...
+    }(p)
+}
+wg.Wait()
+```
+
+## Error Handling
+
+- Partial failures are collected and reported
+- Operations continue when possible
+- A resource whose tags cannot be read is skipped with an error, never reported
+  as untagged: a network failure must not become a compliance finding. The same
+  rule applies to a whole service when it depends on `tag:GetResources` and the
+  permission is missing
+- Structured errors with provider/operation context
+
+```go
+type ProviderError struct {
+    Provider   string
+    Operation  string
+    ResourceID string
+    Err        error
+}
+```

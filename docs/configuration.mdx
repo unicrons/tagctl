@@ -1,0 +1,292 @@
+---
+title: 'Configuration'
+description: 'Complete tagctl.yaml reference'
+icon: 'gear'
+---
+
+tagctl is configured via a YAML file (default: `tagctl.yaml`).
+
+## File Location
+
+tagctl looks for configuration in this order:
+
+1. Path specified with `--config` flag
+2. `tagctl.yaml` in the current directory
+3. `~/.tagctl/tagctl.yaml`
+
+## Complete Example
+
+```yaml
+# Cloud provider configuration
+clouds:
+  aws:
+    - profile: production
+      regions: [us-east-1, eu-west-1]
+    - profile: staging
+      regions: [us-east-1]
+
+# Tag policy definition
+policy:
+  required:
+    - name: environment
+      description: Deployment environment
+      values: [dev, staging, prod]
+    - name: cost-center
+      pattern: "^[A-Z]{2,4}-\\d{3,6}$"
+    - name: owner
+      pattern: "^.+@company\\.com$"
+  optional:
+    - name: project
+    - name: team
+
+# Auto-fix rules
+rules:
+  infer:
+    - tag: environment
+      from_name:
+        - pattern: "-prod-"
+          value: prod
+        - pattern: "-staging-|-stg-"
+          value: staging
+        - pattern: "-dev-"
+          value: dev
+
+
+  defaults:
+    - resource: "*"
+      when:
+        tag:owner: absent
+      set:
+        owner: platform-team@company.com
+        needs-review: "true"
+
+# Resources to ignore
+ignore:
+  resources:
+    - "aws_cloudwatch_*"
+    - "aws_iam_*"
+  tags:
+    managed-by: [terraform, pulumi]
+```
+
+## Section: `clouds`
+
+Defines which cloud accounts to scan.
+
+<CardGroup cols={2}>
+  <Card title="AWS" icon="aws" href="/providers/aws">
+    106 resource types, see the provider page (Stable)
+  </Card>
+  <Card title="More Providers" icon="cloud" href="/roadmap">
+    Kubernetes, GCP, Azure (Coming Soon)
+  </Card>
+</CardGroup>
+
+### AWS Configuration
+
+`clouds.aws` is a **list** of accounts. Each entry is one account, identified by
+a profile, by a role to assume, or by nothing at all (the SDK default chain:
+environment variables, SSO session, instance role). Keys are never read from
+this file.
+
+```yaml
+clouds:
+  aws:
+    - profile: production
+      # Omit regions to scan all available regions
+    - profile: staging
+      regions: [us-east-1]  # Or specify specific regions
+    - regions: [eu-west-1]  # No profile: credentials from the environment
+    - profile: audit-base
+      role_arn: arn:aws:iam::111111111111:role/TagAudit
+```
+
+<ParamField path="profile" type="string">
+  AWS profile from `~/.aws/config` / `~/.aws/credentials`. Omit it to use the
+  SDK default chain. Only one entry may omit both `profile` and `role_arn`,
+  since the default chain identifies a single account.
+</ParamField>
+
+<ParamField path="role_arn" type="string">
+  IAM role to assume with the resolved credentials. `external_id`,
+  `session_duration` (900–43200, default 3600), `role_session_name` (default
+  `tagctl`) and `mfa_serial` (TOTP code read from stdin) refine it and require
+  it. See [Assuming Roles](/credentials#assuming-roles).
+</ParamField>
+
+<ParamField path="regions" type="string[]">
+  Regions to scan. If omitted, all available regions are discovered and scanned.
+  Applies to every service, S3 included: buckets outside these regions are not
+  read. Region codes are validated (`eu-west1` is rejected).
+</ParamField>
+
+<Warning>
+Write `aws:` as a list (`- profile:` / `- regions:`). A mapping (`aws:` followed by
+`regions:` directly) happens to decode as one account today, but `tagctl validate`
+warns about it because it breaks as soon as a second account is added.
+</Warning>
+
+## Section: `policy`
+
+Defines tag requirements for compliance.
+
+### Required Tags
+
+Tags that **must** be present on all resources:
+
+```yaml
+policy:
+  required:
+    # Enum-based validation
+    - name: environment
+      description: Deployment environment
+      values: [dev, staging, prod]
+
+    # Pattern-based validation
+    - name: cost-center
+      description: Finance cost code
+      pattern: "^[A-Z]{2,4}-\\d{3,6}$"
+
+    # Email pattern
+    - name: owner
+      pattern: "^.+@.+$"
+```
+
+<ParamField path="name" type="string" required>
+  Tag key name
+</ParamField>
+
+<ParamField path="description" type="string">
+  Human-readable description
+</ParamField>
+
+<ParamField path="values" type="string[]">
+  Allowed values (enum). Checked before `pattern`; a value outside the list is
+  reported as `invalid_value`.
+</ParamField>
+
+<ParamField path="pattern" type="string">
+  Regex pattern for validation, reported as `invalid_format`. Both can be set
+  on the same tag; the value must then satisfy both.
+</ParamField>
+
+### Optional Tags
+
+Tags that are tracked but not required:
+
+```yaml
+policy:
+  optional:
+    - name: project
+    - name: team
+    - name: application
+```
+
+## Section: `rules`
+
+Defines auto-fix rules for the `plan` command. See [Rules Documentation](/rules) for details.
+
+### Infer Rules
+
+Derive tag values from resource naming conventions:
+
+```yaml
+rules:
+  infer:
+    - tag: environment
+      from_name:
+        - pattern: "-prod-"
+          value: prod
+        - pattern: "-staging-"
+          value: staging
+```
+
+### Inherit Rules
+
+`rules.inherit` is parsed and counted by `tagctl validate`, but `plan` does
+not apply it yet: no parent-child relationship is resolved during discovery.
+Leave it out until inheritance ships.
+
+### Default Rules
+
+Apply default values when tags are missing:
+
+```yaml
+rules:
+  defaults:
+    - resource: "*"
+      when:
+        tag:owner: absent
+      set:
+        owner: platform-team@company.com
+```
+
+## Section: `ignore`
+
+Exclude resources from scanning.
+
+### By Resource Type
+
+```yaml
+ignore:
+  resources:
+    - "aws_iam_*"
+    - "aws_cloudwatch_*"
+```
+
+Patterns match the resource **type** and support exactly four shapes: `*`
+(everything), an exact type, `prefix*` and `*suffix`. A wildcard in the middle
+(`aws_*_group`) is compared literally and matches nothing.
+
+### By Tag Value
+
+```yaml
+ignore:
+  tags:
+    managed-by: [terraform, pulumi, cloudformation]
+    status: [deprecated, deleting]
+```
+
+## Environment Variables
+
+Values in the file are **not** expanded: `${AWS_ACCESS_KEY_ID}` is passed to AWS
+literally. To use credentials from the environment, omit `profile` and the keys
+and let the SDK default chain pick them up:
+
+```bash
+export AWS_ACCESS_KEY_ID=AKIA...
+export AWS_SECRET_ACCESS_KEY=...
+```
+
+```yaml
+clouds:
+  aws:
+    - regions: [us-east-1]
+```
+
+## Validation
+
+Always validate your configuration before running:
+
+```bash
+tagctl validate
+```
+
+`validate` reports the configuration summary plus every problem the commands
+would hit. The structural checks below run at the start of every command that
+loads `tagctl.yaml` (`scan`, `plan`, `apply`, `evaluate` without `--policy`,
+...), so a broken file is rejected before any cloud API is called:
+
+- YAML syntax and structure (`clouds.aws` must be a list of accounts)
+- Credentials shape: keys set together, not combined with `profile`, at most one
+  entry relying on the SDK default chain
+- Region codes (`eu-west1`, `EU-WEST-1` and duplicates are rejected)
+- `policy.required[].name` present; regex patterns in
+  `policy.required[].pattern` and `rules.infer[].from_name[].pattern` compile
+- Kubernetes cluster names
+
+`tagctl validate` is stricter than the commands: it also fails on a file with
+no cloud account or no tag policy, and warns about unknown providers, a
+provider key with no accounts and a policy with no required tags. `scan`
+itself runs in demo mode without a provider and `evaluate` works from a JSON
+file; `evaluate --policy <file>` loads that file without any of these checks.

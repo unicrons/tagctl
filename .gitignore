@@ -1,0 +1,94 @@
+# Binaries
+bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Coverage
+coverage.out
+coverage.html
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Dependency directories
+vendor/
+
+# Build artifacts
+dist/
+
+# tagctl output directory
+output/
+
+# tagctl config (may contain AWS profiles)
+tagctl.yaml
+!tagctl.yaml.example
+
+# Temporary files
+*.tmp
+*.bak
+
+#######################################
+# SECRETS - NEVER COMMIT THESE
+#######################################
+
+# Environment files with secrets
+.env
+.env.*
+!.env.example
+
+# AWS credentials
+.aws/
+credentials
+*.pem
+*.key
+
+# Kubernetes configs with secrets
+kubeconfig
+kubeconfig.*
+!kubeconfig.example
+
+# SSH keys
+id_rsa
+id_rsa.*
+id_ed25519
+id_ed25519.*
+*.ppk
+
+# Certificate private keys
+*.key
+*.p12
+*.pfx
+
+# Secret configuration files
+secrets.yaml
+secrets.yml
+secrets.json
+*-secrets.yaml
+*-secrets.yml
+*-secrets.json
+
+# Token files
+.token
+*.token
+token.txt
+
+# Terraform state (may contain secrets)
+*.tfstate
+*.tfstate.*
+.terraform/
+
+.claude/*

@@ -1,0 +1,119 @@
+# tagctl configuration
+# See https://github.com/unicrons/tagctl for documentation
+
+# Cloud accounts to scan
+clouds:
+  aws:
+    # Credentials come from the AWS SDK chain: environment variables, then
+    # ~/.aws/config and ~/.aws/credentials (profiles, SSO), then an instance
+    # or container role. Keys are never read from this file.
+    # If regions is omitted, all available regions will be scanned
+    - profile: default
+      # regions:
+      #   - us-east-1
+      #   - eu-west-1
+
+    # Or omit profile to use whatever the chain resolves: AWS_PROFILE,
+    # exported AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / AWS_SESSION_TOKEN,
+    # an active SSO session or an instance role.
+    # - regions: [us-east-1]
+
+    # Or assume a role on top of the resolved credentials, one entry per
+    # account. Only role_arn is required.
+    # - profile: audit-base
+    #   role_arn: arn:aws:iam::123456789012:role/TagAudit
+    #   external_id: my-external-id
+    #   session_duration: 3600          # 900-43200 seconds, default 3600
+    #   role_session_name: tagctl
+    #   mfa_serial: arn:aws:iam::111111111111:mfa/me   # TOTP code read from stdin
+    #   regions: [us-east-1]
+
+  # GCP (coming soon)
+  # gcp:
+  #   - project: my-project
+  #     credentials_file: ~/.config/gcloud/application_default_credentials.json
+
+  # Azure (coming soon)
+  # azure:
+  #   - subscription: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+
+# Tag policy definition
+policy:
+  # Required tags - resources without these are non-compliant
+  required:
+    - name: environment
+      description: Deployment environment
+      values:
+        - dev
+        - staging
+        - prod
+
+    - name: cost-center
+      description: Finance cost allocation code
+      pattern: "^[A-Z]{2,4}-\\d{3,6}$"
+
+    - name: owner
+      description: Team or person responsible
+      pattern: "^.+@.+$"
+
+  # Optional tags - tracked but not required
+  optional:
+    - name: project
+    - name: team
+
+# Auto-fix rules
+rules:
+  # Infer tags from resource naming conventions
+  infer:
+    - tag: environment
+      from_name:
+        - pattern: "-prod-"
+          value: prod
+        - pattern: "-staging-|-stg-"
+          value: staging
+        - pattern: "-dev-"
+          value: dev
+
+  # Inherit tags from parent resources: parsed, not applied by plan yet
+  # inherit:
+  #   - resource: aws_ebs_volume
+  #     from: attached_instance
+  #     tags: [environment, cost-center, owner]
+
+  # Default values for untagged resources
+  defaults:
+    - resource: "*"
+      when:
+        tag:owner: absent
+      set:
+        owner: platform-team@company.com
+        needs-review: "true"
+
+# Resources to ignore
+ignore:
+  # Skip these resource types
+  resources:
+    - "aws_cloudwatch_*"
+    - "aws_iam_*"
+
+  # Skip resources with these tags
+  tags:
+    managed-by: [terraform, pulumi]
+
+# Tag value drift detection, used by 'tagctl normalize'.
+# Finds values that mean the same thing but are spelled differently, such as
+# prod / Production / PROD, which silently split any cost report grouped by
+# that tag.
+normalize:
+  # Edit distance under which two values are treated as a typo of each other.
+  # 0 disables typo matching. Default: 1
+  max_distance: 1
+
+  # Group a value with a longer one it is a prefix of ("prod" / "production").
+  # Default: true
+  match_abbreviations: true
+
+  # Tag keys to leave alone. The Name tag is always ignored, since its values
+  # are unique per resource by design.
+  ignore_tags:
+    - build-id

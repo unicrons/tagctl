@@ -1,0 +1,695 @@
+---
+title: 'AWS Provider'
+description: 'Configure tagctl for Amazon Web Services'
+icon: 'aws'
+---
+
+## Supported Resources
+
+tagctl discovers **106 resource types** across the same AWS services Prowler audits. Every type is listed by a dedicated
+service API, so untagged resources are found too. Tags
+are then read in bulk through the Resource Groups Tagging API (see
+[How tags are read](#how-tags-are-read)); the **Write API** column is what
+`tagctl apply` calls.
+
+### Compute and containers
+
+| Resource | Type | Write API |
+|----------|------|-----------|
+| EC2 Instance | `aws_instance` | `ec2:CreateTags` |
+| AMI (owned) | `aws_ami` | `ec2:CreateTags` |
+| EBS Volume | `aws_ebs_volume` | `ec2:CreateTags` |
+| EBS Snapshot (owned) | `aws_ebs_snapshot` | `ec2:CreateTags` |
+| Launch Template | `aws_launch_template` | `ec2:CreateTags` |
+| Auto Scaling Group | `aws_autoscaling_group` | `autoscaling:CreateOrUpdateTags` |
+| Lambda Function | `aws_lambda_function` | `lambda:TagResource` |
+| ECS Cluster | `aws_ecs_cluster` | `ecs:TagResource` |
+| ECS Service | `aws_ecs_service` | `ecs:TagResource` |
+| EKS Cluster | `aws_eks_cluster` | `eks:TagResource` |
+| ECR Repository | `aws_ecr_repository` | `ecr:TagResource` |
+| Elastic Beanstalk Environment | `aws_elastic_beanstalk_environment` | `tag:TagResources` |
+| Batch Compute Environment | `aws_batch_compute_environment` | `tag:TagResources` |
+| Batch Job Queue | `aws_batch_job_queue` | `tag:TagResources` |
+| Lightsail Instance | `aws_lightsail_instance` | `lightsail:TagResource` |
+| AppStream Fleet | `aws_appstream_fleet` | `tag:TagResources` |
+| AppStream Stack | `aws_appstream_stack` | `tag:TagResources` |
+| WorkSpaces WorkSpace | `aws_workspaces_workspace` | `tag:TagResources` |
+| Amplify App | `aws_amplify_app` | `tag:TagResources` |
+
+### Networking and edge
+
+| Resource | Type | Write API |
+|----------|------|-----------|
+| VPC | `aws_vpc` | `ec2:CreateTags` |
+| Subnet | `aws_subnet` | `ec2:CreateTags` |
+| Security Group | `aws_security_group` | `ec2:CreateTags` |
+| Internet Gateway | `aws_internet_gateway` | `ec2:CreateTags` |
+| NAT Gateway | `aws_nat_gateway` | `ec2:CreateTags` |
+| VPC Endpoint | `aws_vpc_endpoint` | `ec2:CreateTags` |
+| Elastic IP | `aws_eip` | `ec2:CreateTags` |
+| Load Balancer (ALB/NLB/GWLB) | `aws_lb` | `elasticloadbalancing:AddTags` |
+| Target Group | `aws_lb_target_group` | `elasticloadbalancing:AddTags` |
+| Classic Load Balancer | `aws_elb` | `elasticloadbalancing:AddTags` |
+| API Gateway REST API | `aws_api_gateway_rest_api` | `tag:TagResources` |
+| API Gateway HTTP/WebSocket API | `aws_apigatewayv2_api` | `tag:TagResources` |
+| Route 53 Hosted Zone (global) | `aws_route53_zone` | `tag:TagResources` |
+| CloudFront Distribution (global) | `aws_cloudfront_distribution` | `tag:TagResources` |
+| Direct Connect Connection | `aws_dx_connection` | `tag:TagResources` |
+| Network Firewall | `aws_networkfirewall_firewall` | `tag:TagResources` |
+| Global Accelerator (global) | `aws_globalaccelerator_accelerator` | `globalaccelerator:TagResource` |
+| WAF Classic Web ACL (regional) | `aws_wafregional_web_acl` | `tag:TagResources` |
+| WAF Classic Web ACL (global) | `aws_waf_web_acl` | `tag:TagResources` |
+| WAFv2 Web ACL (regional and CloudFront) | `aws_wafv2_web_acl` | `tag:TagResources` |
+| Shield Advanced Protection (global) | `aws_shield_protection` | `tag:TagResources` |
+
+### Storage and databases
+
+| Resource | Type | Write API |
+|----------|------|-----------|
+| S3 Bucket | `aws_s3_bucket` | `s3:PutBucketTagging` |
+| EFS File System | `aws_efs_file_system` | `elasticfilesystem:TagResource` |
+| FSx File System | `aws_fsx_file_system` | `tag:TagResources` |
+| Backup Vault | `aws_backup_vault` | `tag:TagResources` |
+| RDS Instance | `aws_db_instance` | `rds:AddTagsToResource` |
+| RDS / Aurora Cluster | `aws_rds_cluster` | `rds:AddTagsToResource` |
+| RDS Snapshot (manual) | `aws_db_snapshot` | `rds:AddTagsToResource` |
+| DynamoDB Table | `aws_dynamodb_table` | `dynamodb:TagResource` |
+| ElastiCache Cluster | `aws_elasticache_cluster` | `elasticache:AddTagsToResource` |
+| Redshift Cluster | `aws_redshift_cluster` | `tag:TagResources` |
+| OpenSearch Domain | `aws_opensearch_domain` | `tag:TagResources` |
+| DocumentDB Cluster | `aws_docdb_cluster` | `rds:AddTagsToResource` |
+| Neptune Cluster | `aws_neptune_cluster` | `rds:AddTagsToResource` |
+| MemoryDB Cluster | `aws_memorydb_cluster` | `tag:TagResources` |
+| DMS Replication Instance | `aws_dms_replication_instance` | `tag:TagResources` |
+| Glacier Vault | `aws_glacier_vault` | `tag:TagResources` |
+| Storage Gateway | `aws_storagegateway_gateway` | `tag:TagResources` |
+| Transfer Family Server | `aws_transfer_server` | `tag:TagResources` |
+| DataSync Task | `aws_datasync_task` | `tag:TagResources` |
+| DLM Lifecycle Policy | `aws_dlm_lifecycle_policy` | `tag:TagResources` |
+
+### Data and analytics
+
+| Resource | Type | Write API |
+|----------|------|-----------|
+| Kinesis Data Stream | `aws_kinesis_stream` | `kinesis:AddTagsToStream` |
+| Kinesis Data Firehose Stream | `aws_kinesis_firehose_delivery_stream` | `tag:TagResources` |
+| MSK Cluster | `aws_msk_cluster` | `tag:TagResources` |
+| Glue Job | `aws_glue_job` | `tag:TagResources` |
+| SageMaker Endpoint | `aws_sagemaker_endpoint` | `tag:TagResources` |
+| SageMaker Notebook Instance | `aws_sagemaker_notebook_instance` | `tag:TagResources` |
+| Athena Workgroup | `aws_athena_workgroup` | `tag:TagResources` |
+| EMR Cluster (active) | `aws_emr_cluster` | `tag:TagResources` |
+| Data Pipeline | `aws_datapipeline_pipeline` | `tag:TagResources` |
+| Bedrock Guardrail | `aws_bedrock_guardrail` | `tag:TagResources` |
+
+### Messaging and application integration
+
+| Resource | Type | Write API |
+|----------|------|-----------|
+| SNS Topic | `aws_sns_topic` | `sns:TagResource` |
+| SQS Queue | `aws_sqs_queue` | `sqs:TagQueue` |
+| EventBridge Rule | `aws_cloudwatch_event_rule` | `tag:TagResources` |
+| Step Functions State Machine | `aws_sfn_state_machine` | `tag:TagResources` |
+| Cognito User Pool | `aws_cognito_user_pool` | `tag:TagResources` |
+| MQ Broker | `aws_mq_broker` | `tag:TagResources` |
+| SES Email Identity | `aws_ses_email_identity` | `tag:TagResources` |
+| SES Configuration Set | `aws_ses_configuration_set` | `tag:TagResources` |
+| AppSync GraphQL API | `aws_appsync_graphql_api` | `tag:TagResources` |
+
+### Operations and security
+
+| Resource | Type | Write API |
+|----------|------|-----------|
+| CloudWatch Log Group | `aws_cloudwatch_log_group` | `logs:TagResource` |
+| CloudWatch Metric Alarm | `aws_cloudwatch_metric_alarm` | `tag:TagResources` |
+| CloudWatch Composite Alarm | `aws_cloudwatch_composite_alarm` | `tag:TagResources` |
+| CloudFormation Stack | `aws_cloudformation_stack` | `tag:TagResources` |
+| CodeBuild Project | `aws_codebuild_project` | `tag:TagResources` |
+| Secrets Manager Secret | `aws_secretsmanager_secret` | `tag:TagResources` |
+| ACM Certificate | `aws_acm_certificate` | `tag:TagResources` |
+| KMS Key (customer-managed) | `aws_kms_key` | `kms:TagResource` |
+| IAM Role (global) | `aws_iam_role` | `tag:TagResources` |
+| CloudTrail Trail (home region) | `aws_cloudtrail` | `tag:TagResources` |
+| Config Rule (account-created) | `aws_config_config_rule` | `tag:TagResources` |
+| GuardDuty Detector | `aws_guardduty_detector` | `tag:TagResources` |
+| Access Analyzer | `aws_accessanalyzer_analyzer` | `tag:TagResources` |
+| ACM PCA Certificate Authority | `aws_acmpca_certificate_authority` | `tag:TagResources` |
+| Directory Service Directory | `aws_directory_service_directory` | `tag:TagResources` |
+| Firewall Manager Policy | `aws_fms_policy` | `tag:TagResources` |
+| Roles Anywhere Trust Anchor | `aws_rolesanywhere_trust_anchor` | `tag:TagResources` |
+| SSM Parameter | `aws_ssm_parameter` | `tag:TagResources` |
+| SSM Document (owned) | `aws_ssm_document` | `tag:TagResources` |
+| Incident Manager Response Plan | `aws_ssmincidents_response_plan` | `tag:TagResources` |
+| Well-Architected Workload | `aws_wellarchitected_workload` | `tag:TagResources` |
+| DRS Source Server | `aws_drs_source_server` | `tag:TagResources` |
+
+### Developer tools
+
+| Resource | Type | Write API |
+|----------|------|-----------|
+| CodeCommit Repository | `aws_codecommit_repository` | `tag:TagResources` |
+| CodePipeline | `aws_codepipeline` | `tag:TagResources` |
+| CodeArtifact Domain | `aws_codeartifact_domain` | `tag:TagResources` |
+| CodeArtifact Repository | `aws_codeartifact_repository` | `tag:TagResources` |
+| Service Catalog Portfolio | `aws_servicecatalog_portfolio` | `tag:TagResources` |
+
+<Note>
+Resources AWS owns on your behalf are not listed because they cannot be
+tagged: AWS-managed KMS keys (`aws/*`), AMIs and snapshots owned by other
+accounts, automated RDS snapshots, service-linked IAM roles, deleted
+CloudFormation stacks, deleted ACM PCA authorities, terminated WorkSpaces,
+finished EMR clusters, SSM documents published by AWS and Config rules created
+by Security Hub or conformance packs. Terminated EC2 instances, deleted NAT
+gateways and EC2-Classic Elastic IPs are dropped as well. Prowler services
+with nothing to tag at account level (Account, Inspector, Macie, Organizations,
+Resource Explorer, Security Hub, Trusted Advisor) are not listed either. ECS service IDs are prefixed with their cluster
+(`cluster/service`) because service names are only unique per cluster.
+</Note>
+
+## How tags are read
+
+Discovery and tag reading are two different steps:
+
+1. **Discovery** always uses each service's own List/Describe API, so a
+   resource that has never been tagged is still found.
+2. **Tags** come from a `tag:GetResources` sweep per region, started before
+   discovery and shared by every lister. The sweep is filtered to the resource
+   types tagctl audits and split into twelve parallel paginators, so an
+   account with tens of thousands of tagged resources still reads in a few
+   seconds. A discovered ARN missing from the sweep is untagged. Services
+   whose Describe call already returns tags inline never need it: EC2, Auto
+   Scaling, ECS, EKS, EFS, RDS clusters and snapshots, MSK, Redshift, Secrets
+   Manager, CloudFormation, CodeBuild, FSx, API Gateway, Access Analyzer,
+   Amplify, AppSync, Batch, Direct Connect, DLM, DRS, GuardDuty, Lightsail,
+   Data Pipeline and SSM documents. ALB/NLB load balancers and Global
+   Accelerator always read tags through their own API
+   (`elasticloadbalancing:DescribeTags`, `globalaccelerator:ListTagsForResource`).
+
+When `tag:GetResources` is denied or fails, tagctl degrades in two ways:
+
+- Services with a per-resource tag API (RDS instances, Lambda, SNS, SQS, S3,
+  DynamoDB, ElastiCache, ECR, KMS, Kinesis, CloudWatch Logs, classic load
+  balancers, target groups and CloudTrail) fall back to it, one call per
+  resource.
+- Services with no usable tag API of their own are **skipped** with an
+  `[ERROR]` line naming the service and region, and are never reported as
+  untagged: ACM, ACM PCA, AppStream, Athena, Backup, Bedrock, CloudFront,
+  CloudWatch alarms, CodeArtifact, CodeCommit, CodePipeline, Cognito, Config,
+  DataSync, Directory Service, DMS, Elastic Beanstalk, EMR, EventBridge,
+  Firehose, Firewall Manager, Glacier, Glue, IAM, MemoryDB, MQ, Network
+  Firewall, OpenSearch, Roles Anywhere, Route 53, SageMaker, SES, Service
+  Catalog, Shield, SSM parameters, Incident Manager, Step Functions, Storage
+  Gateway, Transfer Family, WAF, Well-Architected and WorkSpaces.
+
+Global services (Route 53, CloudFront, IAM, Shield, WAF Classic for
+CloudFront, WAFv2 CloudFront scope) are listed once per account and read their
+tags from the `us-east-1` sweep, which tagctl runs even when `us-east-1` is
+not in `regions`. Global Accelerator only exists in `us-west-2` and reads and
+writes its tags through its own API.
+
+Some services report "not set up" instead of an empty list: DRS in a region
+never initialised, Shield without an Advanced subscription, Firewall Manager
+outside the administrator account. tagctl treats those answers as zero
+resources (visible at `--log-level debug`), not as errors. Lightsail is only
+called in the regions where it has an endpoint.
+
+<Warning>
+`tag:GetResources` is eventually consistent. Tags written by `tagctl apply`
+can take a few minutes to appear in the next `scan`; the per-resource
+fallback APIs are read-after-write.
+</Warning>
+
+## Configuration
+
+```yaml
+clouds:
+  aws:
+    # Scan all available regions (auto-discovery)
+    - profile: production
+
+    # Or specify specific regions
+    - profile: staging
+      regions:
+        - us-east-1
+        - eu-west-1
+```
+
+### Configuration Options
+
+<ParamField path="profile" type="string">
+  AWS CLI profile name from `~/.aws/credentials` or `~/.aws/config`.
+</ParamField>
+
+<ParamField path="role_arn" type="string">
+  IAM role to assume with the resolved credentials; `external_id`,
+  `session_duration`, `role_session_name` and `mfa_serial` refine it.
+</ParamField>
+
+<ParamField path="regions" type="string[]">
+  List of AWS regions to scan. **If omitted, all available regions are automatically discovered and scanned.** The list also filters S3: buckets located outside it are not read.
+</ParamField>
+
+## Region Selection
+
+tagctl supports flexible region configuration:
+
+### Auto-Discovery (Default)
+
+When no regions are specified, tagctl automatically discovers all available regions:
+
+```yaml
+clouds:
+  aws:
+    - profile: production  # Scans all 17+ AWS regions
+```
+
+### Specific Regions in Config
+
+```yaml
+clouds:
+  aws:
+    - profile: production
+      regions: [us-east-1, eu-west-1]
+```
+
+### Command-Line Override
+
+The `--region` flag overrides the config file:
+
+```bash
+# Scan only eu-west-1, regardless of config
+tagctl scan --region eu-west-1
+
+# Scan multiple specific regions
+tagctl scan --region eu-west-1 --region us-east-1
+```
+
+## Authentication
+
+Credentials come from the AWS SDK default chain (environment, `~/.aws`
+profiles and SSO, web identity, container or instance role). An account entry
+selects a `profile` and can assume a `role_arn` on top; keys are never read from
+`tagctl.yaml`. `--profile` and `--role` (with `--external-id`,
+`--session-duration`, `--role-session-name`, `--mfa-serial`) do the same from
+the command line. The full reference lives on the
+[Credentials page](/credentials#aws-authentication).
+
+The regions to scan always come from `regions` or `--region`; the profile's
+region only serves the initial STS call.
+
+## Required IAM Permissions
+
+When `role_arn` is used, attach these policies to the role; the base identity
+only needs `sts:AssumeRole` on it.
+
+### Read-Only (Scan)
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "BulkTags",
+      "Effect": "Allow",
+      "Action": ["tag:GetResources"],
+      "Resource": "*"
+    },
+    {
+      "Sid": "Discovery",
+      "Effect": "Allow",
+      "Action": [
+        "sts:GetCallerIdentity",
+        "ec2:DescribeRegions",
+        "ec2:DescribeInstances",
+        "ec2:DescribeImages",
+        "ec2:DescribeVolumes",
+        "ec2:DescribeSnapshots",
+        "ec2:DescribeLaunchTemplates",
+        "ec2:DescribeSecurityGroups",
+        "ec2:DescribeVpcs",
+        "ec2:DescribeSubnets",
+        "ec2:DescribeInternetGateways",
+        "ec2:DescribeNatGateways",
+        "ec2:DescribeVpcEndpoints",
+        "ec2:DescribeAddresses",
+        "autoscaling:DescribeAutoScalingGroups",
+        "lambda:ListFunctions",
+        "ecs:ListClusters",
+        "ecs:DescribeClusters",
+        "ecs:ListServices",
+        "ecs:DescribeServices",
+        "eks:ListClusters",
+        "eks:DescribeCluster",
+        "ecr:DescribeRepositories",
+        "elasticbeanstalk:DescribeEnvironments",
+        "elasticloadbalancing:DescribeLoadBalancers",
+        "elasticloadbalancing:DescribeTargetGroups",
+        "elasticloadbalancing:DescribeTags",
+        "globalaccelerator:ListTagsForResource",
+        "apigateway:GET",
+        "route53:ListHostedZones",
+        "cloudfront:ListDistributions",
+        "s3:ListAllMyBuckets",
+        "s3:GetBucketLocation",
+        "elasticfilesystem:DescribeFileSystems",
+        "fsx:DescribeFileSystems",
+        "backup:ListBackupVaults",
+        "rds:DescribeDBInstances",
+        "rds:DescribeDBClusters",
+        "rds:DescribeDBSnapshots",
+        "dynamodb:ListTables",
+        "elasticache:DescribeCacheClusters",
+        "redshift:DescribeClusters",
+        "es:ListDomainNames",
+        "es:DescribeDomains",
+        "kinesis:ListStreams",
+        "firehose:ListDeliveryStreams",
+        "kafka:ListClustersV2",
+        "glue:GetJobs",
+        "sagemaker:ListEndpoints",
+        "sagemaker:ListNotebookInstances",
+        "sns:ListTopics",
+        "sqs:ListQueues",
+        "sqs:GetQueueAttributes",
+        "events:ListRules",
+        "states:ListStateMachines",
+        "cognito-idp:ListUserPools",
+        "logs:DescribeLogGroups",
+        "cloudwatch:DescribeAlarms",
+        "cloudformation:DescribeStacks",
+        "codebuild:ListProjects",
+        "codebuild:BatchGetProjects",
+        "secretsmanager:ListSecrets",
+        "acm:ListCertificates",
+        "kms:ListKeys",
+        "kms:DescribeKey",
+        "iam:ListRoles",
+        "access-analyzer:ListAnalyzers",
+        "acm-pca:ListCertificateAuthorities",
+        "cloudtrail:DescribeTrails",
+        "config:DescribeConfigRules",
+        "ds:DescribeDirectories",
+        "fms:ListPolicies",
+        "guardduty:ListDetectors",
+        "guardduty:GetDetector",
+        "network-firewall:ListFirewalls",
+        "rolesanywhere:ListTrustAnchors",
+        "waf-regional:ListWebACLs",
+        "waf:ListWebACLs",
+        "wafv2:ListWebACLs",
+        "shield:ListProtections",
+        "globalaccelerator:ListAccelerators",
+        "amplify:ListApps",
+        "appsync:ListGraphqlApis",
+        "bedrock:ListGuardrails",
+        "codeartifact:ListDomains",
+        "codeartifact:ListRepositories",
+        "codecommit:ListRepositories",
+        "codepipeline:ListPipelines",
+        "servicecatalog:ListPortfolios",
+        "wellarchitected:ListWorkloads",
+        "athena:ListWorkGroups",
+        "dms:DescribeReplicationInstances",
+        "datapipeline:ListPipelines",
+        "datapipeline:DescribePipelines",
+        "datasync:ListTasks",
+        "elasticmapreduce:ListClusters",
+        "glacier:ListVaults",
+        "memorydb:DescribeClusters",
+        "mq:ListBrokers",
+        "ses:ListEmailIdentities",
+        "ses:ListConfigurationSets",
+        "storagegateway:ListGateways",
+        "transfer:ListServers",
+        "appstream:DescribeFleets",
+        "appstream:DescribeStacks",
+        "batch:DescribeComputeEnvironments",
+        "batch:DescribeJobQueues",
+        "directconnect:DescribeConnections",
+        "dlm:GetLifecyclePolicies",
+        "drs:DescribeSourceServers",
+        "lightsail:GetInstances",
+        "ssm:DescribeParameters",
+        "ssm:ListDocuments",
+        "ssm-incidents:ListResponsePlans",
+        "workspaces:DescribeWorkspaces",
+        "ce:GetCostAndUsage"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "PerResourceTagFallback",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetBucketTagging",
+        "rds:ListTagsForResource",
+        "lambda:ListTags",
+        "sns:ListTagsForResource",
+        "sqs:ListQueueTags",
+        "dynamodb:ListTagsOfResource",
+        "elasticache:ListTagsForResource",
+        "ecr:ListTagsForResource",
+        "kms:ListResourceTags",
+        "kinesis:ListTagsForStream",
+        "logs:ListTagsForResource",
+        "cloudtrail:ListTags"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
+```
+
+<Note>
+  `BulkTags` is what makes the scan fast and complete. Without it the
+  `PerResourceTagFallback` actions keep the older services working, one call
+  per resource, and the services listed under
+  [How tags are read](#how-tags-are-read) are skipped.
+  `ec2:DescribeRegions` is only needed when `regions` is omitted;
+  `ce:GetCostAndUsage` only by `tagctl cost`. `elasticloadbalancing:DescribeTags`
+  and `globalaccelerator:ListTagsForResource` sit in `Discovery` because
+  ALB/NLB and Global Accelerator tags are always read through them.
+</Note>
+
+### Read-Write (Apply)
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ServiceTagAPIs",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:CreateTags",
+        "s3:GetBucketLocation",
+        "s3:GetBucketTagging",
+        "s3:PutBucketTagging",
+        "rds:AddTagsToResource",
+        "lambda:TagResource",
+        "sns:TagResource",
+        "sqs:TagQueue",
+        "elasticloadbalancing:AddTags",
+        "autoscaling:CreateOrUpdateTags",
+        "dynamodb:TagResource",
+        "ecs:TagResource",
+        "eks:TagResource",
+        "elasticache:AddTagsToResource",
+        "elasticfilesystem:TagResource",
+        "ecr:TagResource",
+        "kms:TagResource",
+        "kinesis:AddTagsToStream",
+        "logs:TagResource",
+        "lightsail:TagResource",
+        "globalaccelerator:TagResource"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "TaggingAPI",
+      "Effect": "Allow",
+      "Action": [
+        "tag:TagResources",
+        "elasticbeanstalk:AddTags",
+        "apigateway:PUT",
+        "route53:ChangeTagsForResource",
+        "cloudfront:TagResource",
+        "fsx:TagResource",
+        "backup:TagResource",
+        "redshift:CreateTags",
+        "es:AddTags",
+        "firehose:TagDeliveryStream",
+        "kafka:TagResource",
+        "glue:TagResource",
+        "sagemaker:AddTags",
+        "events:TagResource",
+        "states:TagResource",
+        "cognito-idp:TagResource",
+        "cloudwatch:TagResource",
+        "cloudformation:TagResource",
+        "codebuild:UpdateProject",
+        "secretsmanager:TagResource",
+        "acm:AddTagsToCertificate",
+        "iam:TagRole",
+        "access-analyzer:TagResource",
+        "acm-pca:TagCertificateAuthority",
+        "cloudtrail:AddTags",
+        "config:TagResource",
+        "ds:AddTagsToResource",
+        "fms:TagResource",
+        "guardduty:TagResource",
+        "network-firewall:TagResource",
+        "rolesanywhere:TagResource",
+        "waf-regional:TagResource",
+        "waf:TagResource",
+        "wafv2:TagResource",
+        "shield:TagResource",
+        "amplify:TagResource",
+        "appsync:TagResource",
+        "bedrock:TagResource",
+        "codeartifact:TagResource",
+        "codecommit:TagResource",
+        "codepipeline:TagResource",
+        "servicecatalog:TagResource",
+        "wellarchitected:TagResource",
+        "athena:TagResource",
+        "dms:AddTagsToResource",
+        "datapipeline:AddTags",
+        "datasync:TagResource",
+        "elasticmapreduce:AddTags",
+        "glacier:AddTagsToVault",
+        "memorydb:TagResource",
+        "mq:CreateTags",
+        "ses:TagResource",
+        "storagegateway:AddTagsToResource",
+        "transfer:TagResource",
+        "appstream:TagResource",
+        "batch:TagResource",
+        "directconnect:TagResource",
+        "dlm:TagResource",
+        "drs:TagResource",
+        "ssm:AddTagsToResource",
+        "ssm-incidents:TagResource",
+        "workspaces:CreateTags"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
+```
+
+<Note>
+  `PutBucketTagging` replaces the whole tag set, so tagctl reads the existing
+  tags first: the S3 `Get*` actions above are part of applying, not only of
+  scanning. `tag:TagResources` delegates to each service, so the service's own tagging
+  action must be allowed as well; a resource the service rejects is reported
+  as a failed change with the service's error code, the rest of the batch
+  still applies.
+</Note>
+
+<Tip>
+  For production, scope the `Resource` field to specific ARN patterns instead of `"*"`.
+</Tip>
+
+## Multi-Account Setup
+
+### Using AWS Organizations
+
+```yaml
+clouds:
+  aws:
+    # Production account
+    - profile: org-production
+      regions: [us-east-1, eu-west-1]
+
+    # Staging account
+    - profile: org-staging
+      regions: [us-east-1]
+
+    # Development account
+    - profile: org-development
+      regions: [us-east-1]
+```
+
+### Using Cross-Account Roles
+
+Configure assume role in `~/.aws/config`:
+
+```ini
+[profile production]
+role_arn = arn:aws:iam::111111111111:role/TagctlRole
+source_profile = default
+
+[profile staging]
+role_arn = arn:aws:iam::222222222222:role/TagctlRole
+source_profile = default
+```
+
+## Troubleshooting
+
+Use debug logging to trace issues:
+
+```bash
+tagctl scan --log-level debug
+```
+
+<AccordionGroup>
+  <Accordion title="Access Denied errors">
+    Verify IAM permissions:
+    ```bash
+    aws sts get-caller-identity --profile your-profile
+    aws ec2 describe-instances --profile your-profile --region us-east-1
+    ```
+  </Accordion>
+
+  <Accordion title="Resources in the wrong region, or none at all">
+    tagctl never takes the region from the profile or `AWS_REGION`: it scans
+    exactly `regions` from `tagctl.yaml` (or `--region`), and discovers every
+    region through `ec2:DescribeRegions` when the list is empty. The first
+    configured region (or `us-east-1`) is also where the initial STS call goes.
+  </Accordion>
+
+  <Accordion title="No resources found in region">
+    Check the region has resources:
+    ```bash
+    aws ec2 describe-instances --region us-east-1 --query 'Reservations[].Instances[].InstanceId'
+    ```
+
+    Use debug logging to see exactly what's being scanned:
+    ```bash
+    tagctl scan --log-level debug --region us-east-1
+    ```
+  </Accordion>
+
+  <Accordion title="S3 buckets missing from the report">
+    Buckets are listed once (S3 is global) and then filtered by the configured
+    `regions`; a bucket in `us-west-2` is not reported when only `eu-west-1` is
+    configured. Omit `regions` to scan every bucket.
+
+    A bucket whose tags cannot be read (network timeout, access denied) is
+    skipped with an `[ERROR]` line rather than reported as untagged. Run with
+    `--log-level debug` to see each bucket's region and the SDK retries.
+  </Accordion>
+
+  <Accordion title="A service is 'skipped' with a tag:GetResources error">
+    The role can list the service but not read tags in bulk, and that service
+    has no per-resource tag API tagctl can fall back to. Grant
+    `tag:GetResources` (see [Read-Only](#read-only-scan)). Nothing from that
+    service is reported until then; skipping is deliberate so a permission gap
+    never shows up as untagged resources.
+  </Accordion>
+
+  <Accordion title="Tags applied a moment ago are still reported missing">
+    `tag:GetResources` is eventually consistent; wait a few minutes and scan
+    again. Run with `--log-level debug` and look for the
+    `AWS Tagging: ... discovered resources have tags` line per region to
+    check what the bulk sweep returned.
+  </Accordion>
+
+  <Accordion title="Rate limiting">
+    Every (region × service) lister runs in its own goroutine and per-resource
+    tag calls fan out with a fixed limit of 16 in flight; the SDK retries
+    throttled calls with exponential backoff (visible at `--log-level debug`).
+    The concurrency is not configurable.
+  </Accordion>
+</AccordionGroup>

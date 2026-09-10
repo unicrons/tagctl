@@ -1,0 +1,341 @@
+---
+title: 'Kubernetes Provider (Coming Soon)'
+description: 'Configure tagctl for Kubernetes clusters - Coming in a future release'
+icon: 'dharmachakra'
+---
+
+<Warning>
+**Not Yet Available**: Kubernetes support is not implemented in the current version of tagctl. This documentation describes **planned functionality** for a future release.
+
+Currently, only **AWS** is supported. See the [AWS Provider](/providers/aws) documentation.
+</Warning>
+
+## Planned Resources
+
+| Resource | Type | Labels Location |
+|----------|------|-----------------|
+| Pod | `k8s_pod` | `metadata.labels` |
+| Deployment | `k8s_deployment` | `metadata.labels` |
+| Service | `k8s_service` | `metadata.labels` |
+| Namespace | `k8s_namespace` | `metadata.labels` |
+| ConfigMap | `k8s_configmap` | `metadata.labels` |
+| Secret | `k8s_secret` | `metadata.labels` |
+
+<Note>
+  In Kubernetes, "tags" are called **labels**. tagctl treats them the same way.
+</Note>
+
+## Configuration
+
+```yaml
+clouds:
+  kubernetes:
+    - name: production
+      kubeconfig: ~/.kube/config
+      context: prod-context
+      namespaces: []  # all namespaces
+
+    - name: staging
+      kubeconfig: ~/.kube/config
+      context: staging-context
+      namespaces:
+        - app
+        - backend
+```
+
+### Configuration Options
+
+<ParamField path="name" type="string" required>
+  Friendly name for this cluster (used in reports).
+</ParamField>
+
+<ParamField path="kubeconfig" type="string">
+  Path to kubeconfig file. Defaults to `~/.kube/config`.
+  Use `in-cluster` for pods running inside Kubernetes.
+</ParamField>
+
+<ParamField path="context" type="string">
+  Kubeconfig context to use. Defaults to current context.
+</ParamField>
+
+<ParamField path="namespaces" type="string[]">
+  Namespaces to scan. Empty list means all namespaces.
+</ParamField>
+
+<ParamField path="resource_types" type="string[]">
+  Resource types to scan. Defaults to all supported types.
+</ParamField>
+
+## Authentication
+
+### Using Kubeconfig (Default)
+
+```yaml
+clouds:
+  kubernetes:
+    - name: my-cluster
+      kubeconfig: ~/.kube/config
+```
+
+### Using Specific Context
+
+```yaml
+clouds:
+  kubernetes:
+    - name: prod
+      kubeconfig: ~/.kube/config
+      context: prod-eks-cluster
+
+    - name: staging
+      kubeconfig: ~/.kube/config
+      context: staging-gke-cluster
+```
+
+### In-Cluster (Running in Kubernetes)
+
+When tagctl runs as a pod:
+
+```yaml
+clouds:
+  kubernetes:
+    - name: current-cluster
+      kubeconfig: in-cluster
+      namespaces: [app, backend]
+```
+
+### EKS Authentication
+
+```yaml
+# ~/.kube/config
+users:
+- name: eks-user
+  user:
+    exec:
+      apiVersion: client.authentication.k8s.io/v1beta1
+      command: aws
+      args:
+        - eks
+        - get-token
+        - --cluster-name
+        - my-cluster
+```
+
+### GKE Authentication
+
+```yaml
+# ~/.kube/config
+users:
+- name: gke-user
+  user:
+    exec:
+      apiVersion: client.authentication.k8s.io/v1beta1
+      command: gke-gcloud-auth-plugin
+```
+
+## Required RBAC Permissions
+
+### Read-Only (Scan)
+
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: tagctl-reader
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "services", "namespaces", "configmaps", "secrets"]
+    verbs: ["get", "list"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list"]
+```
+
+### Read-Write (Apply)
+
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: tagctl-writer
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "services", "namespaces", "configmaps", "secrets"]
+    verbs: ["get", "list", "patch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "patch"]
+```
+
+### ClusterRoleBinding
+
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: tagctl-binding
+subjects:
+  - kind: ServiceAccount
+    name: tagctl
+    namespace: default
+roleRef:
+  kind: ClusterRole
+  name: tagctl-writer
+  apiGroup: rbac.authorization.k8s.io
+```
+
+<Tip>
+  For namespace-scoped access, use `Role` and `RoleBinding` instead of cluster-wide permissions.
+</Tip>
+
+## Running tagctl in Kubernetes
+
+### Deployment
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tagctl
+  namespace: tagctl-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: tagctl
+  template:
+    metadata:
+      labels:
+        app: tagctl
+    spec:
+      serviceAccountName: tagctl
+      containers:
+        - name: tagctl
+          image: ghcr.io/unicrons/tagctl:latest
+          command: ["tagctl", "scan", "--output", "json"]
+          volumeMounts:
+            - name: config
+              mountPath: /etc/tagctl
+      volumes:
+        - name: config
+          configMap:
+            name: tagctl-config
+```
+
+### ConfigMap
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tagctl-config
+  namespace: tagctl-system
+data:
+  tagctl.yaml: |
+    clouds:
+      kubernetes:
+        - name: current-cluster
+          kubeconfig: in-cluster
+          namespaces: []
+
+    policy:
+      required:
+        - name: app
+        - name: environment
+          values: [dev, staging, prod]
+```
+
+### ServiceAccount
+
+```yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: tagctl
+  namespace: tagctl-system
+```
+
+## Multi-Cluster Setup
+
+```yaml
+clouds:
+  kubernetes:
+    # Production EKS
+    - name: prod-eks
+      kubeconfig: ~/.kube/config
+      context: arn:aws:eks:us-east-1:111111111111:cluster/prod
+      namespaces: []
+
+    # Staging GKE
+    - name: staging-gke
+      kubeconfig: ~/.kube/config
+      context: gke_my-project_us-central1_staging
+      namespaces: [app, api]
+
+    # Local development
+    - name: minikube
+      context: minikube
+      namespaces: [default]
+```
+
+## Filtering Resources
+
+### By Namespace
+
+```yaml
+clouds:
+  kubernetes:
+    - name: prod
+      namespaces:
+        - app
+        - backend
+        - frontend
+      # Excludes: kube-system, kube-public, etc.
+```
+
+### By Resource Type
+
+```yaml
+clouds:
+  kubernetes:
+    - name: prod
+      resource_types:
+        - k8s_deployment
+        - k8s_service
+      # Only scan deployments and services
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Connection refused">
+    Check cluster connectivity:
+    ```bash
+    kubectl cluster-info
+    kubectl config current-context
+    ```
+  </Accordion>
+
+  <Accordion title="Forbidden errors">
+    Check RBAC permissions:
+    ```bash
+    kubectl auth can-i list pods --all-namespaces
+    kubectl auth can-i patch deployments -n my-namespace
+    ```
+  </Accordion>
+
+  <Accordion title="Context not found">
+    List available contexts:
+    ```bash
+    kubectl config get-contexts
+    ```
+    Use the exact context name in your config.
+  </Accordion>
+
+  <Accordion title="In-cluster config fails">
+    Ensure the pod has a ServiceAccount with proper RBAC:
+    ```bash
+    kubectl get serviceaccount tagctl -n tagctl-system
+    kubectl get clusterrolebinding tagctl-binding
+    ```
+  </Accordion>
+</AccordionGroup>

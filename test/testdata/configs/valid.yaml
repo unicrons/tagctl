@@ -1,0 +1,73 @@
+# Valid complete configuration for testing
+clouds:
+  aws:
+    - profile: production
+      regions:
+        - us-east-1
+        - eu-west-1
+    - profile: staging
+      regions:
+        - us-east-1
+
+  kubernetes:
+    - name: prod-cluster
+      kubeconfig: ~/.kube/config
+      context: prod-context
+      namespaces: []
+    - name: dev-cluster
+      kubeconfig: ~/.kube/config
+      context: dev-context
+      namespaces:
+        - app
+        - backend
+
+policy:
+  required:
+    - name: environment
+      description: Deployment environment
+      values:
+        - dev
+        - staging
+        - prod
+    - name: owner
+      description: Team or person responsible
+      pattern: "^.+@.+$"
+    - name: cost-center
+      description: Finance cost allocation
+      pattern: "^[A-Z]{2,4}-\\d{3,6}$"
+
+rules:
+  infer:
+    - tag: environment
+      from_name:
+        - pattern: ".*-prod-.*"
+          value: prod
+        - pattern: ".*-staging-.*"
+          value: staging
+        - pattern: ".*-dev-.*"
+          value: dev
+
+  inherit:
+    - resource: aws_ebs_volume
+      from: attached_instance
+      tags:
+        - environment
+        - owner
+        - cost-center
+
+  defaults:
+    - resource: "*"
+      when:
+        tag:owner: absent
+      set:
+        owner: platform-team@company.com
+        needs-review: "true"
+
+ignore:
+  resources:
+    - "^kube-system/.*"
+    - ".*-ephemeral-.*"
+  tags:
+    managed-by:
+      - terraform
+      - helm
