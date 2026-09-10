@@ -34,7 +34,7 @@ func (p *Provider) listRestAPIsFrom(ctx context.Context, client restAPIsAPI, reg
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_rest_apis", "", err)
+			return nil, provider.NewProviderError(providerName, "list_rest_apis", "", err)
 		}
 		for _, api := range output.Items {
 			id := aws.ToString(api.Id)
@@ -49,7 +49,7 @@ func (p *Provider) listRestAPIsFrom(ctx context.Context, client restAPIsAPI, reg
 				Type:      "aws_api_gateway_rest_api",
 				Region:    region,
 				Account:   p.accountID,
-				Provider:  "aws",
+				Provider:  providerName,
 				Tags:      tags,
 				CreatedAt: api.CreatedDate,
 			})
@@ -70,7 +70,7 @@ func (p *Provider) listHTTPAPIsFrom(ctx context.Context, client httpAPIsAPI, reg
 	for {
 		output, err := client.GetApis(ctx, &apigatewayv2.GetApisInput{NextToken: next})
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_http_apis", "", err)
+			return nil, provider.NewProviderError(providerName, "list_http_apis", "", err)
 		}
 		for _, api := range output.Items {
 			id := aws.ToString(api.ApiId)
@@ -85,7 +85,7 @@ func (p *Provider) listHTTPAPIsFrom(ctx context.Context, client httpAPIsAPI, reg
 				Type:      "aws_apigatewayv2_api",
 				Region:    region,
 				Account:   p.accountID,
-				Provider:  "aws",
+				Provider:  providerName,
 				Tags:      tags,
 				CreatedAt: api.CreatedDate,
 			})

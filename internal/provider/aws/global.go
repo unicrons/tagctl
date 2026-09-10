@@ -64,14 +64,14 @@ func (p *Provider) listHostedZonesFrom(ctx context.Context, client route53API) (
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_hosted_zones", "", err)
+			return nil, provider.NewProviderError(providerName, "list_hosted_zones", "", err)
 		}
 		for _, z := range output.HostedZones {
 			id := strings.TrimPrefix(aws.ToString(z.Id), "/hostedzone/")
 			arn := "arn:aws:route53:::hostedzone/" + id
 			resources = append(resources, types.Resource{
 				ID: id, Name: strings.TrimSuffix(aws.ToString(z.Name), "."), ARN: arn, Type: "aws_route53_zone",
-				Region: regionGlobal, Account: p.accountID, Provider: "aws",
+				Region: regionGlobal, Account: p.accountID, Provider: providerName,
 				Tags: p.bulkTags(globalRegion, arn),
 			})
 		}
@@ -93,7 +93,7 @@ func (p *Provider) listDistributionsFrom(ctx context.Context, client cloudFrontA
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_distributions", "", err)
+			return nil, provider.NewProviderError(providerName, "list_distributions", "", err)
 		}
 		if output.DistributionList == nil {
 			continue
@@ -102,7 +102,7 @@ func (p *Provider) listDistributionsFrom(ctx context.Context, client cloudFrontA
 			arn := aws.ToString(d.ARN)
 			resources = append(resources, types.Resource{
 				ID: aws.ToString(d.Id), Name: aws.ToString(d.DomainName), ARN: arn, Type: "aws_cloudfront_distribution",
-				Region: regionGlobal, Account: p.accountID, Provider: "aws",
+				Region: regionGlobal, Account: p.accountID, Provider: providerName,
 				Tags: p.bulkTags(globalRegion, arn),
 			})
 		}
@@ -126,7 +126,7 @@ func (p *Provider) listIAMRolesFrom(ctx context.Context, client iamAPI) ([]types
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_iam_roles", "", err)
+			return nil, provider.NewProviderError(providerName, "list_iam_roles", "", err)
 		}
 		for _, r := range output.Roles {
 			if strings.HasPrefix(aws.ToString(r.Path), "/aws-service-role/") {
@@ -136,7 +136,7 @@ func (p *Provider) listIAMRolesFrom(ctx context.Context, client iamAPI) ([]types
 			arn := aws.ToString(r.Arn)
 			resources = append(resources, types.Resource{
 				ID: name, Name: name, ARN: arn, Type: "aws_iam_role",
-				Region: regionGlobal, Account: p.accountID, Provider: "aws",
+				Region: regionGlobal, Account: p.accountID, Provider: providerName,
 				Tags: p.bulkTags(globalRegion, arn), CreatedAt: r.CreateDate,
 			})
 		}

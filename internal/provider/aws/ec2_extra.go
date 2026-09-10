@@ -33,7 +33,7 @@ func (p *Provider) ec2Resource(region, arnType, resourceType, id string, tags []
 		Type:      resourceType,
 		Region:    region,
 		Account:   p.accountID,
-		Provider:  "aws",
+		Provider:  providerName,
 		Tags:      ec2TagsToMap(tags),
 		CreatedAt: created,
 	}
@@ -54,7 +54,7 @@ func (p *Provider) listAMIsFrom(ctx context.Context, client ec2ExtraAPI, region 
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_amis", "", err)
+			return nil, provider.NewProviderError(providerName, "list_amis", "", err)
 		}
 		for _, img := range output.Images {
 			r := p.ec2Resource(region, "image", "aws_ami", aws.ToString(img.ImageId), img.Tags, parseRFC3339(img.CreationDate))
@@ -76,7 +76,7 @@ func (p *Provider) listElasticIPs(ctx context.Context, region string) ([]types.R
 func (p *Provider) listElasticIPsFrom(ctx context.Context, client ec2ExtraAPI, region string) ([]types.Resource, error) {
 	output, err := client.DescribeAddresses(ctx, &ec2.DescribeAddressesInput{})
 	if err != nil {
-		return nil, provider.NewProviderError("aws", "list_elastic_ips", "", err)
+		return nil, provider.NewProviderError(providerName, "list_elastic_ips", "", err)
 	}
 	resources := make([]types.Resource, 0, len(output.Addresses))
 	for _, addr := range output.Addresses {
@@ -105,7 +105,7 @@ func (p *Provider) listNATGatewaysFrom(ctx context.Context, client ec2ExtraAPI, 
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_nat_gateways", "", err)
+			return nil, provider.NewProviderError(providerName, "list_nat_gateways", "", err)
 		}
 		for _, gw := range output.NatGateways {
 			if gw.State == ec2types.NatGatewayStateDeleted {
@@ -129,7 +129,7 @@ func (p *Provider) listInternetGatewaysFrom(ctx context.Context, client ec2Extra
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_internet_gateways", "", err)
+			return nil, provider.NewProviderError(providerName, "list_internet_gateways", "", err)
 		}
 		for _, gw := range output.InternetGateways {
 			resources = append(resources, p.ec2Resource(region, "internet-gateway", "aws_internet_gateway", aws.ToString(gw.InternetGatewayId), gw.Tags, nil))
@@ -150,7 +150,7 @@ func (p *Provider) listVPCEndpointsFrom(ctx context.Context, client ec2ExtraAPI,
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_vpc_endpoints", "", err)
+			return nil, provider.NewProviderError(providerName, "list_vpc_endpoints", "", err)
 		}
 		for _, ep := range output.VpcEndpoints {
 			resources = append(resources, p.ec2Resource(region, "vpc-endpoint", "aws_vpc_endpoint", aws.ToString(ep.VpcEndpointId), ep.Tags, ep.CreationTimestamp))
@@ -171,7 +171,7 @@ func (p *Provider) listLaunchTemplatesFrom(ctx context.Context, client ec2ExtraA
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_launch_templates", "", err)
+			return nil, provider.NewProviderError(providerName, "list_launch_templates", "", err)
 		}
 		for _, lt := range output.LaunchTemplates {
 			r := p.ec2Resource(region, "launch-template", "aws_launch_template", aws.ToString(lt.LaunchTemplateId), lt.Tags, lt.CreateTime)

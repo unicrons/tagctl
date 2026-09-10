@@ -24,7 +24,7 @@ func (p *Provider) listEC2Instances(ctx context.Context, region string) ([]types
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_ec2_instances", "", err)
+			return nil, provider.NewProviderError(providerName, "list_ec2_instances", "", err)
 		}
 
 		for _, reservation := range output.Reservations {
@@ -39,7 +39,7 @@ func (p *Provider) listEC2Instances(ctx context.Context, region string) ([]types
 					Type:     "aws_instance",
 					Region:   region,
 					Account:  p.accountID,
-					Provider: "aws",
+					Provider: providerName,
 					Tags:     ec2TagsToMap(instance.Tags),
 				}
 
@@ -79,7 +79,7 @@ func (p *Provider) listEBSVolumes(ctx context.Context, region string) ([]types.R
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_ebs_volumes", "", err)
+			return nil, provider.NewProviderError(providerName, "list_ebs_volumes", "", err)
 		}
 
 		for _, volume := range output.Volumes {
@@ -88,7 +88,7 @@ func (p *Provider) listEBSVolumes(ctx context.Context, region string) ([]types.R
 				Type:     "aws_ebs_volume",
 				Region:   region,
 				Account:  p.accountID,
-				Provider: "aws",
+				Provider: providerName,
 				Tags:     ec2TagsToMap(volume.Tags),
 			}
 
@@ -136,7 +136,7 @@ func (p *Provider) listEBSSnapshotsFrom(ctx context.Context, client ebsSnapshots
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_ebs_snapshots", "", err)
+			return nil, provider.NewProviderError(providerName, "list_ebs_snapshots", "", err)
 		}
 		for _, snap := range output.Snapshots {
 			id := aws.ToString(snap.SnapshotId)
@@ -147,7 +147,7 @@ func (p *Provider) listEBSSnapshotsFrom(ctx context.Context, client ebsSnapshots
 				Type:      "aws_ebs_snapshot",
 				Region:    region,
 				Account:   p.accountID,
-				Provider:  "aws",
+				Provider:  providerName,
 				Tags:      ec2TagsToMap(snap.Tags),
 				CreatedAt: snap.StartTime,
 			}
@@ -213,12 +213,12 @@ func (p *Provider) applyEC2Tags(ctx context.Context, resourceID string, tags map
 
 		// For other errors (permissions, etc.), fail immediately
 		log.Error("AWS EC2: Failed to apply tags to %s in %s: %v", resourceID, region, err)
-		return provider.NewProviderError("aws", "create_tags", resourceID, err)
+		return provider.NewProviderError(providerName, "create_tags", resourceID, err)
 	}
 
 	// If we tried all regions and none worked
 	log.Error("AWS EC2: Could not find resource %s in any configured region", resourceID)
-	return provider.NewProviderError("aws", "create_tags", resourceID, lastErr)
+	return provider.NewProviderError(providerName, "create_tags", resourceID, lastErr)
 }
 
 // applyEC2TagsInRegion applies tags to an EC2 resource in a specific region.
@@ -241,7 +241,7 @@ func (p *Provider) applyEC2TagsInRegion(ctx context.Context, resourceID, region 
 
 	if err != nil {
 		log.Error("AWS EC2: Failed to apply tags to %s in %s: %v", resourceID, region, err)
-		return provider.NewProviderError("aws", "create_tags", resourceID, err)
+		return provider.NewProviderError(providerName, "create_tags", resourceID, err)
 	}
 
 	log.Debug("AWS EC2: Successfully applied tags to %s", resourceID)
@@ -279,7 +279,7 @@ func (p *Provider) listSecurityGroupsFrom(ctx context.Context, client ec2Describ
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_security_groups", "", err)
+			return nil, provider.NewProviderError(providerName, "list_security_groups", "", err)
 		}
 
 		for _, sg := range output.SecurityGroups {
@@ -288,7 +288,7 @@ func (p *Provider) listSecurityGroupsFrom(ctx context.Context, client ec2Describ
 				Type:     "aws_security_group",
 				Region:   region,
 				Account:  p.accountID,
-				Provider: "aws",
+				Provider: providerName,
 				Tags:     ec2TagsToMap(sg.Tags),
 			}
 
@@ -325,7 +325,7 @@ func (p *Provider) listVPCsFrom(ctx context.Context, client ec2DescribeVpcsAPI, 
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_vpcs", "", err)
+			return nil, provider.NewProviderError(providerName, "list_vpcs", "", err)
 		}
 
 		for _, vpc := range output.Vpcs {
@@ -334,7 +334,7 @@ func (p *Provider) listVPCsFrom(ctx context.Context, client ec2DescribeVpcsAPI, 
 				Type:     "aws_vpc",
 				Region:   region,
 				Account:  p.accountID,
-				Provider: "aws",
+				Provider: providerName,
 				Tags:     ec2TagsToMap(vpc.Tags),
 			}
 
@@ -370,7 +370,7 @@ func (p *Provider) listSubnetsFrom(ctx context.Context, client ec2DescribeSubnet
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_subnets", "", err)
+			return nil, provider.NewProviderError(providerName, "list_subnets", "", err)
 		}
 
 		for _, subnet := range output.Subnets {
@@ -379,7 +379,7 @@ func (p *Provider) listSubnetsFrom(ctx context.Context, client ec2DescribeSubnet
 				Type:     "aws_subnet",
 				Region:   region,
 				Account:  p.accountID,
-				Provider: "aws",
+				Provider: providerName,
 				Tags:     ec2TagsToMap(subnet.Tags),
 			}
 

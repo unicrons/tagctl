@@ -43,7 +43,7 @@ func (p *Provider) CostReport(ctx context.Context, tags []string, start, end tim
 // costReportFrom builds the report using the given client.
 func (p *Provider) costReportFrom(ctx context.Context, client costExplorerAPI, tags []string, start, end time.Time) (*types.CostReport, error) {
 	if len(tags) == 0 {
-		return nil, provider.NewProviderError("aws", "cost_report", "",
+		return nil, provider.NewProviderError(providerName, "cost_report", "",
 			fmt.Errorf("no tags to report on: define required tags in your policy or pass --tag"))
 	}
 
@@ -98,7 +98,7 @@ func (p *Provider) costForTag(ctx context.Context, client costExplorerAPI, tag s
 	for {
 		output, err := client.GetCostAndUsage(ctx, input)
 		if err != nil {
-			return nil, "", provider.NewProviderError("aws", "get_cost_and_usage", tag, err)
+			return nil, "", provider.NewProviderError(providerName, "get_cost_and_usage", tag, err)
 		}
 
 		for _, result := range output.ResultsByTime {

@@ -60,7 +60,7 @@ func (p *Provider) listRedshiftClustersFrom(ctx context.Context, client redshift
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_redshift_clusters", "", err)
+			return nil, provider.NewProviderError(providerName, "list_redshift_clusters", "", err)
 		}
 		for _, c := range output.Clusters {
 			id := aws.ToString(c.ClusterIdentifier)
@@ -71,7 +71,7 @@ func (p *Provider) listRedshiftClustersFrom(ctx context.Context, client redshift
 				Type:      "aws_redshift_cluster",
 				Region:    region,
 				Account:   p.accountID,
-				Provider:  "aws",
+				Provider:  providerName,
 				Tags:      redshiftTagsToMap(c.Tags),
 				CreatedAt: c.ClusterCreateTime,
 			})
@@ -101,7 +101,7 @@ func (p *Provider) listOpenSearchDomainsFrom(ctx context.Context, client openSea
 	}
 	listed, err := client.ListDomainNames(ctx, &opensearch.ListDomainNamesInput{})
 	if err != nil {
-		return nil, provider.NewProviderError("aws", "list_opensearch_domains", "", err)
+		return nil, provider.NewProviderError(providerName, "list_opensearch_domains", "", err)
 	}
 	names := make([]string, 0, len(listed.DomainNames))
 	for _, d := range listed.DomainNames {
@@ -112,7 +112,7 @@ func (p *Provider) listOpenSearchDomainsFrom(ctx context.Context, client openSea
 	for _, batch := range chunk(names, openSearchDescribeBatch) {
 		output, err := client.DescribeDomains(ctx, &opensearch.DescribeDomainsInput{DomainNames: batch})
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "describe_opensearch_domains", "", err)
+			return nil, provider.NewProviderError(providerName, "describe_opensearch_domains", "", err)
 		}
 		for _, d := range output.DomainStatusList {
 			name := aws.ToString(d.DomainName)
@@ -124,7 +124,7 @@ func (p *Provider) listOpenSearchDomainsFrom(ctx context.Context, client openSea
 				Type:     "aws_opensearch_domain",
 				Region:   region,
 				Account:  p.accountID,
-				Provider: "aws",
+				Provider: providerName,
 				Tags:     p.bulkTags(region, arn),
 			})
 		}
@@ -143,7 +143,7 @@ func (p *Provider) listMSKClustersFrom(ctx context.Context, client mskAPI, regio
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_msk_clusters", "", err)
+			return nil, provider.NewProviderError(providerName, "list_msk_clusters", "", err)
 		}
 		for _, c := range output.ClusterInfoList {
 			tags := c.Tags
@@ -158,7 +158,7 @@ func (p *Provider) listMSKClustersFrom(ctx context.Context, client mskAPI, regio
 				Type:      "aws_msk_cluster",
 				Region:    region,
 				Account:   p.accountID,
-				Provider:  "aws",
+				Provider:  providerName,
 				Tags:      tags,
 				CreatedAt: c.CreationTime,
 			})
@@ -181,7 +181,7 @@ func (p *Provider) listGlueJobsFrom(ctx context.Context, client glueAPI, region 
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_glue_jobs", "", err)
+			return nil, provider.NewProviderError(providerName, "list_glue_jobs", "", err)
 		}
 		for _, j := range output.Jobs {
 			name := aws.ToString(j.Name)
@@ -193,7 +193,7 @@ func (p *Provider) listGlueJobsFrom(ctx context.Context, client glueAPI, region 
 				Type:      "aws_glue_job",
 				Region:    region,
 				Account:   p.accountID,
-				Provider:  "aws",
+				Provider:  providerName,
 				Tags:      p.bulkTags(region, arn),
 				CreatedAt: j.CreatedOn,
 			})
@@ -216,7 +216,7 @@ func (p *Provider) listFirehoseStreamsFrom(ctx context.Context, client firehoseA
 	for {
 		output, err := client.ListDeliveryStreams(ctx, &firehose.ListDeliveryStreamsInput{ExclusiveStartDeliveryStreamName: startAfter})
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_firehose_streams", "", err)
+			return nil, provider.NewProviderError(providerName, "list_firehose_streams", "", err)
 		}
 		for _, name := range output.DeliveryStreamNames {
 			arn := fmt.Sprintf("arn:aws:firehose:%s:%s:deliverystream/%s", region, p.accountID, name)
@@ -227,7 +227,7 @@ func (p *Provider) listFirehoseStreamsFrom(ctx context.Context, client firehoseA
 				Type:     "aws_kinesis_firehose_delivery_stream",
 				Region:   region,
 				Account:  p.accountID,
-				Provider: "aws",
+				Provider: providerName,
 				Tags:     p.bulkTags(region, arn),
 			})
 		}
@@ -254,14 +254,14 @@ func (p *Provider) listSageMakerResourcesFrom(ctx context.Context, client sageMa
 	for endpoints.HasMorePages() {
 		output, err := endpoints.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_sagemaker_endpoints", "", err)
+			return nil, provider.NewProviderError(providerName, "list_sagemaker_endpoints", "", err)
 		}
 		for _, e := range output.Endpoints {
 			name := aws.ToString(e.EndpointName)
 			arn := aws.ToString(e.EndpointArn)
 			resources = append(resources, types.Resource{
 				ID: name, Name: name, ARN: arn, Type: "aws_sagemaker_endpoint",
-				Region: region, Account: p.accountID, Provider: "aws",
+				Region: region, Account: p.accountID, Provider: providerName,
 				Tags: p.bulkTags(region, arn), CreatedAt: e.CreationTime,
 			})
 		}
@@ -271,14 +271,14 @@ func (p *Provider) listSageMakerResourcesFrom(ctx context.Context, client sageMa
 	for notebooks.HasMorePages() {
 		output, err := notebooks.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_sagemaker_notebooks", "", err)
+			return nil, provider.NewProviderError(providerName, "list_sagemaker_notebooks", "", err)
 		}
 		for _, n := range output.NotebookInstances {
 			name := aws.ToString(n.NotebookInstanceName)
 			arn := aws.ToString(n.NotebookInstanceArn)
 			resources = append(resources, types.Resource{
 				ID: name, Name: name, ARN: arn, Type: "aws_sagemaker_notebook_instance",
-				Region: region, Account: p.accountID, Provider: "aws",
+				Region: region, Account: p.accountID, Provider: providerName,
 				Tags: p.bulkTags(region, arn), CreatedAt: n.CreationTime,
 			})
 		}

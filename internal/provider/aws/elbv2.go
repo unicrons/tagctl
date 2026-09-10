@@ -37,7 +37,7 @@ func (p *Provider) listLoadBalancersFrom(ctx context.Context, client elbv2API, r
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_load_balancers", "", err)
+			return nil, provider.NewProviderError(providerName, "list_load_balancers", "", err)
 		}
 		loadBalancers = append(loadBalancers, output.LoadBalancers...)
 	}
@@ -73,7 +73,7 @@ func (p *Provider) listLoadBalancersFrom(ctx context.Context, client elbv2API, r
 			Name:     name,
 			Region:   region,
 			Account:  p.accountID,
-			Provider: "aws",
+			Provider: providerName,
 			Tags:     tags,
 		}
 
@@ -139,7 +139,7 @@ func (p *Provider) applyELBv2Tags(ctx context.Context, arn string, tags map[stri
 		Tags:         tagList,
 	})
 	if err != nil {
-		return provider.NewProviderError("aws", "apply_elbv2_tags", arn, err)
+		return provider.NewProviderError(providerName, "apply_elbv2_tags", arn, err)
 	}
 
 	log.Debug("AWS ELBv2: Applied %d tags to %s", len(tags), arn)
@@ -168,7 +168,7 @@ func (p *Provider) listTargetGroupsFrom(ctx context.Context, client elbv2API, re
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_target_groups", "", err)
+			return nil, provider.NewProviderError(providerName, "list_target_groups", "", err)
 		}
 		groups = append(groups, output.TargetGroups...)
 	}
@@ -199,7 +199,7 @@ func (p *Provider) listTargetGroupsFrom(ctx context.Context, client elbv2API, re
 		name := aws.ToString(g.TargetGroupName)
 		resources = append(resources, types.Resource{
 			ID: name, Name: name, ARN: arn, Type: "aws_lb_target_group",
-			Region: region, Account: p.accountID, Provider: "aws", Tags: tags,
+			Region: region, Account: p.accountID, Provider: providerName, Tags: tags,
 		})
 	}
 	log.Debug("AWS ELBv2: Found %d target groups in %s", len(resources), region)

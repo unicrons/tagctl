@@ -36,7 +36,7 @@ func (p *Provider) listSNSTopicsFrom(ctx context.Context, client snsAPI, region 
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_sns_topics", "", err)
+			return nil, provider.NewProviderError(providerName, "list_sns_topics", "", err)
 		}
 		for _, topic := range output.Topics {
 			if arn := aws.ToString(topic.TopicArn); arn != "" {
@@ -84,7 +84,7 @@ func (p *Provider) listSNSTopicsFrom(ctx context.Context, client snsAPI, region 
 				Type:     "aws_sns_topic",
 				Region:   region,
 				Account:  p.accountID,
-				Provider: "aws",
+				Provider: providerName,
 				Tags:     tags,
 			}
 		}()
@@ -138,7 +138,7 @@ func (p *Provider) applySNSTags(ctx context.Context, arn string, tags map[string
 		Tags:        tagList,
 	})
 	if err != nil {
-		return provider.NewProviderError("aws", "apply_sns_tags", arn, err)
+		return provider.NewProviderError(providerName, "apply_sns_tags", arn, err)
 	}
 
 	log.Debug("AWS SNS: Applied %d tags to %s", len(tags), arn)

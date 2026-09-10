@@ -40,7 +40,7 @@ func (p *Provider) listKinesisStreamsFrom(ctx context.Context, client kinesisAPI
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_kinesis_streams", "", err)
+			return nil, provider.NewProviderError(providerName, "list_kinesis_streams", "", err)
 		}
 		for _, s := range output.StreamSummaries {
 			streams = append(streams, kinesisStream{
@@ -66,7 +66,7 @@ func (p *Provider) listKinesisStreamsFrom(ctx context.Context, client kinesisAPI
 			Type:      "aws_kinesis_stream",
 			Region:    region,
 			Account:   p.accountID,
-			Provider:  "aws",
+			Provider:  providerName,
 			Tags:      tags,
 			CreatedAt: s.created,
 		})
@@ -108,7 +108,7 @@ func (p *Provider) applyKinesisTags(ctx context.Context, arn string, tags map[st
 		Tags:      tags,
 	})
 	if err != nil {
-		return provider.NewProviderError("aws", "apply_kinesis_tags", arn, err)
+		return provider.NewProviderError(providerName, "apply_kinesis_tags", arn, err)
 	}
 
 	log.Debug("AWS Kinesis: Applied %d tags to %s", len(tags), arn)

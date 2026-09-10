@@ -41,7 +41,7 @@ func (p *Provider) listECRRepositoriesFrom(ctx context.Context, client ecrAPI, r
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_ecr_repositories", "", err)
+			return nil, provider.NewProviderError(providerName, "list_ecr_repositories", "", err)
 		}
 		for _, r := range output.Repositories {
 			repos = append(repos, ecrRepository{
@@ -71,7 +71,7 @@ func (p *Provider) listECRRepositoriesFrom(ctx context.Context, client ecrAPI, r
 			Type:      "aws_ecr_repository",
 			Region:    region,
 			Account:   p.accountID,
-			Provider:  "aws",
+			Provider:  providerName,
 			Tags:      tags,
 			CreatedAt: r.created,
 		})
@@ -94,7 +94,7 @@ func (p *Provider) applyECRTags(ctx context.Context, arn string, tags map[string
 		Tags:        tagList,
 	})
 	if err != nil {
-		return provider.NewProviderError("aws", "apply_ecr_tags", arn, err)
+		return provider.NewProviderError(providerName, "apply_ecr_tags", arn, err)
 	}
 
 	log.Debug("AWS ECR: Applied %d tags to %s", len(tags), arn)

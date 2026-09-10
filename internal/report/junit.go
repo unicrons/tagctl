@@ -62,7 +62,7 @@ func WriteJUnit(w io.Writer, scan *types.ScanResult) error {
 	timestamp := scan.ScannedAt.UTC().Format(time.RFC3339)
 
 	report := JUnitTestSuites{
-		Name:   "tagctl",
+		Name:   toolName,
 		Time:   "0",
 		Suites: make([]JUnitTestSuite, 0, len(tags)),
 	}

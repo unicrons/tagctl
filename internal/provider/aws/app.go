@@ -92,14 +92,14 @@ func (p *Provider) listStateMachinesFrom(ctx context.Context, client stepFunctio
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_state_machines", "", err)
+			return nil, provider.NewProviderError(providerName, "list_state_machines", "", err)
 		}
 		for _, sm := range output.StateMachines {
 			name := aws.ToString(sm.Name)
 			arn := aws.ToString(sm.StateMachineArn)
 			resources = append(resources, types.Resource{
 				ID: name, Name: name, ARN: arn, Type: "aws_sfn_state_machine",
-				Region: region, Account: p.accountID, Provider: "aws",
+				Region: region, Account: p.accountID, Provider: providerName,
 				Tags: p.bulkTags(region, arn), CreatedAt: sm.CreationDate,
 			})
 		}
@@ -118,13 +118,13 @@ func (p *Provider) listSecretsFrom(ctx context.Context, client secretsManagerAPI
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_secrets", "", err)
+			return nil, provider.NewProviderError(providerName, "list_secrets", "", err)
 		}
 		for _, s := range output.SecretList {
 			name := aws.ToString(s.Name)
 			resources = append(resources, types.Resource{
 				ID: name, Name: name, ARN: aws.ToString(s.ARN), Type: "aws_secretsmanager_secret",
-				Region: region, Account: p.accountID, Provider: "aws",
+				Region: region, Account: p.accountID, Provider: providerName,
 				Tags: secretTagsToMap(s.Tags), CreatedAt: s.CreatedDate,
 			})
 		}
@@ -153,7 +153,7 @@ func (p *Provider) listStacksFrom(ctx context.Context, client cloudFormationAPI,
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_stacks", "", err)
+			return nil, provider.NewProviderError(providerName, "list_stacks", "", err)
 		}
 		for _, s := range output.Stacks {
 			if s.StackStatus == cfntypes.StackStatusDeleteComplete {
@@ -162,7 +162,7 @@ func (p *Provider) listStacksFrom(ctx context.Context, client cloudFormationAPI,
 			name := aws.ToString(s.StackName)
 			resources = append(resources, types.Resource{
 				ID: name, Name: name, ARN: aws.ToString(s.StackId), Type: "aws_cloudformation_stack",
-				Region: region, Account: p.accountID, Provider: "aws",
+				Region: region, Account: p.accountID, Provider: providerName,
 				Tags: cfnTagsToMap(s.Tags), CreatedAt: s.CreationTime,
 			})
 		}
@@ -194,7 +194,7 @@ func (p *Provider) listAlarmsFrom(ctx context.Context, client cloudWatchAPI, reg
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_alarms", "", err)
+			return nil, provider.NewProviderError(providerName, "list_alarms", "", err)
 		}
 		for _, a := range output.MetricAlarms {
 			resources = append(resources, p.alarmResource(region, aws.ToString(a.AlarmName), aws.ToString(a.AlarmArn), "aws_cloudwatch_metric_alarm"))
@@ -210,7 +210,7 @@ func (p *Provider) listAlarmsFrom(ctx context.Context, client cloudWatchAPI, reg
 func (p *Provider) alarmResource(region, name, arn, resourceType string) types.Resource {
 	return types.Resource{
 		ID: name, Name: name, ARN: arn, Type: resourceType,
-		Region: region, Account: p.accountID, Provider: "aws",
+		Region: region, Account: p.accountID, Provider: providerName,
 		Tags: p.bulkTags(region, arn),
 	}
 }
@@ -228,14 +228,14 @@ func (p *Provider) listEventRulesFrom(ctx context.Context, client eventBridgeAPI
 	for {
 		output, err := client.ListRules(ctx, &eventbridge.ListRulesInput{NextToken: next})
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_event_rules", "", err)
+			return nil, provider.NewProviderError(providerName, "list_event_rules", "", err)
 		}
 		for _, r := range output.Rules {
 			name := aws.ToString(r.Name)
 			arn := aws.ToString(r.Arn)
 			resources = append(resources, types.Resource{
 				ID: name, Name: name, ARN: arn, Type: "aws_cloudwatch_event_rule",
-				Region: region, Account: p.accountID, Provider: "aws",
+				Region: region, Account: p.accountID, Provider: providerName,
 				Tags: p.bulkTags(region, arn),
 			})
 		}
@@ -261,13 +261,13 @@ func (p *Provider) listCertificatesFrom(ctx context.Context, client acmAPI, regi
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_certificates", "", err)
+			return nil, provider.NewProviderError(providerName, "list_certificates", "", err)
 		}
 		for _, c := range output.CertificateSummaryList {
 			arn := aws.ToString(c.CertificateArn)
 			resources = append(resources, types.Resource{
 				ID: nameFromARN(arn), Name: aws.ToString(c.DomainName), ARN: arn, Type: "aws_acm_certificate",
-				Region: region, Account: p.accountID, Provider: "aws",
+				Region: region, Account: p.accountID, Provider: providerName,
 				Tags: p.bulkTags(region, arn), CreatedAt: c.CreatedAt,
 			})
 		}
@@ -289,14 +289,14 @@ func (p *Provider) listUserPoolsFrom(ctx context.Context, client cognitoAPI, reg
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_user_pools", "", err)
+			return nil, provider.NewProviderError(providerName, "list_user_pools", "", err)
 		}
 		for _, u := range output.UserPools {
 			id := aws.ToString(u.Id)
 			arn := fmt.Sprintf("arn:aws:cognito-idp:%s:%s:userpool/%s", region, p.accountID, id)
 			resources = append(resources, types.Resource{
 				ID: id, Name: aws.ToString(u.Name), ARN: arn, Type: "aws_cognito_user_pool",
-				Region: region, Account: p.accountID, Provider: "aws",
+				Region: region, Account: p.accountID, Provider: providerName,
 				Tags: p.bulkTags(region, arn), CreatedAt: u.CreationDate,
 			})
 		}
@@ -315,7 +315,7 @@ func (p *Provider) listCodeBuildProjectsFrom(ctx context.Context, client codeBui
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_codebuild_projects", "", err)
+			return nil, provider.NewProviderError(providerName, "list_codebuild_projects", "", err)
 		}
 		names = append(names, output.Projects...)
 	}
@@ -324,13 +324,13 @@ func (p *Provider) listCodeBuildProjectsFrom(ctx context.Context, client codeBui
 	for _, batch := range chunk(names, codeBuildBatchSize) {
 		output, err := client.BatchGetProjects(ctx, &codebuild.BatchGetProjectsInput{Names: batch})
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "describe_codebuild_projects", "", err)
+			return nil, provider.NewProviderError(providerName, "describe_codebuild_projects", "", err)
 		}
 		for _, pr := range output.Projects {
 			name := aws.ToString(pr.Name)
 			resources = append(resources, types.Resource{
 				ID: name, Name: name, ARN: aws.ToString(pr.Arn), Type: "aws_codebuild_project",
-				Region: region, Account: p.accountID, Provider: "aws",
+				Region: region, Account: p.accountID, Provider: providerName,
 				Tags: codeBuildTagsToMap(pr.Tags), CreatedAt: pr.Created,
 			})
 		}
@@ -362,14 +362,14 @@ func (p *Provider) listBackupVaultsFrom(ctx context.Context, client backupAPI, r
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_backup_vaults", "", err)
+			return nil, provider.NewProviderError(providerName, "list_backup_vaults", "", err)
 		}
 		for _, v := range output.BackupVaultList {
 			name := aws.ToString(v.BackupVaultName)
 			arn := aws.ToString(v.BackupVaultArn)
 			resources = append(resources, types.Resource{
 				ID: name, Name: name, ARN: arn, Type: "aws_backup_vault",
-				Region: region, Account: p.accountID, Provider: "aws",
+				Region: region, Account: p.accountID, Provider: providerName,
 				Tags: p.bulkTags(region, arn), CreatedAt: v.CreationDate,
 			})
 		}
@@ -388,13 +388,13 @@ func (p *Provider) listFSxFileSystemsFrom(ctx context.Context, client fsxAPI, re
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_fsx_file_systems", "", err)
+			return nil, provider.NewProviderError(providerName, "list_fsx_file_systems", "", err)
 		}
 		for _, fs := range output.FileSystems {
 			id := aws.ToString(fs.FileSystemId)
 			r := types.Resource{
 				ID: id, Name: id, ARN: aws.ToString(fs.ResourceARN), Type: "aws_fsx_file_system",
-				Region: region, Account: p.accountID, Provider: "aws",
+				Region: region, Account: p.accountID, Provider: providerName,
 				Tags: fsxTagsToMap(fs.Tags), CreatedAt: fs.CreationTime,
 			}
 			if name, ok := r.Tags["Name"]; ok {
@@ -430,14 +430,14 @@ func (p *Provider) listBeanstalkEnvironmentsFrom(ctx context.Context, client bea
 	for {
 		output, err := client.DescribeEnvironments(ctx, &elasticbeanstalk.DescribeEnvironmentsInput{NextToken: next})
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_beanstalk_environments", "", err)
+			return nil, provider.NewProviderError(providerName, "list_beanstalk_environments", "", err)
 		}
 		for _, e := range output.Environments {
 			name := aws.ToString(e.EnvironmentName)
 			arn := aws.ToString(e.EnvironmentArn)
 			resources = append(resources, types.Resource{
 				ID: aws.ToString(e.EnvironmentId), Name: name, ARN: arn, Type: "aws_elastic_beanstalk_environment",
-				Region: region, Account: p.accountID, Provider: "aws",
+				Region: region, Account: p.accountID, Provider: providerName,
 				Tags: p.bulkTags(region, arn), CreatedAt: e.DateCreated,
 			})
 		}

@@ -41,7 +41,7 @@ func (p *Provider) listElastiCacheClustersFrom(ctx context.Context, client elast
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_elasticache_clusters", "", err)
+			return nil, provider.NewProviderError(providerName, "list_elasticache_clusters", "", err)
 		}
 		for _, c := range output.CacheClusters {
 			clusters = append(clusters, elastiCacheCluster{
@@ -71,7 +71,7 @@ func (p *Provider) listElastiCacheClustersFrom(ctx context.Context, client elast
 			Type:      "aws_elasticache_cluster",
 			Region:    region,
 			Account:   p.accountID,
-			Provider:  "aws",
+			Provider:  providerName,
 			Tags:      tags,
 			CreatedAt: c.created,
 		})
@@ -94,7 +94,7 @@ func (p *Provider) applyElastiCacheTags(ctx context.Context, arn string, tags ma
 		Tags:         tagList,
 	})
 	if err != nil {
-		return provider.NewProviderError("aws", "apply_elasticache_tags", arn, err)
+		return provider.NewProviderError(providerName, "apply_elasticache_tags", arn, err)
 	}
 
 	log.Debug("AWS ElastiCache: Applied %d tags to %s", len(tags), arn)

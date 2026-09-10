@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"context"
 	"fmt"
 	"path/filepath"
 
@@ -56,7 +55,8 @@ func runScan(cmd *cobra.Command, args []string) error {
 	regions, _ := cmd.Flags().GetStringSlice("region")
 	gateOpts := readGateFlags(cmd)
 
-	ctx := context.Background()
+	ctx, stop := signalContext()
+	defer stop()
 
 	// Always print the banner
 	printBanner()

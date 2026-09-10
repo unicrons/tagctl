@@ -94,7 +94,7 @@ func (p *Provider) listWorkGroupsFrom(ctx context.Context, client athenaAPI, reg
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_work_groups", "", err)
+			return nil, provider.NewProviderError(providerName, "list_work_groups", "", err)
 		}
 		for _, wg := range output.WorkGroups {
 			name := aws.ToString(wg.Name)
@@ -119,7 +119,7 @@ func (p *Provider) listReplicationInstancesFrom(ctx context.Context, client dmsA
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_replication_instances", "", err)
+			return nil, provider.NewProviderError(providerName, "list_replication_instances", "", err)
 		}
 		for _, ri := range output.ReplicationInstances {
 			id := aws.ToString(ri.ReplicationInstanceIdentifier)
@@ -140,7 +140,7 @@ func (p *Provider) listDataPipelinesFrom(ctx context.Context, client dataPipelin
 	for {
 		output, err := client.ListPipelines(ctx, &datapipeline.ListPipelinesInput{Marker: marker})
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_data_pipelines", "", err)
+			return nil, provider.NewProviderError(providerName, "list_data_pipelines", "", err)
 		}
 		for _, pl := range output.PipelineIdList {
 			ids = append(ids, aws.ToString(pl.Id))
@@ -185,7 +185,7 @@ func (p *Provider) listDataSyncTasksFrom(ctx context.Context, client dataSyncAPI
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_datasync_tasks", "", err)
+			return nil, provider.NewProviderError(providerName, "list_datasync_tasks", "", err)
 		}
 		for _, t := range output.Tasks {
 			arn := aws.ToString(t.TaskArn)
@@ -209,7 +209,7 @@ func (p *Provider) listEMRClustersFrom(ctx context.Context, client emrAPI, regio
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_emr_clusters", "", err)
+			return nil, provider.NewProviderError(providerName, "list_emr_clusters", "", err)
 		}
 		for _, c := range output.Clusters {
 			resources = append(resources, p.bulkResource(region, "aws_emr_cluster", aws.ToString(c.Id), aws.ToString(c.Name), aws.ToString(c.ClusterArn), nil))
@@ -232,7 +232,7 @@ func (p *Provider) listVaultsFrom(ctx context.Context, client glacierAPI, region
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_glacier_vaults", "", err)
+			return nil, provider.NewProviderError(providerName, "list_glacier_vaults", "", err)
 		}
 		for _, v := range output.VaultList {
 			name := aws.ToString(v.VaultName)
@@ -256,7 +256,7 @@ func (p *Provider) listMemoryDBClustersFrom(ctx context.Context, client memoryDB
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_memorydb_clusters", "", err)
+			return nil, provider.NewProviderError(providerName, "list_memorydb_clusters", "", err)
 		}
 		for _, c := range output.Clusters {
 			name := aws.ToString(c.Name)
@@ -280,7 +280,7 @@ func (p *Provider) listBrokersFrom(ctx context.Context, client mqAPI, region str
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_brokers", "", err)
+			return nil, provider.NewProviderError(providerName, "list_brokers", "", err)
 		}
 		for _, b := range output.BrokerSummaries {
 			resources = append(resources, p.bulkResource(region, "aws_mq_broker", aws.ToString(b.BrokerId), aws.ToString(b.BrokerName), aws.ToString(b.BrokerArn), b.Created))
@@ -303,7 +303,7 @@ func (p *Provider) listSESResourcesFrom(ctx context.Context, client sesAPI, regi
 	for identities.HasMorePages() {
 		output, err := identities.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_ses_identities", "", err)
+			return nil, provider.NewProviderError(providerName, "list_ses_identities", "", err)
 		}
 		for _, id := range output.EmailIdentities {
 			name := aws.ToString(id.IdentityName)
@@ -315,7 +315,7 @@ func (p *Provider) listSESResourcesFrom(ctx context.Context, client sesAPI, regi
 	for sets.HasMorePages() {
 		output, err := sets.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_ses_configuration_sets", "", err)
+			return nil, provider.NewProviderError(providerName, "list_ses_configuration_sets", "", err)
 		}
 		for _, name := range output.ConfigurationSets {
 			arn := fmt.Sprintf("arn:aws:ses:%s:%s:configuration-set/%s", region, p.accountID, name)
@@ -339,7 +339,7 @@ func (p *Provider) listGatewaysFrom(ctx context.Context, client storageGatewayAP
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_storage_gateways", "", err)
+			return nil, provider.NewProviderError(providerName, "list_storage_gateways", "", err)
 		}
 		for _, g := range output.Gateways {
 			resources = append(resources, p.bulkResource(region, "aws_storagegateway_gateway", aws.ToString(g.GatewayId), aws.ToString(g.GatewayName), aws.ToString(g.GatewayARN), nil))
@@ -362,7 +362,7 @@ func (p *Provider) listTransferServersFrom(ctx context.Context, client transferA
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_transfer_servers", "", err)
+			return nil, provider.NewProviderError(providerName, "list_transfer_servers", "", err)
 		}
 		for _, s := range output.Servers {
 			id := aws.ToString(s.ServerId)

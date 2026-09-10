@@ -35,7 +35,7 @@ func (p *Provider) listKMSKeysFrom(ctx context.Context, client kmsAPI, region st
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_kms_keys", "", err)
+			return nil, provider.NewProviderError(providerName, "list_kms_keys", "", err)
 		}
 		for _, k := range output.Keys {
 			keyIDs = append(keyIDs, aws.ToString(k.KeyId))
@@ -72,7 +72,7 @@ func (p *Provider) listKMSKeysFrom(ctx context.Context, client kmsAPI, region st
 			Type:      "aws_kms_key",
 			Region:    region,
 			Account:   p.accountID,
-			Provider:  "aws",
+			Provider:  providerName,
 			Tags:      tags,
 			CreatedAt: meta.CreationDate,
 		})
@@ -113,7 +113,7 @@ func (p *Provider) applyKMSTags(ctx context.Context, arn string, tags map[string
 		Tags:  tagList,
 	})
 	if err != nil {
-		return provider.NewProviderError("aws", "apply_kms_tags", arn, err)
+		return provider.NewProviderError(providerName, "apply_kms_tags", arn, err)
 	}
 
 	log.Debug("AWS KMS: Applied %d tags to %s", len(tags), arn)

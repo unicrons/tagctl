@@ -33,7 +33,7 @@ func (p *Provider) listAutoScalingGroupsFrom(ctx context.Context, client autosca
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_autoscaling_groups", "", err)
+			return nil, provider.NewProviderError(providerName, "list_autoscaling_groups", "", err)
 		}
 
 		for _, asg := range output.AutoScalingGroups {
@@ -46,7 +46,7 @@ func (p *Provider) listAutoScalingGroupsFrom(ctx context.Context, client autosca
 				Name:     name,
 				Region:   region,
 				Account:  p.accountID,
-				Provider: "aws",
+				Provider: providerName,
 				// Auto Scaling returns tags inline, so no extra call is needed.
 				Tags: asgTagsToMap(asg.Tags),
 			}
@@ -90,7 +90,7 @@ func (p *Provider) applyAutoScalingTags(ctx context.Context, arn string, tags ma
 		Tags: tagList,
 	})
 	if err != nil {
-		return provider.NewProviderError("aws", "apply_autoscaling_tags", arn, err)
+		return provider.NewProviderError(providerName, "apply_autoscaling_tags", arn, err)
 	}
 
 	log.Debug("AWS AutoScaling: Applied %d tags to %s", len(tags), asgName)

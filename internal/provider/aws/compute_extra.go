@@ -89,7 +89,7 @@ func (p *Provider) listAppStreamResourcesFrom(ctx context.Context, client appStr
 	for {
 		output, err := client.DescribeFleets(ctx, &appstream.DescribeFleetsInput{NextToken: next})
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_appstream_fleets", "", err)
+			return nil, provider.NewProviderError(providerName, "list_appstream_fleets", "", err)
 		}
 		for _, f := range output.Fleets {
 			name := aws.ToString(f.Name)
@@ -104,7 +104,7 @@ func (p *Provider) listAppStreamResourcesFrom(ctx context.Context, client appStr
 	for {
 		output, err := client.DescribeStacks(ctx, &appstream.DescribeStacksInput{NextToken: next})
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_appstream_stacks", "", err)
+			return nil, provider.NewProviderError(providerName, "list_appstream_stacks", "", err)
 		}
 		for _, s := range output.Stacks {
 			name := aws.ToString(s.Name)
@@ -129,7 +129,7 @@ func (p *Provider) listBatchResourcesFrom(ctx context.Context, client batchAPI, 
 	for envs.HasMorePages() {
 		output, err := envs.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_batch_compute_environments", "", err)
+			return nil, provider.NewProviderError(providerName, "list_batch_compute_environments", "", err)
 		}
 		for _, ce := range output.ComputeEnvironments {
 			name := aws.ToString(ce.ComputeEnvironmentName)
@@ -140,7 +140,7 @@ func (p *Provider) listBatchResourcesFrom(ctx context.Context, client batchAPI, 
 	for queues.HasMorePages() {
 		output, err := queues.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_batch_job_queues", "", err)
+			return nil, provider.NewProviderError(providerName, "list_batch_job_queues", "", err)
 		}
 		for _, q := range output.JobQueues {
 			name := aws.ToString(q.JobQueueName)
@@ -158,7 +158,7 @@ func (p *Provider) listDirectConnectConnections(ctx context.Context, region stri
 func (p *Provider) listDirectConnectConnectionsFrom(ctx context.Context, client directConnectAPI, region string) ([]types.Resource, error) {
 	output, err := client.DescribeConnections(ctx, &directconnect.DescribeConnectionsInput{})
 	if err != nil {
-		return nil, provider.NewProviderError("aws", "list_direct_connect_connections", "", err)
+		return nil, provider.NewProviderError(providerName, "list_direct_connect_connections", "", err)
 	}
 	resources := make([]types.Resource, 0, len(output.Connections))
 	for _, c := range output.Connections {
@@ -180,7 +180,7 @@ func (p *Provider) listLifecyclePolicies(ctx context.Context, region string) ([]
 func (p *Provider) listLifecyclePoliciesFrom(ctx context.Context, client dlmAPI, region string) ([]types.Resource, error) {
 	output, err := client.GetLifecyclePolicies(ctx, &dlm.GetLifecyclePoliciesInput{})
 	if err != nil {
-		return nil, provider.NewProviderError("aws", "list_lifecycle_policies", "", err)
+		return nil, provider.NewProviderError(providerName, "list_lifecycle_policies", "", err)
 	}
 	resources := make([]types.Resource, 0, len(output.Policies))
 	for _, pol := range output.Policies {
@@ -212,7 +212,7 @@ func (p *Provider) listSourceServersFrom(ctx context.Context, client drsAPI, reg
 				log.Debug("AWS DRS: not initialised in %s, skipping", region)
 				return nil, nil
 			}
-			return nil, provider.NewProviderError("aws", "list_drs_source_servers", "", err)
+			return nil, provider.NewProviderError(providerName, "list_drs_source_servers", "", err)
 		}
 		for _, s := range output.Items {
 			id := aws.ToString(s.SourceServerID)
@@ -242,7 +242,7 @@ func (p *Provider) listLightsailInstancesFrom(ctx context.Context, client lights
 	for {
 		output, err := client.GetInstances(ctx, &lightsail.GetInstancesInput{PageToken: next})
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_lightsail_instances", "", err)
+			return nil, provider.NewProviderError(providerName, "list_lightsail_instances", "", err)
 		}
 		for _, inst := range output.Instances {
 			name := aws.ToString(inst.Name)
@@ -281,7 +281,7 @@ func applyLightsailTagsWith(ctx context.Context, client lightsailAPI, arn string
 		Tags:         lsTags,
 	})
 	if err != nil {
-		return provider.NewProviderError("aws", "apply_lightsail_tags", arn, err)
+		return provider.NewProviderError(providerName, "apply_lightsail_tags", arn, err)
 	}
 	log.Debug("AWS Lightsail: Applied %d tags to %s", len(tags), arn)
 	return nil
@@ -300,7 +300,7 @@ func (p *Provider) listSSMResourcesFrom(ctx context.Context, client ssmAPI, regi
 		for params.HasMorePages() {
 			output, err := params.NextPage(ctx)
 			if err != nil {
-				return nil, provider.NewProviderError("aws", "list_ssm_parameters", "", err)
+				return nil, provider.NewProviderError(providerName, "list_ssm_parameters", "", err)
 			}
 			for _, prm := range output.Parameters {
 				name := aws.ToString(prm.Name)
@@ -315,7 +315,7 @@ func (p *Provider) listSSMResourcesFrom(ctx context.Context, client ssmAPI, regi
 	for docs.HasMorePages() {
 		output, err := docs.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_ssm_documents", "", err)
+			return nil, provider.NewProviderError(providerName, "list_ssm_documents", "", err)
 		}
 		for _, d := range output.DocumentIdentifiers {
 			name := aws.ToString(d.Name)
@@ -343,7 +343,7 @@ func (p *Provider) listResponsePlansFrom(ctx context.Context, client ssmIncident
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_response_plans", "", err)
+			return nil, provider.NewProviderError(providerName, "list_response_plans", "", err)
 		}
 		for _, rp := range output.ResponsePlanSummaries {
 			name := aws.ToString(rp.Name)
@@ -367,7 +367,7 @@ func (p *Provider) listWorkSpacesFrom(ctx context.Context, client workSpacesAPI,
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_workspaces", "", err)
+			return nil, provider.NewProviderError(providerName, "list_workspaces", "", err)
 		}
 		for _, ws := range output.Workspaces {
 			if ws.State == workspacestypes.WorkspaceStateTerminated {

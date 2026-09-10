@@ -19,7 +19,7 @@ Be respectful, inclusive, and constructive. We're all here to build something us
 
 ### Prerequisites
 
-- Go 1.24 or later
+- Go 1.26 or later
 - Git
 - Make
 - AWS credentials (for testing with real resources)

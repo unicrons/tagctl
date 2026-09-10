@@ -41,7 +41,7 @@ func (p *Provider) listLogGroupsFrom(ctx context.Context, client logsAPI, region
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_log_groups", "", err)
+			return nil, provider.NewProviderError(providerName, "list_log_groups", "", err)
 		}
 		for _, g := range output.LogGroups {
 			groups = append(groups, logGroup{
@@ -74,7 +74,7 @@ func (p *Provider) listLogGroupsFrom(ctx context.Context, client logsAPI, region
 			Type:      "aws_cloudwatch_log_group",
 			Region:    region,
 			Account:   p.accountID,
-			Provider:  "aws",
+			Provider:  providerName,
 			Tags:      tags,
 			CreatedAt: g.created,
 		})
@@ -110,7 +110,7 @@ func (p *Provider) applyLogGroupTags(ctx context.Context, arn string, tags map[s
 		Tags:        tags,
 	})
 	if err != nil {
-		return provider.NewProviderError("aws", "apply_log_group_tags", arn, err)
+		return provider.NewProviderError(providerName, "apply_log_group_tags", arn, err)
 	}
 
 	log.Debug("AWS Logs: Applied %d tags to %s", len(tags), arn)

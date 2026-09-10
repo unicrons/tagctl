@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/unicrons/tagctl/internal/provider"
@@ -49,11 +50,30 @@ type RealApplier struct {
 	callback    ApplyCallback
 }
 
+// accountProvider is implemented by providers bound to one cloud account.
+type accountProvider interface {
+	AccountID() string
+}
+
+// providerKey addresses a provider by name and, when known, account, so a
+// plan entry is only ever applied through the credentials of its own account.
+func providerKey(name, account string) string {
+	if account == "" {
+		return name
+	}
+	return name + "/" + account
+}
+
 // NewApplier creates a new Applier with the given providers.
 func NewApplier(providers []provider.Provider) *RealApplier {
 	providerMap := make(map[string]provider.Provider)
 	for _, p := range providers {
-		providerMap[p.Name()] = p
+		if _, seen := providerMap[p.Name()]; !seen {
+			providerMap[p.Name()] = p
+		}
+		if acc, ok := p.(accountProvider); ok {
+			providerMap[providerKey(p.Name(), acc.AccountID())] = p
+		}
 	}
 
 	return &RealApplier{
@@ -90,56 +110,37 @@ func (a *RealApplier) Apply(ctx context.Context, plan *types.Plan) (*ApplyResult
 	// Group changes by resource to batch tag updates
 	changesByResource := groupChangesByResource(plan.Changes)
 
-	// Apply changes with concurrency limit
 	sem := make(chan struct{}, a.concurrency)
-	errChan := make(chan ApplyError, len(changesByResource))
-	successChan := make(chan int, len(changesByResource))
+	var wg sync.WaitGroup
+	var mu sync.Mutex
 
 	for _, changes := range changesByResource {
-		changes := changes
-
-		sem <- struct{}{} // Acquire semaphore
-
-		go func() {
-			defer func() { <-sem }() // Release semaphore
-			a.applyResourceChanges(ctx, changes, errChan, successChan)
-		}()
-	}
-
-	// Wait for all goroutines to finish
-	for i := 0; i < a.concurrency && i < len(changesByResource); i++ {
+		wg.Add(1)
 		sem <- struct{}{}
+		go func(changes []types.TagChange) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			errs := a.applyResourceChanges(ctx, changes)
+			mu.Lock()
+			result.Errors = append(result.Errors, errs...)
+			mu.Unlock()
+		}(changes)
 	}
+	wg.Wait()
 
-	close(errChan)
-	close(successChan)
-
-	// Collect results
-	for err := range errChan {
-		result.Errors = append(result.Errors, err)
-		result.ErrorCount++
-	}
-
-	for count := range successChan {
-		result.SuccessCount += count
-	}
-
-	// Adjust counts (each error is one change)
+	result.ErrorCount = len(result.Errors)
 	result.SuccessCount = result.TotalChanges - result.ErrorCount
-
 	result.Duration = time.Since(start)
 	return result, nil
 }
 
 // applyResourceChanges applies every tag change for a single resource in one
-// provider call, reporting the outcome on the given channels.
-func (a *RealApplier) applyResourceChanges(ctx context.Context, changes []types.TagChange, errChan chan<- ApplyError, successChan chan<- int) {
-	providerName := changes[0].Resource.Provider
-	p, ok := a.providers[providerName]
+// provider call and returns one error per change when that call fails.
+func (a *RealApplier) applyResourceChanges(ctx context.Context, changes []types.TagChange) []ApplyError {
+	resource := changes[0].Resource
+	p, ok := a.providers[providerKey(resource.Provider, resource.Account)]
 	if !ok {
-		err := fmt.Errorf("unknown provider: %s", providerName)
-		a.reportFailure(changes, errChan, err)
-		return
+		return a.reportFailure(changes, fmt.Errorf("no %s provider configured for account %q", resource.Provider, resource.Account))
 	}
 
 	// Removals are handled by omitting the tag, so only set values are sent.
@@ -151,27 +152,28 @@ func (a *RealApplier) applyResourceChanges(ctx context.Context, changes []types.
 	}
 
 	if err := p.ApplyTags(ctx, taggingIdentifier(changes[0].Resource), tags); err != nil {
-		a.reportFailure(changes, errChan, err)
-		return
+		return a.reportFailure(changes, err)
 	}
 
-	successChan <- len(changes)
 	for _, change := range changes {
 		if a.callback != nil {
 			a.callback(change, true, nil)
 		}
 	}
+	return nil
 }
 
 // reportFailure records the same error against every change on a resource,
 // since they were attempted as a single provider call.
-func (a *RealApplier) reportFailure(changes []types.TagChange, errChan chan<- ApplyError, err error) {
+func (a *RealApplier) reportFailure(changes []types.TagChange, err error) []ApplyError {
+	errs := make([]ApplyError, 0, len(changes))
 	for _, change := range changes {
-		errChan <- ApplyError{Change: change, Error: err.Error()}
+		errs = append(errs, ApplyError{Change: change, Error: err.Error()})
 		if a.callback != nil {
 			a.callback(change, false, err)
 		}
 	}
+	return errs
 }
 
 // idAddressedTypes lists the AWS resource types whose tagging API takes the

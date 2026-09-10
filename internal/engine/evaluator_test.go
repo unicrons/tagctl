@@ -459,9 +459,10 @@ func TestEvaluateResources_Findings(t *testing.T) {
 	passCount := 0
 	failCount := 0
 	for _, f := range result.Findings {
-		if f.Status == types.StatusPass {
+		switch f.Status {
+		case types.StatusPass:
 			passCount++
-		} else if f.Status == types.StatusFailed {
+		case types.StatusFailed:
 			failCount++
 		}
 	}

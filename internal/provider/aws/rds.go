@@ -33,7 +33,7 @@ func (p *Provider) listRDSInstances(ctx context.Context, region string) ([]types
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_rds_instances", "", err)
+			return nil, provider.NewProviderError(providerName, "list_rds_instances", "", err)
 		}
 
 		for _, instance := range output.DBInstances {
@@ -78,7 +78,7 @@ func (p *Provider) listRDSInstances(ctx context.Context, region string) ([]types
 				Type:     "aws_db_instance",
 				Region:   region,
 				Account:  p.accountID,
-				Provider: "aws",
+				Provider: providerName,
 				Tags:     tags,
 			}
 
@@ -124,7 +124,6 @@ func (p *Provider) getRDSTags(ctx context.Context, region, resourceARN string) m
 	for _, tag := range output.TagList {
 		if tag.Key != nil && tag.Value != nil {
 			tags[*tag.Key] = *tag.Value
-			log.Debug("AWS RDS: %s has tag %s=%s", resourceARN, *tag.Key, *tag.Value)
 		}
 	}
 
@@ -162,7 +161,7 @@ func (p *Provider) applyRDSTags(ctx context.Context, resourceARN string, tags ma
 
 	if err != nil {
 		log.Error("AWS RDS: Failed to apply tags to %s: %v", resourceARN, err)
-		return provider.NewProviderError("aws", "add_rds_tags", resourceARN, err)
+		return provider.NewProviderError(providerName, "add_rds_tags", resourceARN, err)
 	}
 
 	log.Debug("AWS RDS: Successfully applied %d tags to %s", len(tags), resourceARN)

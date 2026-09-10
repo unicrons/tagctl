@@ -34,7 +34,7 @@ func (p *Provider) listDynamoDBTablesFrom(ctx context.Context, client dynamoDBAP
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_dynamodb_tables", "", err)
+			return nil, provider.NewProviderError(providerName, "list_dynamodb_tables", "", err)
 		}
 		names = append(names, output.TableNames...)
 	}
@@ -57,7 +57,7 @@ func (p *Provider) listDynamoDBTablesFrom(ctx context.Context, client dynamoDBAP
 			Type:     "aws_dynamodb_table",
 			Region:   region,
 			Account:  p.accountID,
-			Provider: "aws",
+			Provider: providerName,
 			Tags:     tags,
 		})
 	})
@@ -103,7 +103,7 @@ func (p *Provider) applyDynamoDBTags(ctx context.Context, arn string, tags map[s
 		Tags:        tagList,
 	})
 	if err != nil {
-		return provider.NewProviderError("aws", "apply_dynamodb_tags", arn, err)
+		return provider.NewProviderError(providerName, "apply_dynamodb_tags", arn, err)
 	}
 
 	log.Debug("AWS DynamoDB: Applied %d tags to %s", len(tags), arn)

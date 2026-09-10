@@ -42,7 +42,7 @@ func (p *Provider) listECSResourcesFrom(ctx context.Context, client ecsAPI, regi
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_ecs_clusters", "", err)
+			return nil, provider.NewProviderError(providerName, "list_ecs_clusters", "", err)
 		}
 		clusterARNs = append(clusterARNs, output.ClusterArns...)
 	}
@@ -54,7 +54,7 @@ func (p *Provider) listECSResourcesFrom(ctx context.Context, client ecsAPI, regi
 			Include:  []ecstypes.ClusterField{ecstypes.ClusterFieldTags},
 		})
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "describe_ecs_clusters", "", err)
+			return nil, provider.NewProviderError(providerName, "describe_ecs_clusters", "", err)
 		}
 		for _, c := range output.Clusters {
 			resources = append(resources, types.Resource{
@@ -64,7 +64,7 @@ func (p *Provider) listECSResourcesFrom(ctx context.Context, client ecsAPI, regi
 				Type:     "aws_ecs_cluster",
 				Region:   region,
 				Account:  p.accountID,
-				Provider: "aws",
+				Provider: providerName,
 				Tags:     ecsTagsToMap(c.Tags),
 			})
 		}
@@ -117,7 +117,7 @@ func (p *Provider) listECSServices(ctx context.Context, client ecsAPI, region, c
 				Type:      "aws_ecs_service",
 				Region:    region,
 				Account:   p.accountID,
-				Provider:  "aws",
+				Provider:  providerName,
 				Tags:      ecsTagsToMap(s.Tags),
 				CreatedAt: s.CreatedAt,
 			})
@@ -140,7 +140,7 @@ func (p *Provider) applyECSTags(ctx context.Context, arn string, tags map[string
 		Tags:        tagList,
 	})
 	if err != nil {
-		return provider.NewProviderError("aws", "apply_ecs_tags", arn, err)
+		return provider.NewProviderError(providerName, "apply_ecs_tags", arn, err)
 	}
 
 	log.Debug("AWS ECS: Applied %d tags to %s", len(tags), arn)

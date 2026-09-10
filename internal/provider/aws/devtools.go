@@ -64,7 +64,7 @@ func (p *Provider) listAmplifyAppsFrom(ctx context.Context, client amplifyAPI, r
 	for {
 		output, err := client.ListApps(ctx, &amplify.ListAppsInput{NextToken: next})
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_amplify_apps", "", err)
+			return nil, provider.NewProviderError(providerName, "list_amplify_apps", "", err)
 		}
 		for _, app := range output.Apps {
 			resources = append(resources, p.resource(region, "aws_amplify_app", aws.ToString(app.AppId), aws.ToString(app.Name), aws.ToString(app.AppArn), app.Tags, app.CreateTime))
@@ -88,7 +88,7 @@ func (p *Provider) listGraphQLAPIsFrom(ctx context.Context, client appSyncAPI, r
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_graphql_apis", "", err)
+			return nil, provider.NewProviderError(providerName, "list_graphql_apis", "", err)
 		}
 		for _, api := range output.GraphqlApis {
 			resources = append(resources, p.resource(region, "aws_appsync_graphql_api", aws.ToString(api.ApiId), aws.ToString(api.Name), aws.ToString(api.Arn), api.Tags, nil))
@@ -111,7 +111,7 @@ func (p *Provider) listGuardrailsFrom(ctx context.Context, client bedrockAPI, re
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_guardrails", "", err)
+			return nil, provider.NewProviderError(providerName, "list_guardrails", "", err)
 		}
 		for _, g := range output.Guardrails {
 			resources = append(resources, p.bulkResource(region, "aws_bedrock_guardrail", aws.ToString(g.Id), aws.ToString(g.Name), aws.ToString(g.Arn), g.CreatedAt))
@@ -134,7 +134,7 @@ func (p *Provider) listCodeArtifactResourcesFrom(ctx context.Context, client cod
 	for domains.HasMorePages() {
 		output, err := domains.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_codeartifact_domains", "", err)
+			return nil, provider.NewProviderError(providerName, "list_codeartifact_domains", "", err)
 		}
 		for _, d := range output.Domains {
 			name := aws.ToString(d.Name)
@@ -145,7 +145,7 @@ func (p *Provider) listCodeArtifactResourcesFrom(ctx context.Context, client cod
 	for repos.HasMorePages() {
 		output, err := repos.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_codeartifact_repositories", "", err)
+			return nil, provider.NewProviderError(providerName, "list_codeartifact_repositories", "", err)
 		}
 		for _, r := range output.Repositories {
 			name := aws.ToString(r.Name)
@@ -169,7 +169,7 @@ func (p *Provider) listCodeCommitRepositoriesFrom(ctx context.Context, client co
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_codecommit_repositories", "", err)
+			return nil, provider.NewProviderError(providerName, "list_codecommit_repositories", "", err)
 		}
 		for _, r := range output.Repositories {
 			name := aws.ToString(r.RepositoryName)
@@ -194,7 +194,7 @@ func (p *Provider) listPipelinesFrom(ctx context.Context, client codePipelineAPI
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_pipelines", "", err)
+			return nil, provider.NewProviderError(providerName, "list_pipelines", "", err)
 		}
 		for _, pl := range output.Pipelines {
 			name := aws.ToString(pl.Name)
@@ -219,7 +219,7 @@ func (p *Provider) listPortfoliosFrom(ctx context.Context, client serviceCatalog
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_portfolios", "", err)
+			return nil, provider.NewProviderError(providerName, "list_portfolios", "", err)
 		}
 		for _, pf := range output.PortfolioDetails {
 			resources = append(resources, p.bulkResource(region, "aws_servicecatalog_portfolio", aws.ToString(pf.Id), aws.ToString(pf.DisplayName), aws.ToString(pf.ARN), pf.CreatedTime))
@@ -242,7 +242,7 @@ func (p *Provider) listWorkloadsFrom(ctx context.Context, client wellArchitected
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
-			return nil, provider.NewProviderError("aws", "list_workloads", "", err)
+			return nil, provider.NewProviderError(providerName, "list_workloads", "", err)
 		}
 		for _, w := range output.WorkloadSummaries {
 			resources = append(resources, p.bulkResource(region, "aws_wellarchitected_workload", aws.ToString(w.WorkloadId), aws.ToString(w.WorkloadName), aws.ToString(w.WorkloadArn), nil))
