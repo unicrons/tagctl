@@ -109,9 +109,16 @@ Types:
 - `refactor` - Code refactoring
 - `chore` - Maintenance tasks (`chore(merge): take changes` when landing a
   contribution as a merge commit)
+- `ci` - Workflow and tooling changes
+- `deps` - Dependency bumps (what Dependabot uses)
 
 Release notes are generated from these subjects, so `feat`, `fix` and `docs`
-commits are what users will read.
+commits are what users will read. CI rejects a PR whose commits or title do
+not follow the format (`scripts/check-commits.sh`).
+
+CI runs only the jobs the diff needs: Lint, Test and Build when Go files
+change, Gosec on the packages holding the changed Go files, Docs when `docs/`
+changes, the secrets scan always. A skipped job counts as passed.
 
 ### 5. Push and Create PR
 
@@ -119,7 +126,9 @@ commits are what users will read.
 git push origin feature/your-feature-name
 ```
 
-Then create a Pull Request on GitHub.
+Then create a Pull Request on GitHub. The PR template
+(`.github/pull_request_template.md`) pre-fills the description and checklist
+below.
 
 ## Project Structure
 
