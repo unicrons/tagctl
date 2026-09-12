@@ -5,7 +5,7 @@ others) working on this project.
 
 ## Project Overview
 
-**tagctl** is a cloud resource tag compliance auditing, remediation planning, and enforcement CLI tool. It scans cloud resources (AWS today; a Kubernetes provider exists but is not wired into the CLI), evaluates them against tag policies defined in YAML, generates remediation plans, and can apply fixes.
+**tagctl** is a cloud resource tag compliance auditing, remediation planning, and enforcement CLI tool. It scans cloud resources (AWS today; a Kubernetes provider exists but is not wired into the CLI; `gcp` and `azure` are reserved config keys), evaluates them against tag policies defined in YAML, generates remediation plans, and can apply fixes.
 
 ## Tech Stack
 
@@ -271,6 +271,11 @@ use `Findings`. The `violations` JSON key is kept for backwards compatibility.
 
 Each provider implements the `provider.Provider` interface (`Name`,
 `ListResources`, `ApplyTags`); `AccountID()` is AWS-specific.
+
+Provider status has one table, "Provider Status" in `docs/development.mdx`.
+README, CONTRIBUTING, `tagctl.yaml.example`, the `init` template and the docs
+pages introduction, configuration, architecture, credentials, rules, roadmap
+and providers/kubernetes summarize it and link there: change them together.
 
 ## Code Conventions
 

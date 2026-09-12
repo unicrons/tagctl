@@ -2,14 +2,12 @@
 
 Thank you for your interest in contributing to tagctl! This guide will help you get started.
 
-## Current State
+## Provider Status
 
-**Supported Providers:**
-- ✅ **AWS** - 106 resource types, the services Prowler audits (stable; full
-  table in [docs/providers/aws.mdx](docs/providers/aws.mdx))
-- 🚧 **Kubernetes** - provider exists under `internal/provider/k8s/` but is not
-  wired into the CLI yet
-- 🔜 **GCP** / **Azure** - config types only, no provider; contributions welcome
+AWS is supported (106 resource types). The Kubernetes provider in
+`internal/provider/k8s/` is experimental and not wired into the CLI; GCP and
+Azure are not started. The status table is in
+[docs/development.mdx](docs/development.mdx).
 
 ## Code of Conduct
 
@@ -263,10 +261,12 @@ func init() {
 ### Adding a New Provider
 
 We're looking for contributors to help with:
-- **Kubernetes** - finish and wire the existing `internal/provider/k8s/`
-  provider (labels on pods, deployments, services)
+- **Kubernetes** - wire the existing `internal/provider/k8s/` provider into
+  `initProviders()`
 - **GCP** - Compute Engine, Cloud Storage, GKE
 - **Azure** - VMs, Storage Accounts, AKS
+
+[docs/roadmap.mdx](docs/roadmap.mdx) says what is left for each.
 
 For a new AWS service, follow "Adding a New AWS Service" in
 [AGENTS.md](AGENTS.md), which walks through the lister, tag source, applier

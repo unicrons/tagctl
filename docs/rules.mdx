@@ -150,7 +150,7 @@ rules:
 | `aws_instance` | Only EC2 instances |
 | `aws_s3_*` | S3 buckets and related |
 | `aws_*_group` | Security groups, log groups, Auto Scaling groups... |
-| `k8s_*` | All Kubernetes resources (coming soon) |
+| `k8s_*` | All Kubernetes resources ([provider not wired yet](/development#provider-status)) |
 
 Patterns use Go `path.Match` syntax (`*`, `?`, `[...]`); a malformed one is
 rejected when the config loads.

@@ -4,14 +4,22 @@ description: 'Contributing guide and development setup'
 icon: 'code'
 ---
 
-## Current State
+## Provider Status
 
-| Provider | Status |
-|----------|--------|
-| **AWS** | ✅ Stable (106 resource types, see [AWS provider](/providers/aws)) |
-| **Kubernetes** | 🔜 Coming Soon |
-| **GCP** | 🔜 Coming Soon |
-| **Azure** | 🔜 Coming Soon |
+| Provider | Status | Details |
+|----------|--------|---------|
+| **AWS** | Supported | 106 resource types, see [AWS provider](/providers/aws) |
+| **Kubernetes** | Experimental, not wired into the CLI | `internal/provider/k8s/` lists and labels six resource types and has unit tests, but no command calls it. See [Kubernetes provider](/providers/kubernetes) |
+| **GCP** | Not started | `clouds.gcp` is a reserved config key with no provider behind it |
+| **Azure** | Not started | `clouds.azure` is a reserved config key with no provider behind it |
+
+`tagctl validate` counts a `kubernetes`, `gcp` or `azure` entry as a configured
+cloud, but every other command scans and applies only `clouds.aws`. A file
+without an AWS account makes `scan` show demo data and `apply` simulate its
+changes.
+
+Contributions are welcome; wiring the Kubernetes provider comes first. See
+[Roadmap](/roadmap#providers) for what is left.
 
 ## Quick Start
 
