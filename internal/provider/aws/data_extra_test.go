@@ -3,6 +3,7 @@ package aws
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 
@@ -53,6 +54,7 @@ type mockDataPipelineClient struct {
 	mu      sync.Mutex
 	ids     []string
 	tags    map[string][]datapipelinetypes.Tag
+	gone    map[string]bool
 	err     error
 	batches []int
 }
@@ -72,6 +74,11 @@ func (m *mockDataPipelineClient) DescribePipelines(ctx context.Context, params *
 	m.mu.Lock()
 	m.batches = append(m.batches, len(params.PipelineIds))
 	m.mu.Unlock()
+	for _, id := range params.PipelineIds {
+		if m.gone[id] {
+			return nil, &datapipelinetypes.PipelineDeletedException{Message: aws.String("pipeline " + id + " was deleted")}
+		}
+	}
 	out := &datapipeline.DescribePipelinesOutput{}
 	for _, id := range params.PipelineIds {
 		out.PipelineDescriptionList = append(out.PipelineDescriptionList, datapipelinetypes.PipelineDescription{PipelineId: aws.String(id), Name: aws.String("p-" + id), Tags: m.tags[id]})
@@ -173,6 +180,23 @@ func TestListReplicationInstances(t *testing.T) {
 	resources, err := p.listReplicationInstancesFrom(context.Background(), mock, defaultRegion)
 	if err != nil || len(resources) != 1 || resources[0].Type != "aws_dms_replication_instance" {
 		t.Errorf("resources = %+v, err = %v", resources, err)
+	}
+}
+
+func TestListDataPipelines_DeletedPipelineDropsOnlyItselfFromItsBatch(t *testing.T) {
+	ids := make([]string, 0, dataPipelineDescribeBatch+1)
+	for i := 0; i <= dataPipelineDescribeBatch; i++ {
+		ids = append(ids, fmt.Sprintf("df-%02d", i))
+	}
+	mock := &mockDataPipelineClient{ids: ids, gone: map[string]bool{"df-03": true}}
+
+	p := testProvider()
+	resources, err := p.listDataPipelinesFrom(context.Background(), mock, defaultRegion)
+	if err != nil || len(resources) != dataPipelineDescribeBatch {
+		t.Fatalf("got %d pipelines, err = %v, want %d (only the deleted one dropped)", len(resources), err, dataPipelineDescribeBatch)
+	}
+	if err := errors.Join(p.skipped.errs()...); err != nil {
+		t.Errorf("a deleted pipeline was counted as skipped: %v", err)
 	}
 }
 

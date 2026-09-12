@@ -46,7 +46,7 @@ func (p *Provider) listDynamoDBTablesFrom(ctx context.Context, client dynamoDBAP
 			return getDynamoDBTags(ctx, client, arn)
 		})
 		if err != nil {
-			log.Error("AWS DynamoDB: Skipping table %s (%s): cannot read tags: %v", name, region, err)
+			p.skipResource(ctx, "DynamoDB", region, "table "+name, err)
 			return nil
 		}
 

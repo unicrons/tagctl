@@ -157,7 +157,9 @@ func (p *Provider) listTrailsFrom(ctx context.Context, client cloudTrailAPI, reg
 	}
 	tags, err := p.trailTags(ctx, client, region, arns)
 	if err != nil {
-		log.Error("AWS CloudTrail: Skipping %d trails in %s: cannot read their tags: %v", len(trails), region, err)
+		for _, t := range trails {
+			p.skipResource(ctx, "CloudTrail", region, "trail "+aws.ToString(t.Name), err)
+		}
 		return nil, nil
 	}
 
@@ -305,7 +307,7 @@ func (p *Provider) listDetectorsFrom(ctx context.Context, client guardDutyAPI, r
 	resources := forEachConcurrently(ids, func(id string) []types.Resource {
 		detector, err := client.GetDetector(ctx, &guardduty.GetDetectorInput{DetectorId: aws.String(id)})
 		if err != nil {
-			log.Error("AWS GuardDuty: Skipping detector %s (%s): cannot read its tags: %v", id, region, err)
+			p.skipResource(ctx, "GuardDuty", region, "detector "+id, err)
 			return nil
 		}
 		arn := fmt.Sprintf("arn:aws:guardduty:%s:%s:detector/%s", region, p.accountID, id)

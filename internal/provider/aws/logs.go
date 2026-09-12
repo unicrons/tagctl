@@ -64,7 +64,7 @@ func (p *Provider) listLogGroupsFrom(ctx context.Context, client logsAPI, region
 			return output.Tags, nil
 		})
 		if err != nil {
-			log.Error("AWS Logs: Skipping log group %s (%s): cannot read tags: %v", g.name, region, err)
+			p.skipResource(ctx, "Logs", region, "log group "+g.name, err)
 			return nil
 		}
 		return one(types.Resource{

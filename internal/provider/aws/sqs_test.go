@@ -19,6 +19,7 @@ type mockSQSClient struct {
 	listErr error
 	attrErr map[string]bool
 	tagErr  map[string]bool
+	gone    map[string]bool
 	calls   int
 }
 
@@ -53,6 +54,9 @@ func (m *mockSQSClient) ListQueueTags(ctx context.Context, params *sqs.ListQueue
 	url := aws.ToString(params.QueueUrl)
 	if m.tagErr[url] {
 		return nil, errors.New("access denied")
+	}
+	if m.gone[url] {
+		return nil, &sqstypes.QueueDoesNotExist{Message: aws.String("The specified queue does not exist.")}
 	}
 	return &sqs.ListQueueTagsOutput{Tags: m.tags[url]}, nil
 }
@@ -124,21 +128,55 @@ func TestListSQSQueues_SkipsQueueWithoutARN(t *testing.T) {
 	}
 }
 
-func TestListSQSQueues_TagErrorYieldsUntaggedQueue(t *testing.T) {
-	url := "https://sqs.us-east-1.amazonaws.com/123456789012/denied"
+func TestListSQSQueues_UnreadableTagsSkipQueueNotReportUntagged(t *testing.T) {
+	jobsURL := "https://sqs.us-east-1.amazonaws.com/123456789012/jobs"
+	deniedURL := "https://sqs.us-east-1.amazonaws.com/123456789012/denied"
 
 	mock := &mockSQSClient{
-		pages:  [][]string{{url}},
-		arns:   map[string]string{url: "arn:aws:sqs:us-east-1:123456789012:denied"},
-		tagErr: map[string]bool{url: true},
+		pages: [][]string{{jobsURL, deniedURL}},
+		arns: map[string]string{
+			jobsURL:   "arn:aws:sqs:us-east-1:123456789012:jobs",
+			deniedURL: "arn:aws:sqs:us-east-1:123456789012:denied",
+		},
+		tagErr: map[string]bool{deniedURL: true},
 	}
 
-	resources, err := testProvider().listSQSQueuesFrom(context.Background(), mock, "us-east-1")
+	p := testProvider()
+	resources, err := p.listSQSQueuesFrom(context.Background(), mock, "us-east-1")
 	if err != nil {
 		t.Fatalf("listSQSQueuesFrom() error = %v, want nil", err)
 	}
-	if len(resources) != 1 || len(resources[0].Tags) != 0 {
-		t.Errorf("want 1 resource with 0 tags, got %d resources", len(resources))
+	if len(resources) != 1 || resources[0].Name != "jobs" {
+		t.Fatalf("resources = %+v, want only the readable queue", resources)
+	}
+	if errors.Join(p.skipped.errs()...) == nil {
+		t.Error("the skipped queue was not recorded")
+	}
+}
+
+func TestListSQSQueues_QueueDeletedBeforeTagReadIsDroppedNotSkipped(t *testing.T) {
+	jobsURL := "https://sqs.us-east-1.amazonaws.com/123456789012/jobs"
+	deletedURL := "https://sqs.us-east-1.amazonaws.com/123456789012/deleted"
+
+	mock := &mockSQSClient{
+		pages: [][]string{{jobsURL, deletedURL}},
+		arns: map[string]string{
+			jobsURL:    "arn:aws:sqs:us-east-1:123456789012:jobs",
+			deletedURL: "arn:aws:sqs:us-east-1:123456789012:deleted",
+		},
+		gone: map[string]bool{deletedURL: true},
+	}
+
+	p := testProvider()
+	resources, err := p.listSQSQueuesFrom(context.Background(), mock, "us-east-1")
+	if err != nil {
+		t.Fatalf("listSQSQueuesFrom() error = %v, want nil", err)
+	}
+	if len(resources) != 1 || resources[0].Name != "jobs" {
+		t.Fatalf("resources = %+v, want only the queue that still exists", resources)
+	}
+	if err := errors.Join(p.skipped.errs()...); err != nil {
+		t.Errorf("a deleted queue was counted as skipped: %v", err)
 	}
 }
 

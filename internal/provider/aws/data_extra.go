@@ -152,24 +152,39 @@ func (p *Provider) listDataPipelinesFrom(ctx context.Context, client dataPipelin
 	}
 
 	resources := forEachConcurrently(chunk(ids, dataPipelineDescribeBatch), func(batch []string) []types.Resource {
-		output, err := client.DescribePipelines(ctx, &datapipeline.DescribePipelinesInput{PipelineIds: batch})
-		if err != nil {
-			log.Error("AWS Data Pipeline: Skipping %d pipelines in %s: %v", len(batch), region, err)
-			return nil
-		}
-		described := make([]types.Resource, 0, len(output.PipelineDescriptionList))
-		for _, d := range output.PipelineDescriptionList {
-			id := aws.ToString(d.PipelineId)
-			arn := fmt.Sprintf("arn:aws:datapipeline:%s:%s:pipeline/%s", region, p.accountID, id)
-			tags := tagsToMap(d.Tags,
-				func(t datapipelinetypes.Tag) *string { return t.Key },
-				func(t datapipelinetypes.Tag) *string { return t.Value })
-			described = append(described, p.resource(region, "aws_datapipeline_pipeline", id, aws.ToString(d.Name), arn, tags, nil))
-		}
-		return described
+		return p.describePipelines(ctx, client, region, batch)
 	})
 	log.Debug("AWS Data Pipeline: Found %d pipelines in %s", len(resources), region)
 	return resources, nil
+}
+
+// describePipelines builds the resources of one DescribePipelines batch.
+func (p *Provider) describePipelines(ctx context.Context, client dataPipelineAPI, region string, batch []string) []types.Resource {
+	output, err := client.DescribePipelines(ctx, &datapipeline.DescribePipelinesInput{PipelineIds: batch})
+	if resourceGone(err) && len(batch) > 1 {
+		// One deleted pipeline fails its whole batch: describe the batch one ID at a time.
+		described := make([]types.Resource, 0, len(batch))
+		for _, id := range batch {
+			described = append(described, p.describePipelines(ctx, client, region, []string{id})...)
+		}
+		return described
+	}
+	if err != nil {
+		for _, id := range batch {
+			p.skipResource(ctx, "Data Pipeline", region, "pipeline "+id, err)
+		}
+		return nil
+	}
+	described := make([]types.Resource, 0, len(output.PipelineDescriptionList))
+	for _, d := range output.PipelineDescriptionList {
+		id := aws.ToString(d.PipelineId)
+		arn := fmt.Sprintf("arn:aws:datapipeline:%s:%s:pipeline/%s", region, p.accountID, id)
+		tags := tagsToMap(d.Tags,
+			func(t datapipelinetypes.Tag) *string { return t.Key },
+			func(t datapipelinetypes.Tag) *string { return t.Value })
+		described = append(described, p.resource(region, "aws_datapipeline_pipeline", id, aws.ToString(d.Name), arn, tags, nil))
+	}
+	return described
 }
 
 func (p *Provider) listDataSyncTasks(ctx context.Context, region string) ([]types.Resource, error) {

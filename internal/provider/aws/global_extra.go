@@ -131,7 +131,7 @@ func (p *Provider) listAcceleratorsFrom(ctx context.Context, client globalAccele
 		arn := aws.ToString(a.AcceleratorArn)
 		output, err := client.ListTagsForResource(ctx, &globalaccelerator.ListTagsForResourceInput{ResourceArn: aws.String(arn)})
 		if err != nil {
-			log.Error("AWS Global Accelerator: Skipping %s: cannot read its tags: %v", arn, err)
+			p.skipResource(ctx, "Global Accelerator", regionGlobal, arn, err)
 			return nil
 		}
 		tags := tagsToMap(output.Tags,

@@ -2,8 +2,6 @@ package aws
 
 import (
 	"context"
-	"strings"
-	"sync"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/sns"
@@ -45,79 +43,31 @@ func (p *Provider) listSNSTopicsFrom(ctx context.Context, client snsAPI, region 
 		}
 	}
 
-	if len(arns) == 0 {
-		log.Debug("AWS SNS: Found 0 topics in %s", region)
-		return nil, nil
-	}
-
-	// Fetch tags in parallel using semaphore
-	sem := make(chan struct{}, maxConcurrentAPICalls)
-	results := make(chan types.Resource, len(arns))
-	var wg sync.WaitGroup
-
-	for _, arn := range arns {
-		arn := arn // capture loop variable
-		wg.Add(1)
-
-		go func() {
-			defer wg.Done()
-
-			// Acquire semaphore
-			sem <- struct{}{}
-			defer func() { <-sem }()
-
-			// The topic name is the last segment of the ARN
-			name := arn
-			if idx := strings.LastIndex(arn, ":"); idx != -1 {
-				name = arn[idx+1:]
-			}
-
-			tags, _ := p.resourceTags(region, arn, func() (map[string]string, error) {
-				return p.getSNSTags(ctx, client, arn), nil
-			})
-
-			log.Debug("AWS SNS: Topic %s in %s has %d tags", name, region, len(tags))
-			results <- types.Resource{
-				ID:       name,
-				Name:     name,
-				ARN:      arn,
-				Type:     "aws_sns_topic",
-				Region:   region,
-				Account:  p.accountID,
-				Provider: providerName,
-				Tags:     tags,
-			}
-		}()
-	}
-
-	// Close results channel when all goroutines complete
-	go func() {
-		wg.Wait()
-		close(results)
-	}()
-
-	// Collect results
-	resources := make([]types.Resource, 0, cap(results))
-	for resource := range results {
-		resources = append(resources, resource)
-	}
+	resources := forEachConcurrently(arns, func(arn string) []types.Resource {
+		name := nameFromARN(arn)
+		tags, err := p.resourceTags(region, arn, func() (map[string]string, error) {
+			return getSNSTags(ctx, client, arn)
+		})
+		if err != nil {
+			p.skipResource(ctx, "SNS", region, "topic "+name, err)
+			return nil
+		}
+		return one(p.resource(region, "aws_sns_topic", name, name, arn, tags, nil))
+	})
 
 	log.Debug("AWS SNS: Found %d topics in %s", len(resources), region)
 	return resources, nil
 }
 
-// getSNSTags fetches the tags for a single SNS topic.
-// A topic whose tags cannot be read is reported as untagged rather than
-// failing the whole region scan.
-func (p *Provider) getSNSTags(ctx context.Context, client snsAPI, arn string) map[string]string {
+// getSNSTags reads the tags of an SNS topic.
+func getSNSTags(ctx context.Context, client snsAPI, arn string) (map[string]string, error) {
 	output, err := client.ListTagsForResource(ctx, &sns.ListTagsForResourceInput{
 		ResourceArn: aws.String(arn),
 	})
 	if err != nil {
-		log.Debug("AWS SNS: Failed to get tags for %s: %v", arn, err)
-		return map[string]string{}
+		return nil, err
 	}
-	return snsTagsToMap(output.Tags)
+	return snsTagsToMap(output.Tags), nil
 }
 
 // applySNSTags applies tags to an SNS topic.

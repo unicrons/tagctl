@@ -45,7 +45,7 @@ func (p *Provider) listKMSKeysFrom(ctx context.Context, client kmsAPI, region st
 	resources := forEachConcurrently(keyIDs, func(keyID string) []types.Resource {
 		desc, err := client.DescribeKey(ctx, &kms.DescribeKeyInput{KeyId: aws.String(keyID)})
 		if err != nil || desc.KeyMetadata == nil {
-			log.Error("AWS KMS: Skipping key %s (%s): cannot describe it: %v", keyID, region, err)
+			p.skipResource(ctx, "KMS", region, "key "+keyID, err)
 			return nil
 		}
 		meta := desc.KeyMetadata
@@ -57,7 +57,7 @@ func (p *Provider) listKMSKeysFrom(ctx context.Context, client kmsAPI, region st
 			return getKMSTags(ctx, client, keyID)
 		})
 		if err != nil {
-			log.Error("AWS KMS: Skipping key %s (%s): cannot read tags: %v", keyID, region, err)
+			p.skipResource(ctx, "KMS", region, "key "+keyID, err)
 			return nil
 		}
 

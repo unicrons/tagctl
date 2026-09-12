@@ -1,8 +1,89 @@
 package aws
 
 import (
+	"context"
+	"errors"
+	"slices"
 	"testing"
+
+	"github.com/unicrons/tagctl/internal/types"
 )
+
+func TestDiscover_KeepsResourcesAndReportsEachErrorWithItsAccountAndRegion(t *testing.T) {
+	p := testProvider()
+	iamErr := errors.New("iam: access denied")
+	rdsErr := errors.New("rds: access denied")
+	found := func(id string) []types.Resource { return []types.Resource{{ID: id}} }
+
+	globals := []globalLister{
+		{"Route 53", func(context.Context) ([]types.Resource, error) { return found("zone"), nil }},
+		{"IAM", func(context.Context) ([]types.Resource, error) { return nil, iamErr }},
+	}
+	regional := []regionalLister{
+		{"RDS instances", func(context.Context, string) ([]types.Resource, error) { return nil, rdsErr }},
+		{"SQS queues", func(ctx context.Context, region string) ([]types.Resource, error) {
+			p.skipResource(ctx, "SQS", region, "queue denied", errors.New("access denied"))
+			return found("jobs"), nil
+		}},
+	}
+
+	resources, err := p.discover(context.Background(), globals, regional)
+
+	if len(resources) != 2 {
+		t.Errorf("got %d resources, want the 2 that were listed", len(resources))
+	}
+	if !errors.Is(err, iamErr) || !errors.Is(err, rdsErr) {
+		t.Errorf("err = %v, want every lister error", err)
+	}
+	var joined interface{ Unwrap() []error }
+	if !errors.As(err, &joined) {
+		t.Fatalf("err = %v, want joined errors", err)
+	}
+	var got []string
+	for _, e := range joined.Unwrap() {
+		got = append(got, e.Error())
+	}
+	slices.Sort(got)
+	want := []string{
+		"account 123456789012, region global: list IAM: iam: access denied",
+		"account 123456789012, region us-east-1: list RDS instances: rds: access denied",
+		"account 123456789012: skipped 1 resource(s) whose tags cannot be read: SQS 1",
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("errors = %q\nwant %q", got, want)
+	}
+}
+
+func TestDiscover_CancelledScanReturnsTheContextError(t *testing.T) {
+	p := testProvider()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	regional := []regionalLister{
+		{"SQS queues", func(ctx context.Context, region string) ([]types.Resource, error) {
+			cancel()
+			p.skipResource(ctx, "SQS", region, "queue jobs", ctx.Err())
+			return nil, nil
+		}},
+	}
+
+	_, err := p.discover(ctx, nil, regional)
+
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want the context error", err)
+	}
+	if want := "account 123456789012: discovery interrupted: context canceled"; err.Error() != want {
+		t.Errorf("err = %q, want %q", err, want)
+	}
+}
+
+func TestDiscover_ForgetsSkipsOfAPreviousRun(t *testing.T) {
+	p := testProvider()
+	p.skipResource(context.Background(), "SQS", defaultRegion, "queue denied", errors.New("access denied"))
+
+	if _, err := p.discover(context.Background(), nil, nil); err != nil {
+		t.Errorf("err = %v, want nil for a run that skipped nothing", err)
+	}
+}
 
 func TestGetResourceType(t *testing.T) {
 	p := &Provider{}

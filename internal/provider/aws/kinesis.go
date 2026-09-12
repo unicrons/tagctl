@@ -56,7 +56,7 @@ func (p *Provider) listKinesisStreamsFrom(ctx context.Context, client kinesisAPI
 			return getKinesisTags(ctx, client, s.arn)
 		})
 		if err != nil {
-			log.Error("AWS Kinesis: Skipping stream %s (%s): cannot read tags: %v", s.name, region, err)
+			p.skipResource(ctx, "Kinesis", region, "stream "+s.name, err)
 			return nil
 		}
 		return one(types.Resource{

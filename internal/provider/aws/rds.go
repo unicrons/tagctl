@@ -2,8 +2,6 @@ package aws
 
 import (
 	"context"
-	"sync"
-	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/rds"
@@ -14,121 +12,56 @@ import (
 	"github.com/unicrons/tagctl/internal/types"
 )
 
-// rdsInstanceInfo holds instance data needed for parallel tag fetching.
-type rdsInstanceInfo struct {
-	dbInstanceID  string
-	dbInstanceARN string
-	createTime    *time.Time
+// rdsInstanceAPI is the subset of the RDS API used to discover DB instances.
+type rdsInstanceAPI interface {
+	DescribeDBInstances(ctx context.Context, params *rds.DescribeDBInstancesInput, optFns ...func(*rds.Options)) (*rds.DescribeDBInstancesOutput, error)
+	ListTagsForResource(ctx context.Context, params *rds.ListTagsForResourceInput, optFns ...func(*rds.Options)) (*rds.ListTagsForResourceOutput, error)
 }
 
-// listRDSInstances lists all RDS instances in a region using parallel tag fetching.
+// listRDSInstances lists all RDS instances in a region.
 func (p *Provider) listRDSInstances(ctx context.Context, region string) ([]types.Resource, error) {
+	return p.listRDSInstancesFrom(ctx, p.getRDSClient(region), region)
+}
+
+// listRDSInstancesFrom lists RDS instances using the given client.
+func (p *Provider) listRDSInstancesFrom(ctx context.Context, client rdsInstanceAPI, region string) ([]types.Resource, error) {
 	log.Debug("AWS RDS: Listing DB instances in region %s...", region)
-	client := p.getRDSClient(region)
 
-	// First, collect all instances from pagination
-	var instances []rdsInstanceInfo
+	var instances []rdstypes.DBInstance
 	paginator := rds.NewDescribeDBInstancesPaginator(client, &rds.DescribeDBInstancesInput{})
-
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
 			return nil, provider.NewProviderError(providerName, "list_rds_instances", "", err)
 		}
+		instances = append(instances, output.DBInstances...)
+	}
 
-		for _, instance := range output.DBInstances {
-			instances = append(instances, rdsInstanceInfo{
-				dbInstanceID:  aws.ToString(instance.DBInstanceIdentifier),
-				dbInstanceARN: aws.ToString(instance.DBInstanceArn),
-				createTime:    instance.InstanceCreateTime,
-			})
+	resources := forEachConcurrently(instances, func(inst rdstypes.DBInstance) []types.Resource {
+		id, arn := aws.ToString(inst.DBInstanceIdentifier), aws.ToString(inst.DBInstanceArn)
+		tags, err := p.resourceTags(region, arn, func() (map[string]string, error) {
+			return getRDSTags(ctx, client, arn)
+		})
+		if err != nil {
+			p.skipResource(ctx, "RDS", region, "DB instance "+id, err)
+			return nil
 		}
-	}
-
-	if len(instances) == 0 {
-		log.Debug("AWS RDS: Found 0 DB instances in %s", region)
-		return nil, nil
-	}
-
-	// Fetch tags in parallel using semaphore
-	sem := make(chan struct{}, maxConcurrentAPICalls)
-	results := make(chan types.Resource, len(instances))
-	var wg sync.WaitGroup
-
-	for _, inst := range instances {
-		inst := inst // capture loop variable
-		wg.Add(1)
-
-		go func() {
-			defer wg.Done()
-
-			// Acquire semaphore
-			sem <- struct{}{}
-			defer func() { <-sem }()
-
-			// Get tags for the instance
-			tags, _ := p.resourceTags(region, inst.dbInstanceARN, func() (map[string]string, error) {
-				return p.getRDSTags(ctx, region, inst.dbInstanceARN), nil
-			})
-
-			resource := types.Resource{
-				ID:       inst.dbInstanceID,
-				Name:     inst.dbInstanceID,
-				ARN:      inst.dbInstanceARN,
-				Type:     "aws_db_instance",
-				Region:   region,
-				Account:  p.accountID,
-				Provider: providerName,
-				Tags:     tags,
-			}
-
-			if inst.createTime != nil {
-				resource.CreatedAt = inst.createTime
-			}
-
-			log.Debug("AWS RDS: Instance %s in %s has %d tags", inst.dbInstanceID, region, len(tags))
-			results <- resource
-		}()
-	}
-
-	// Close results channel when all goroutines complete
-	go func() {
-		wg.Wait()
-		close(results)
-	}()
-
-	// Collect results
-	resources := make([]types.Resource, 0, cap(results))
-	for resource := range results {
-		resources = append(resources, resource)
-	}
+		return one(p.resource(region, "aws_db_instance", id, id, arn, tags, inst.InstanceCreateTime))
+	})
 
 	log.Debug("AWS RDS: Found %d DB instances in %s", len(resources), region)
 	return resources, nil
 }
 
-// getRDSTags gets tags for an RDS resource.
-func (p *Provider) getRDSTags(ctx context.Context, region, resourceARN string) map[string]string {
-	log.Debug("AWS RDS: Getting tags for %s (region: %s)", resourceARN, region)
-	client := p.getRDSClient(region)
-	tags := make(map[string]string)
-
+// getRDSTags reads the tags of an RDS resource.
+func getRDSTags(ctx context.Context, client rdsInstanceAPI, arn string) (map[string]string, error) {
 	output, err := client.ListTagsForResource(ctx, &rds.ListTagsForResourceInput{
-		ResourceName: aws.String(resourceARN),
+		ResourceName: aws.String(arn),
 	})
 	if err != nil {
-		log.Debug("AWS RDS: Failed to get tags for %s: %v", resourceARN, err)
-		return tags
+		return nil, err
 	}
-
-	for _, tag := range output.TagList {
-		if tag.Key != nil && tag.Value != nil {
-			tags[*tag.Key] = *tag.Value
-		}
-	}
-
-	log.Debug("AWS RDS: %s has %d tags", resourceARN, len(tags))
-	return tags
+	return rdsTagListToMap(output.TagList), nil
 }
 
 // applyRDSTags applies tags to an RDS resource.

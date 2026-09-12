@@ -3,6 +3,7 @@ package aws
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"strings"
@@ -135,6 +136,9 @@ type Provider struct {
 
 	// tagSources holds the per-region bulk tag fetch started by ListResources.
 	tagSources map[string]*tagSource
+
+	// skipped records what the current discovery left out for unreadable tags.
+	skipped skipLog
 
 	// clients caches the SDK clients created through regionalClient, keyed by
 	// client type and region.
@@ -425,13 +429,24 @@ func (p *Provider) ListResources(ctx context.Context) ([]types.Resource, error) 
 	// when they resolve a resource's tags.
 	p.startTagSources(ctx)
 
-	listers := p.regionalListers()
-	globals := p.globalListers()
+	globals := append(p.globalListers(), globalLister{"S3 buckets", p.listS3Buckets})
+	resources, err := p.discover(ctx, globals, p.regionalListers())
+
+	p.logBulkTagCoverage(resources)
+	log.Info("AWS: Discovery complete - found %d total resources in %s", len(resources), time.Since(discoveryStart).Round(time.Millisecond))
+	return resources, err
+}
+
+// discover runs every global lister once and every regional lister per
+// region. It returns what was found together with every lister error and a
+// summary of the resources and services skipped for unreadable tags.
+func (p *Provider) discover(ctx context.Context, globals []globalLister, listers []regionalLister) ([]types.Resource, error) {
+	p.skipped.reset()
 
 	var allResources []types.Resource
 	var mu sync.Mutex
 	var wg sync.WaitGroup
-	errChan := make(chan error, len(p.regions)*len(listers)+1+len(globals)) // regional listers + S3 + globals
+	errChan := make(chan error, len(p.regions)*len(listers)+len(globals))
 
 	for _, g := range globals {
 		g := g
@@ -441,8 +456,7 @@ func (p *Provider) ListResources(ctx context.Context) ([]types.Resource, error) 
 			start := time.Now()
 			resources, err := g.list(ctx)
 			if err != nil {
-				log.Error("AWS: Failed to list %s: %v", g.label, err)
-				errChan <- err
+				errChan <- p.listerError(regionGlobal, g.label, err)
 				return
 			}
 			log.Debug("AWS: %s: %d found in %s", g.label, len(resources), time.Since(start).Round(time.Millisecond))
@@ -451,24 +465,6 @@ func (p *Provider) ListResources(ctx context.Context) ([]types.Resource, error) 
 			mu.Unlock()
 		}()
 	}
-
-	// List S3 buckets (global)
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		log.Debug("AWS: Listing S3 buckets...")
-		start := time.Now()
-		buckets, err := p.listS3Buckets(ctx)
-		if err != nil {
-			log.Error("AWS: Failed to list S3 buckets: %v", err)
-			errChan <- err
-			return
-		}
-		log.Debug("AWS: S3 buckets: %d found in %s", len(buckets), time.Since(start).Round(time.Millisecond))
-		mu.Lock()
-		allResources = append(allResources, buckets...)
-		mu.Unlock()
-	}()
 
 	// List regional resources
 	for _, region := range p.regions {
@@ -482,8 +478,7 @@ func (p *Provider) ListResources(ctx context.Context) ([]types.Resource, error) 
 				start := time.Now()
 				resources, err := lister.list(ctx, region)
 				if err != nil {
-					log.Error("AWS: Failed to list %s in %s: %v", lister.label, region, err)
-					errChan <- err
+					errChan <- p.listerError(region, lister.label, err)
 					return
 				}
 				log.Debug("AWS: %s in %s: %d found in %s", lister.label, region, len(resources), time.Since(start).Round(time.Millisecond))
@@ -499,20 +494,30 @@ func (p *Provider) ListResources(ctx context.Context) ([]types.Resource, error) 
 
 	// Collect errors
 	// errChan is closed after every writer finished, so len is the exact count.
-	errs := make([]error, 0, len(errChan))
+	errs := make([]error, 0, len(errChan)+2)
 	for err := range errChan {
 		errs = append(errs, err)
 	}
-
-	p.logBulkTagCoverage(allResources)
-	log.Info("AWS: Discovery complete - found %d total resources in %s", len(allResources), time.Since(discoveryStart).Round(time.Millisecond))
 	if len(errs) > 0 {
-		log.Error("AWS: %d error(s) occurred during discovery", len(errs))
-		// Return partial results with first error
-		return allResources, errs[0]
+		log.Error("AWS: %d lister error(s) occurred during discovery", len(errs))
 	}
+	// Cancelled tag reads return nothing and record nothing: without this the
+	// interrupted discovery would look complete.
+	if err := ctx.Err(); err != nil {
+		errs = append(errs, fmt.Errorf("account %s: discovery interrupted: %w", p.accountID, err))
+	}
+	for _, err := range p.skipped.errs() {
+		errs = append(errs, fmt.Errorf("account %s: %w", p.accountID, err))
+	}
+	return allResources, errors.Join(errs...)
+}
 
-	return allResources, nil
+// listerError logs a discovery error and names the account, region and lister
+// it came from, so errors from several accounts stay distinguishable.
+func (p *Provider) listerError(region, label string, err error) error {
+	err = fmt.Errorf("account %s, region %s: list %s: %w", p.accountID, region, label, err)
+	log.Error("AWS: %v", err)
+	return err
 }
 
 // tagApplier writes tags to one resource through its service API.

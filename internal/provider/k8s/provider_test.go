@@ -413,6 +413,29 @@ func TestListResources_NamespaceListErrorWithNoNamespaces(t *testing.T) {
 	}
 }
 
+func TestListResources_ReportsEveryListError(t *testing.T) {
+	podsErr := errors.New("pods are forbidden")
+	servicesErr := errors.New("services are forbidden")
+	clientset := fake.NewSimpleClientset()
+	clientset.PrependReactor("list", "pods", func(k8stesting.Action) (bool, runtime.Object, error) {
+		return true, nil, podsErr
+	})
+	clientset.PrependReactor("list", "services", func(k8stesting.Action) (bool, runtime.Object, error) {
+		return true, nil, servicesErr
+	})
+	p := NewWithClients(clientset, fakeMetadata(t), config.KubernetesCluster{
+		Name:          "test-cluster",
+		Namespaces:    []string{"default"},
+		ResourceTypes: []string{ResourceTypePod, ResourceTypeService},
+	})
+
+	_, err := p.ListResources(context.Background())
+
+	if !errors.Is(err, podsErr) || !errors.Is(err, servicesErr) {
+		t.Errorf("err = %v, want both list errors", err)
+	}
+}
+
 func TestListResources_SecretsOnlyWhenListed(t *testing.T) {
 	cases := []struct {
 		name        string

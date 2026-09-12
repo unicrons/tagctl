@@ -224,9 +224,15 @@ use `Findings`. The `violations` JSON key is kept for backwards compatibility.
   label)` (services without one; the service is skipped with `log.Error`
   when the sweep is unavailable). Regions come from config; empty `regions`
   means all available regions. A resource whose tags cannot be read is
-  skipped with `log.Error`, never reported as untagged (the four oldest
-  listers — RDS, Lambda, SNS, SQS — still swallow the error in their
-  per-resource fallback and report an empty tag set; pending migration).
+  skipped with `p.skipResource` (logs and records it), never reported as
+  untagged; `requireBulkTags` records a skipped service the same way. A
+  not-found answer (`resourceGone`: deleted since it was listed) is dropped
+  at debug level (a batch call failing that way is re-read one item at a
+  time); a cancelled context records nothing and `discover` returns the
+  context error instead.
+  `ListResources` returns what it found plus `errors.Join` of every lister
+  error (prefixed `account <id>, region <region|global>: list <label>:`) and
+  a per-service summary of those skips (prefixed `account <id>:`).
 - **AWS auth**: `aws.New` relies on `config.LoadDefaultConfig` (SDK chain);
   `profile` adds `WithSharedConfigProfile`, `role_arn` wraps the credentials in
   `stscreds.NewAssumeRoleProvider` + `aws.NewCredentialsCache`
@@ -300,8 +306,8 @@ same ids SARIF uses, keep them aligned. The full mapping is the contract in
    `p.requireBulkTags` + `p.bulkTags` when it does not. Any type read through
    the bulk source must also be added to `bulkTagFilterGroups` in `tags.go`
    (ARN notation, `service:type`), otherwise the sweep never returns its tags.
-   On a tag-read error skip the resource with `log.Error`, do not report it as
-   untagged
+   On a tag-read error skip the resource with `p.skipResource`, do not report
+   it as untagged; add the tag call's not-found error type to `resourceGone`
 4. Add an `apply<Service>Tags` method only if the service has a tag write API
    of its own; any other ARN is routed to `applyTagsViaTaggingAPI` by
    `getResourceType` (`tagging_api`)
