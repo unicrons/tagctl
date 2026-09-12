@@ -49,7 +49,11 @@ func runPlan(cmd *cobra.Command, args []string) error {
 	scanFile, _ := cmd.Flags().GetString("scan")
 	ctx := context.Background()
 
-	// Print banner
+	format, err := outputFormatFor(cmd, formatTable, formatJSON)
+	if err != nil {
+		return err
+	}
+
 	printBanner()
 
 	cfg, err := loadConfig()
@@ -60,11 +64,10 @@ func runPlan(cmd *cobra.Command, args []string) error {
 	// Check if we should use mock mode
 	if !hasConfiguredProviders(cfg) {
 		printDemoModeWarning()
-		fmt.Println("Analyzing resources for auto-fix opportunities (demo mode)...")
-		fmt.Println()
+		fmt.Fprint(os.Stderr, "Analyzing resources for auto-fix opportunities (demo mode)...\n\n")
 
 		plan := getMockPlan()
-		return savePlanAndOutput(plan, outFile)
+		return savePlanAndOutput(plan, outFile, format)
 	}
 
 	// Load scan results from file with spinner
@@ -99,7 +102,7 @@ func runPlan(cmd *cobra.Command, args []string) error {
 	}
 	spinner.Success(fmt.Sprintf("Generated plan with %d changes", len(plan.Changes)))
 
-	return savePlanAndOutput(plan, outFile)
+	return savePlanAndOutput(plan, outFile, format)
 }
 
 // loadScanResults loads scan results from a file.
@@ -173,7 +176,7 @@ func findLatestScan() (string, error) {
 	return OutputDir + "/" + latestFile, nil
 }
 
-func savePlanAndOutput(plan *types.Plan, outFile string) error {
+func savePlanAndOutput(plan *types.Plan, outFile, format string) error {
 	// Save plan to file
 	planFile, err := GetPlanPath(outFile)
 	if err != nil {
@@ -189,12 +192,18 @@ func savePlanAndOutput(plan *types.Plan, outFile string) error {
 		return fmt.Errorf("failed to write plan file: %w", err)
 	}
 
-	switch outputFormat {
-	case formatJSON:
-		return outputPlanJSON(plan)
-	default:
-		return outputPlanTable(plan, planFile)
+	if format == formatJSON {
+		if err := outputPlanJSON(plan); err != nil {
+			return err
+		}
+	} else {
+		outputPlanTable(plan)
 	}
+
+	if !plan.IsEmpty() {
+		fmt.Fprintf(os.Stderr, "\nPlan saved to: %s\nRun 'tagctl apply' to execute this plan.\n", planFile)
+	}
+	return nil
 }
 
 // getMockPlan returns a mock plan for demonstration purposes.

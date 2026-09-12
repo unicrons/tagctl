@@ -72,6 +72,11 @@ func runNormalize(cmd *cobra.Command, args []string) error {
 	outPath, _ := cmd.Flags().GetString("out")
 	failOnDrift, _ := cmd.Flags().GetBool("fail-on-drift")
 
+	format, err := outputFormatFor(cmd, formatTable, formatJSON)
+	if err != nil {
+		return err
+	}
+
 	resources, source, err := loadNormalizeResources(scanPath, resourcesPath)
 	if err != nil {
 		return err
@@ -84,7 +89,7 @@ func runNormalize(cmd *cobra.Command, args []string) error {
 
 	result := engine.NewNormalizer(opts).Normalize(resources)
 
-	if strings.ToLower(outputFormat) == formatJSON {
+	if format == formatJSON {
 		if err := printJSON(result); err != nil {
 			return err
 		}
@@ -228,8 +233,8 @@ func writeNormalizePlan(result *types.NormalizeResult, path string) error {
 		return fmt.Errorf("failed to write plan file: %w", err)
 	}
 
-	fmt.Printf("\nPlan written to %s (%d change(s))\n", path, len(plan.Changes))
-	fmt.Println("Review it, then run: tagctl apply --plan " + path)
+	fmt.Fprintf(os.Stderr, "\nPlan written to %s (%d change(s))\n", path, len(plan.Changes))
+	fmt.Fprintln(os.Stderr, "Review it, then run: tagctl apply --plan "+path)
 
 	return nil
 }

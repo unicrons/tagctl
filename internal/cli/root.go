@@ -12,7 +12,6 @@ import (
 
 var (
 	cfgFile      string
-	outputFormat string
 	logLevel     string
 	appVersion   string
 	appBuildTime string
@@ -71,12 +70,8 @@ func init() {
 
 	// Global flags
 	rootCmd.PersistentFlags().StringVarP(&cfgFile, "config", "c", "", "config file (default: ./tagctl.yaml)")
-	rootCmd.PersistentFlags().StringVarP(&outputFormat, "output", "o", "table", "output format (table, json, csv)")
+	rootCmd.PersistentFlags().StringP("output", "o", "table", "output format on stdout: table, json or csv, as the command supports")
 	rootCmd.PersistentFlags().StringVarP(&logLevel, "log-level", "l", "error", "log level (error, info, debug)")
-
-	// Bind flags to viper
-	// The flag is defined just above, so BindPFlag cannot fail here.
-	_ = viper.BindPFlag("output", rootCmd.PersistentFlags().Lookup("output"))
 
 	// Add subcommands
 	rootCmd.AddCommand(versionCmd)
@@ -124,7 +119,11 @@ func printVersion() {
 var versionCmd = &cobra.Command{
 	Use:   "version",
 	Short: "Print version information",
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if _, err := outputFormatFor(cmd, formatTable); err != nil {
+			return err
+		}
 		printVersion()
+		return nil
 	},
 }

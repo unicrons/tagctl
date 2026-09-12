@@ -55,6 +55,10 @@ func runApply(cmd *cobra.Command, args []string) error {
 	autoApprove, _ := cmd.Flags().GetBool("auto-approve")
 	useMock, _ := cmd.Flags().GetBool("mock")
 
+	if _, err := outputFormatFor(cmd, formatTable); err != nil {
+		return err
+	}
+
 	ctx, stop := signalContext()
 	defer stop()
 
@@ -93,14 +97,12 @@ func runApply(cmd *cobra.Command, args []string) error {
 			return confirmErr
 		}
 		if !confirmed {
-			fmt.Println("Apply cancelled.")
+			fmt.Fprintln(os.Stderr, "Apply cancelled.")
 			return nil
 		}
 	}
 
-	fmt.Println()
-	fmt.Println("Applying changes...")
-	fmt.Println()
+	fmt.Fprint(os.Stderr, "\nApplying changes...\n\n")
 
 	cfg, err := loadConfig()
 	if err != nil {
@@ -140,23 +142,22 @@ func runApply(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// printPlanSummary describes the plan about to be applied.
+// printPlanSummary describes the plan about to be applied on stderr, next to
+// the confirmation prompt, so both stay visible when stdout is redirected.
 func printPlanSummary(planFile string, plan *types.Plan) {
-	fmt.Printf("Applying plan from %s\n", planFile)
-	fmt.Printf("Plan created at: %s\n", plan.CreatedAt.Format("2006-01-02 15:04:05"))
-	fmt.Println()
 	summary := plan.Summarize()
-	fmt.Printf("Changes to apply:\n")
-	fmt.Printf("  • %d resources will be modified\n", summary.TotalResources)
-	fmt.Printf("  • %d tags will be added\n", summary.TagsAdded)
-	fmt.Printf("  • %d tags will be updated\n", summary.TagsUpdated)
-	fmt.Println()
+	fmt.Fprintf(os.Stderr, "Applying plan from %s\n", planFile)
+	fmt.Fprintf(os.Stderr, "Plan created at: %s\n\n", plan.CreatedAt.Format("2006-01-02 15:04:05"))
+	fmt.Fprintf(os.Stderr, "Changes to apply:\n")
+	fmt.Fprintf(os.Stderr, "  • %d resources will be modified\n", summary.TotalResources)
+	fmt.Fprintf(os.Stderr, "  • %d tags will be added\n", summary.TagsAdded)
+	fmt.Fprintf(os.Stderr, "  • %d tags will be updated\n\n", summary.TagsUpdated)
 }
 
 // confirmApply asks the operator to confirm before any tag is written. Ctrl-C
 // at the prompt cancels ctx, which returns at once instead of waiting for Enter.
 func confirmApply(ctx context.Context, in io.Reader) (bool, error) {
-	fmt.Print("Do you want to apply these changes? [y/N]: ")
+	fmt.Fprint(os.Stderr, "Do you want to apply these changes? [y/N]: ")
 
 	type answer struct {
 		line string

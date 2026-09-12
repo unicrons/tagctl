@@ -146,7 +146,7 @@ type ProgressBar struct {
 // NewProgressBar creates a new progress bar.
 func NewProgressBar(total int, message string) *ProgressBar {
 	width := 40
-	if w, _, err := term.GetSize(int(os.Stdout.Fd())); err == nil && w > 60 {
+	if w, _, err := term.GetSize(int(os.Stderr.Fd())); err == nil && w > 60 {
 		width = w - 40 // Leave room for message and percentage
 		if width > 60 {
 			width = 60
@@ -205,7 +205,7 @@ func (p *ProgressBar) render() {
 
 	bar := strings.Repeat("█", filled) + strings.Repeat("░", empty)
 
-	fmt.Printf("\r%s%s%s %s[%s]%s %s%.0f%%%s (%d/%d)",
+	fmt.Fprintf(os.Stderr, "\r%s%s%s %s[%s]%s %s%.0f%%%s (%d/%d)",
 		colorCyan, p.message, colorReset,
 		colorDim, bar, colorReset,
 		colorBold, percent, colorReset,
@@ -218,12 +218,12 @@ func (p *ProgressBar) Finish() {
 	defer p.mu.Unlock()
 	p.current = p.total
 	p.render()
-	fmt.Println()
+	fmt.Fprintln(os.Stderr)
 }
 
 // Clear removes the progress bar from the terminal.
 func (p *ProgressBar) Clear() {
-	fmt.Printf("\r%s\r", strings.Repeat(" ", 100))
+	fmt.Fprintf(os.Stderr, "\r%s\r", strings.Repeat(" ", 100))
 }
 
 // StatusLine provides a simple status line that can be updated.
@@ -246,10 +246,10 @@ func (s *StatusLine) Update(format string, args ...interface{}) {
 
 	// Clear previous line
 	if s.lastLen > 0 {
-		fmt.Printf("\r%s\r", strings.Repeat(" ", s.lastLen))
+		fmt.Fprintf(os.Stderr, "\r%s\r", strings.Repeat(" ", s.lastLen))
 	}
 
-	fmt.Printf("\r%s%s%s", colorCyan, message, colorReset)
+	fmt.Fprintf(os.Stderr, "\r%s%s%s", colorCyan, message, colorReset)
 	s.lastLen = len(message) + 10 // Account for color codes
 }
 
@@ -260,11 +260,11 @@ func (s *StatusLine) Done(format string, args ...interface{}) {
 
 	// Clear previous line
 	if s.lastLen > 0 {
-		fmt.Printf("\r%s\r", strings.Repeat(" ", s.lastLen))
+		fmt.Fprintf(os.Stderr, "\r%s\r", strings.Repeat(" ", s.lastLen))
 	}
 
 	message := fmt.Sprintf(format, args...)
-	fmt.Printf("\r%s✓%s %s\n", colorGreen, colorReset, message)
+	fmt.Fprintf(os.Stderr, "\r%s✓%s %s\n", colorGreen, colorReset, message)
 	s.lastLen = 0
 }
 
@@ -274,7 +274,7 @@ func (s *StatusLine) Clear() {
 	defer s.mu.Unlock()
 
 	if s.lastLen > 0 {
-		fmt.Printf("\r%s\r", strings.Repeat(" ", s.lastLen))
+		fmt.Fprintf(os.Stderr, "\r%s\r", strings.Repeat(" ", s.lastLen))
 	}
 	s.lastLen = 0
 }

@@ -45,6 +45,10 @@ func runEvaluate(cmd *cobra.Command, args []string) error {
 	resourcesPath, _ := cmd.Flags().GetString("resources")
 	policyPath, _ := cmd.Flags().GetString("policy")
 	gateOpts := readGateFlags(cmd)
+	format, err := gateOpts.stdoutFormat(cmd, formatJSON)
+	if err != nil {
+		return err
+	}
 
 	// 1. Load resources from JSON
 	resources, err := loadResourcesFromJSON(resourcesPath)
@@ -97,11 +101,11 @@ func runEvaluate(cmd *cobra.Command, args []string) error {
 		},
 	}
 
-	// 5. Output JSON
-	encoder := json.NewEncoder(os.Stdout)
-	encoder.SetIndent("", "  ")
-	if encodeErr := encoder.Encode(output); encodeErr != nil {
-		return encodeErr
+	// 5. Output JSON, unless a report was sent to stdout instead
+	if format == formatJSON {
+		if encodeErr := printJSON(output); encodeErr != nil {
+			return encodeErr
+		}
 	}
 
 	// 6. CI reports and gate. Reports come first so a failing build still

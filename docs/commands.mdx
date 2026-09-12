@@ -11,7 +11,7 @@ These flags work with all commands:
 | Flag | Short | Default | Description |
 |------|-------|---------|-------------|
 | `--config` | `-c` | `./tagctl.yaml` | Path to configuration file |
-| `--output` | `-o` | `table` | Output format: `table` or `json`; `csv` is honoured by `scan` only |
+| `--output` | `-o` | `table` | Format printed on stdout, case-insensitive: `table`, `json` or `csv` for `scan`; `table` or `json` for `plan`, `diff`, `normalize`, `terraform` and `cost`; `json` for `evaluate`, which is also its default; `table` for the other commands. Any other value exits `2` |
 | `--log-level` | `-l` | `error` | Log level: `error`, `info`, `debug`; an unknown value falls back to `info` with a warning |
 | `--version` | - | - | Print the version and exit |
 | `--help` | `-h` | - | Show help for command |
@@ -24,6 +24,14 @@ These flags work with all commands:
 | `info` | Show what each step is doing |
 | `debug` | Show detailed trace for troubleshooting. All levels write to stderr, so stdout stays pipeable |
 
+### Standard output
+
+stdout carries only the output `--output` selects, so `tagctl scan -o json | jq`
+and `tagctl scan -o csv > findings.csv` work without filtering. The banner,
+spinners, the demo mode notice, warnings, the `apply` summary and confirmation
+prompt, and notices about files written (`Detailed results saved to`,
+`Plan saved to`, `Plan written to`, `Created tagctl.yaml`) go to stderr.
+
 ## Exit codes
 
 Every command exits with one of three codes, so a pipeline can tell a policy
@@ -33,7 +41,7 @@ that failed from a check that could not run:
 |------|---------|
 | `0` | Success, and every gate that was requested passed |
 | `1` | A policy gate failed: `--fail-under` or `--fail-on-new` on `scan`, `evaluate` and `terraform`, `--fail-under` on `cost`, `diff --fail-on-regression`, `normalize --fail-on-drift` |
-| `2` | Any other error: an unknown flag or wrong arguments, an invalid config, an unreadable input or baseline file, `--fail-on-new` without `--baseline`, a [partial scan](#partial-scans) without `--allow-partial`, an `apply` with failed changes |
+| `2` | Any other error: an unknown flag or wrong arguments, an `--output` format the command does not print, more than one report sent to `-`, an invalid config, an unreadable input or baseline file, `--fail-on-new` without `--baseline`, a [partial scan](#partial-scans) without `--allow-partial`, an `apply` with failed changes |
 
 The reason is printed to stderr after `Error:`. An unknown command
 (`tagctl nosuch`) exits `2`, but `tagctl help <topic>` with an unknown topic
@@ -536,7 +544,9 @@ Resources must be provided as a JSON array:
 
 ### Output Format
 
-The command outputs JSON with findings and summary:
+The command prints JSON with findings and summary; `json` is the only `--output`
+format it accepts. A report sent to stdout with `--sarif -`, `--junit -` or
+`--ocsf -` takes its place.
 
 ```json
 {
@@ -1062,6 +1072,11 @@ from a report into a build step.
 
 Reports are written **before** the gate runs, so a failing build still uploads
 its findings.
+
+A report written to `-` replaces the command's own stdout output (the table, or
+the JSON `evaluate` prints), so stdout holds a single document. Sending more
+than one report to `-`, or combining one with an explicit `--output`, is a usage
+error and exits `2`.
 
 ### Choosing a gate
 
