@@ -62,9 +62,9 @@
           "icon": "github"
         },
         {
-          "anchor": "Community",
-          "href": "https://github.com/unicrons/tagctl/discussions",
-          "icon": "discord"
+          "anchor": "Issues",
+          "href": "https://github.com/unicrons/tagctl/issues",
+          "icon": "circle-dot"
         }
       ]
     }

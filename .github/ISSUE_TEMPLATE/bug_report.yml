@@ -1,0 +1,89 @@
+name: Bug report
+description: Report a crash, a wrong result or a command that does not behave as documented.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Remove private data from every field before you submit: AWS account ids (use `123456789012`), ARNs, profile and role names, tag values, emails, hostnames and credentials.
+
+        Do not report security vulnerabilities here. Follow the [security policy](https://github.com/unicrons/tagctl/security/policy) instead.
+  - type: input
+    id: version
+    attributes:
+      label: tagctl version
+      description: The `Version` and `Built` lines of `tagctl --version`. A `go install` or source build prints `dev`; add the module version or commit you built.
+      placeholder: "Version: 0.1.0, Built: 2026-01-01T00:00:00Z"
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Linux
+        - macOS
+        - Windows
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: arch
+    attributes:
+      label: Architecture
+      options:
+        - amd64
+        - arm64
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: Command
+      description: The exact command you ran, with every flag.
+      placeholder: tagctl scan -c tagctl.yaml -o json
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What you expected tagctl to do.
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What happened instead, with the error message and the exit code (`echo $?`).
+    validations:
+      required: true
+  - type: textarea
+    id: config
+    attributes:
+      label: Configuration
+      description: The parts of `tagctl.yaml` involved, redacted. Replace account ids, role ARNs, profile names and emails with placeholders.
+      render: yaml
+  - type: textarea
+    id: debug-output
+    attributes:
+      label: Debug output
+      description: The same command run with `--log-level debug`, redacted. Debug logs can contain account ids, ARNs, resource names and tag values.
+      render: text
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Anything else that helps reproduce it, for example the AWS partition, the regions scanned or whether the resource was tagged by Terraform.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched the existing issues and this bug is not reported yet.
+          required: true
+        - label: I removed account ids, ARNs, credentials and other private data from every field.
+          required: true
