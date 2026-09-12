@@ -1,7 +1,11 @@
 package aws
 
 import (
+	"bytes"
 	"context"
+	"errors"
+	"io"
+	"strings"
 	"testing"
 	"time"
 
@@ -55,6 +59,51 @@ func TestAssumeRole_Options(t *testing.T) {
 	in := mock.input
 	if aws.ToString(in.ExternalId) != "ext" || aws.ToInt32(in.DurationSeconds) != 1800 || aws.ToString(in.RoleSessionName) != "audit" {
 		t.Errorf("input = %+v", in)
+	}
+}
+
+func TestReadMFAToken(t *testing.T) {
+	errNoTTY := errors.New("inappropriate ioctl for device")
+	cases := []struct {
+		name         string
+		stdin        string
+		isTerminal   bool
+		password     string
+		passwordErr  error
+		want         string
+		wantPrompt   string
+		wantErr      error
+		wantPassword bool
+	}{
+		{name: "terminal reads without echo", stdin: "leaked\n", isTerminal: true, password: " 123456 ", want: "123456", wantPrompt: "MFA token code: \n", wantPassword: true},
+		{name: "terminal error is wrapped", isTerminal: true, passwordErr: errNoTTY, wantPrompt: "MFA token code: \n", wantErr: errNoTTY, wantPassword: true},
+		{name: "pipe reads one line", stdin: "654321\nextra\n", want: "654321", wantPrompt: "MFA token code: "},
+		{name: "pipe without a line fails", stdin: "", wantPrompt: "MFA token code: ", wantErr: io.EOF},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var prompt bytes.Buffer
+			passwordRead := false
+			readPassword := func() ([]byte, error) {
+				passwordRead = true
+				return []byte(tc.password), tc.passwordErr
+			}
+
+			got, err := readMFAToken(&prompt, strings.NewReader(tc.stdin), tc.isTerminal, readPassword)
+
+			if !errors.Is(err, tc.wantErr) {
+				t.Fatalf("err = %v, want %v", err, tc.wantErr)
+			}
+			if got != tc.want {
+				t.Errorf("token = %q, want %q", got, tc.want)
+			}
+			if prompt.String() != tc.wantPrompt {
+				t.Errorf("prompt = %q, want %q", prompt.String(), tc.wantPrompt)
+			}
+			if passwordRead != tc.wantPassword {
+				t.Errorf("no-echo read used = %v, want %v", passwordRead, tc.wantPassword)
+			}
+		})
 	}
 }
 
