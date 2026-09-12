@@ -35,12 +35,21 @@ jobs:
         uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad # v3.0.4
         with:
           list-files: shell
+          # Non-Go inputs of the build and tests: embedded templates, fixtures,
+          # and the IAM files and aws.mdx blocks permissions_test.go compares.
           filters: |
             go:
               - '**/*.go'
               - 'go.mod'
               - 'go.sum'
               - '.golangci.yml'
+              - 'internal/report/templates/**'
+              - '**/testdata/**'
+              - 'permissions/**'
+              - 'docs/providers/aws.mdx'
+              - 'Makefile'
+              - 'scripts/**'
+              - '.githooks/**'
               - '.github/workflows/ci.yml'
             docs:
               - 'docs/**'
@@ -71,6 +80,9 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      - name: Run shellcheck
+        run: shellcheck scripts/*.sh .githooks/*
+
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -97,9 +109,13 @@ jobs:
 
   test:
     name: Test
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     needs: changes
     if: needs.changes.outputs.go == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -117,9 +133,11 @@ jobs:
         run: go test -v -race -coverprofile=coverage.out ./...
 
       - name: Upload coverage
+        if: matrix.os == 'ubuntu-latest'
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
           files: ./coverage.out
+          token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
 
   build:

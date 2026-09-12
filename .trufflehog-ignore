@@ -1,1 +1,2 @@
-# Paths the secret scan skips, one per line (see .githooks/check-secrets.sh)
+# Regular expressions for paths the secret scan skips, one per line, matched
+# against the repository-relative path (see .githooks/check-secrets.sh).
