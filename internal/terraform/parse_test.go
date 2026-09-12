@@ -1,6 +1,7 @@
 package terraform
 
 import (
+	"slices"
 	"strings"
 	"testing"
 )
@@ -127,6 +128,49 @@ const stateJSON = `{
   }
 }`
 
+// A plan where a tag value is only known after apply. An SDKv2 resource hides
+// both tag maps; a Plugin Framework resource keeps the known keys of tags.
+const unknownPlanJSON = `{
+  "format_version": "1.2",
+  "planned_values": {
+    "root_module": {
+      "resources": [
+        {
+          "address": "aws_sqs_queue.sdkv2",
+          "mode": "managed",
+          "type": "aws_sqs_queue",
+          "name": "sdkv2",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "values": {"name": "sdkv2"}
+        },
+        {
+          "address": "aws_vpc_security_group_ingress_rule.framework",
+          "mode": "managed",
+          "type": "aws_vpc_security_group_ingress_rule",
+          "name": "framework",
+          "provider_name": "registry.terraform.io/hashicorp/aws",
+          "values": {"tags": {"environment": "prod"}}
+        }
+      ]
+    }
+  },
+  "resource_changes": [
+    {
+      "address": "aws_sqs_queue.sdkv2",
+      "change": {"actions": ["create"], "after_unknown": {"tags": true, "tags_all": true}}
+    },
+    {
+      "address": "aws_vpc_security_group_ingress_rule.framework",
+      "change": {"actions": ["create"], "after_unknown": {"tags": {"ref": true}, "tags_all": true}}
+    },
+    {
+      "address": "aws_vpc_security_group_ingress_rule.framework",
+      "deposed": "00000001",
+      "change": {"actions": ["delete"], "after_unknown": {}}
+    }
+  ]
+}`
+
 // valueProd is the environment value the fixtures use.
 const valueProd = "prod"
 
@@ -134,23 +178,24 @@ const valueProd = "prod"
 func parsePlan(t *testing.T, opts Options) map[string]map[string]string {
 	t.Helper()
 
-	resources, err := Parse(strings.NewReader(planJSON), opts)
+	result, err := Parse(strings.NewReader(planJSON), opts)
 	if err != nil {
 		t.Fatalf("Parse() error = %v", err)
 	}
 
-	byAddress := make(map[string]map[string]string, len(resources))
-	for _, resource := range resources {
+	byAddress := make(map[string]map[string]string, len(result.Resources))
+	for _, resource := range result.Resources {
 		byAddress[resource.ID] = resource.Tags
 	}
 	return byAddress
 }
 
 func TestParse_Plan(t *testing.T) {
-	resources, err := Parse(strings.NewReader(planJSON), Options{})
+	result, err := Parse(strings.NewReader(planJSON), Options{})
 	if err != nil {
 		t.Fatalf("Parse() error = %v", err)
 	}
+	resources := result.Resources
 
 	// aws_instance, aws_s3_bucket, aws_subnet, aws_eip. The IAM policy has no
 	// tag attribute and the data source is not managed, so both are skipped.
@@ -259,10 +304,11 @@ func TestParse_ChangedOnly(t *testing.T) {
 }
 
 func TestParse_State(t *testing.T) {
-	resources, err := Parse(strings.NewReader(stateJSON), Options{})
+	result, err := Parse(strings.NewReader(stateJSON), Options{})
 	if err != nil {
 		t.Fatalf("Parse() error = %v", err)
 	}
+	resources := result.Resources
 
 	if len(resources) != 1 {
 		t.Fatalf("got %d resources, want 1", len(resources))
@@ -278,47 +324,184 @@ func TestParse_State(t *testing.T) {
 // A state file has no resource_changes, so --changed-only must not silently
 // return nothing useful; it returns nothing, which the CLI reports.
 func TestParse_ChangedOnlyOnStateReturnsNothing(t *testing.T) {
-	resources, err := Parse(strings.NewReader(stateJSON), Options{ChangedOnly: true})
+	result, err := Parse(strings.NewReader(stateJSON), Options{ChangedOnly: true})
 	if err != nil {
 		t.Fatalf("Parse() error = %v", err)
 	}
-	if len(resources) != 0 {
-		t.Errorf("got %d resources, want 0: a state file records no changes", len(resources))
+	if len(result.Resources) != 0 {
+		t.Errorf("got %d resources, want 0: a state file records no changes", len(result.Resources))
+	}
+}
+
+func TestParse_UnknownTagsFromAfterUnknown(t *testing.T) {
+	result, err := Parse(strings.NewReader(unknownPlanJSON), Options{})
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+
+	if want := []string{"aws_sqs_queue.sdkv2"}; !slices.Equal(result.Unreadable, want) {
+		t.Errorf("Unreadable = %v, want %v", result.Unreadable, want)
+	}
+	if len(result.Resources) != 1 || result.Resources[0].ID != "aws_vpc_security_group_ingress_rule.framework" {
+		t.Fatalf("got %+v, want only the resource with known tags", result.Resources)
+	}
+	resource := result.Resources[0]
+	if want := map[string]string{"environment": valueProd, "ref": ""}; !equalTags(resource.Tags, want) {
+		t.Errorf("tags = %v, want %v", resource.Tags, want)
+	}
+	if want := []string{"ref"}; !slices.Equal(resource.UnknownTags, want) {
+		t.Errorf("UnknownTags = %v, want %v", resource.UnknownTags, want)
 	}
 }
 
 func TestParse_Errors(t *testing.T) {
-	t.Run("malformed JSON", func(t *testing.T) {
-		if _, err := Parse(strings.NewReader("{not json"), Options{}); err == nil {
-			t.Error("Parse() on malformed JSON returned nil error")
-		}
-	})
+	tests := []struct {
+		name    string
+		input   string
+		wantErr string
+	}{
+		{
+			name:    "malformed JSON",
+			input:   "{not json",
+			wantErr: "failed to parse terraform JSON",
+		},
+		{
+			name:    "neither planned_values nor values",
+			input:   `{"format_version": "1.2"}`,
+			wantErr: "terraform show -json",
+		},
+		{
+			name:    "missing format_version",
+			input:   `{"planned_values": {"root_module": {}}}`,
+			wantErr: "terraform show -json",
+		},
+		{
+			name:    "unsupported format_version major",
+			input:   `{"format_version": "2.0", "planned_values": {"root_module": {}}}`,
+			wantErr: `format_version "2.0"`,
+		},
+		{
+			name:    "format_version major with a matching prefix",
+			input:   `{"format_version": "10.1", "planned_values": {"root_module": {}}}`,
+			wantErr: `format_version "10.1"`,
+		},
+	}
 
-	t.Run("neither planned_values nor values", func(t *testing.T) {
-		_, err := Parse(strings.NewReader(`{"format_version": "1.2"}`), Options{})
-		if err == nil {
-			t.Fatal("Parse() on a document with no module tree returned nil error")
-		}
-		if !strings.Contains(err.Error(), "terraform show -json") {
-			t.Errorf("error should say how to produce the right input, got: %v", err)
-		}
-	})
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := Parse(strings.NewReader(tt.input), Options{})
+			if err == nil {
+				t.Fatal("Parse() returned nil error")
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Errorf("error = %v, want it to contain %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestParse_ModuleDepthLimit(t *testing.T) {
+	nested := func(depth int) string {
+		return `{"format_version": "1.2", "planned_values": {"root_module": ` +
+			strings.Repeat(`{"child_modules": [`, depth) + `{}` + strings.Repeat(`]}`, depth) + `}}`
+	}
+
+	if _, err := Parse(strings.NewReader(nested(maxModuleDepth)), Options{}); err != nil {
+		t.Errorf("Parse() at the depth limit error = %v", err)
+	}
+	if _, err := Parse(strings.NewReader(nested(maxModuleDepth+1)), Options{}); err == nil {
+		t.Error("Parse() beyond the depth limit returned nil error")
+	}
 }
 
 func TestParse_EmptyPlan(t *testing.T) {
 	empty := `{"format_version":"1.2","planned_values":{"root_module":{}}}`
 
-	resources, err := Parse(strings.NewReader(empty), Options{})
+	result, err := Parse(strings.NewReader(empty), Options{})
 	if err != nil {
 		t.Fatalf("Parse() error = %v", err)
 	}
-	if len(resources) != 0 {
-		t.Errorf("got %d resources from an empty plan, want 0", len(resources))
+	if len(result.Resources) != 0 {
+		t.Errorf("got %d resources from an empty plan, want 0", len(result.Resources))
 	}
 }
 
-// Values unknown until apply come back as null; the key is still declared.
-func TestExtractTags_UnknownValues(t *testing.T) {
+func TestExtractTags_NullOrUnknownAttributesFallBack(t *testing.T) {
+	prodTags := map[string]any{"environment": valueProd}
+
+	tests := []struct {
+		name        string
+		values      map[string]any
+		unknown     map[string]any
+		wantTags    map[string]string
+		wantUnknown []string
+		wantRead    tagRead
+	}{
+		{
+			name:     "null tags_all reads tags",
+			values:   map[string]any{"tags_all": nil, "tags": prodTags},
+			wantTags: map[string]string{"environment": valueProd},
+			wantRead: tagsRead,
+		},
+		{
+			name:     "null tags_all and tags is untagged",
+			values:   map[string]any{"tags_all": nil, "tags": nil},
+			wantTags: map[string]string{},
+			wantRead: tagsRead,
+		},
+		{
+			name:     "unknown tags_all with null tags is untagged",
+			values:   map[string]any{"tags": nil},
+			unknown:  map[string]any{"tags_all": true},
+			wantTags: map[string]string{},
+			wantRead: tagsRead,
+		},
+		{
+			name:        "unknown tags_all reads tags and keeps unknown keys",
+			values:      map[string]any{"tags": prodTags},
+			unknown:     map[string]any{"tags_all": true, "tags": map[string]any{"ref": true, "app": true}},
+			wantTags:    map[string]string{"environment": valueProd, "ref": "", "app": ""},
+			wantUnknown: []string{"app", "ref"},
+			wantRead:    tagsRead,
+		},
+		{
+			name:     "unknown tags_all and tags cannot be read",
+			values:   map[string]any{},
+			unknown:  map[string]any{"tags_all": true, "tags": true},
+			wantRead: tagsUnknown,
+		},
+		{
+			name:     "null tags_all with unknown tags cannot be read",
+			values:   map[string]any{"tags_all": nil},
+			unknown:  map[string]any{"tags": true},
+			wantRead: tagsUnknown,
+		},
+		{
+			name:     "known values ignore an empty after_unknown",
+			values:   map[string]any{"tags_all": prodTags},
+			unknown:  map[string]any{"tags_all": map[string]any{}},
+			wantTags: map[string]string{"environment": valueProd},
+			wantRead: tagsRead,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tags, unknownKeys, read := extractTags(tt.values, tt.unknown)
+			if read != tt.wantRead {
+				t.Errorf("read = %v, want %v", read, tt.wantRead)
+			}
+			if !equalTags(tags, tt.wantTags) {
+				t.Errorf("tags = %v, want %v", tags, tt.wantTags)
+			}
+			if !slices.Equal(unknownKeys, tt.wantUnknown) {
+				t.Errorf("unknown keys = %v, want %v", unknownKeys, tt.wantUnknown)
+			}
+		})
+	}
+}
+
+func TestExtractTags_NullAndNonStringValues(t *testing.T) {
 	values := map[string]any{
 		"tags": map[string]any{
 			"environment": "prod",
@@ -327,18 +510,15 @@ func TestExtractTags_UnknownValues(t *testing.T) {
 		},
 	}
 
-	tags, ok := extractTags(values)
-	if !ok {
-		t.Fatal("extractTags() reported no tag attribute")
+	tags, _, read := extractTags(values, nil)
+	if read != tagsRead {
+		t.Fatalf("extractTags() read = %v, want tagsRead", read)
 	}
 	if tags["environment"] != valueProd {
 		t.Errorf("environment = %q, want prod", tags["environment"])
 	}
-	if _, present := tags["instance-id"]; !present {
-		t.Error("a tag whose value is unknown at plan time was dropped")
-	}
-	if tags["instance-id"] != "" {
-		t.Errorf("unknown value = %q, want empty", tags["instance-id"])
+	if value, present := tags["instance-id"]; !present || value != "" {
+		t.Errorf("null value = %q (present %v), want present and empty", value, present)
 	}
 	if tags["port"] != "8080" {
 		t.Errorf("non-string value = %q, want 8080", tags["port"])
@@ -348,8 +528,8 @@ func TestExtractTags_UnknownValues(t *testing.T) {
 func TestExtractTags_Labels(t *testing.T) {
 	values := map[string]any{"labels": map[string]any{"env": "prod"}}
 
-	tags, ok := extractTags(values)
-	if !ok {
+	tags, _, read := extractTags(values, nil)
+	if read != tagsRead {
 		t.Fatal("labels were not recognised as a tag attribute")
 	}
 	if tags["env"] != valueProd {
@@ -358,7 +538,7 @@ func TestExtractTags_Labels(t *testing.T) {
 }
 
 func TestExtractTags_NoTagAttribute(t *testing.T) {
-	if _, ok := extractTags(map[string]any{"policy": "{}"}); ok {
+	if _, _, read := extractTags(map[string]any{"policy": "{}"}, nil); read != noTagAttribute {
 		t.Error("extractTags() claimed a tag attribute on a resource that has none")
 	}
 }
@@ -381,4 +561,16 @@ func TestProviderFrom(t *testing.T) {
 			}
 		})
 	}
+}
+
+func equalTags(got, want map[string]string) bool {
+	if (got == nil) != (want == nil) || len(got) != len(want) {
+		return false
+	}
+	for key, value := range want {
+		if gotValue, present := got[key]; !present || gotValue != value {
+			return false
+		}
+	}
+	return true
 }

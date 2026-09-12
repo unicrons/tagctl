@@ -184,15 +184,16 @@ tagctl apply ◀────────────┘
 
 ```go
 type Resource struct {
-    ID        string            `json:"id"`
-    ARN       string            `json:"arn,omitempty"`
-    Type      string            `json:"type"`
-    Name      string            `json:"name"`
-    Region    string            `json:"region"`
-    Account   string            `json:"account"`
-    Provider  string            `json:"provider"`
-    Tags      map[string]string `json:"tags"`
-    CreatedAt *time.Time        `json:"created_at,omitempty"`
+    ID          string            `json:"id"`
+    ARN         string            `json:"arn,omitempty"`
+    Type        string            `json:"type"`
+    Name        string            `json:"name"`
+    Region      string            `json:"region"`
+    Account     string            `json:"account"`
+    Provider    string            `json:"provider"`
+    Tags        map[string]string `json:"tags"`
+    UnknownTags []string          `json:"unknown_tags,omitempty"`
+    CreatedAt   *time.Time        `json:"created_at,omitempty"`
 }
 ```
 

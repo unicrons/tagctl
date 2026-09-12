@@ -2,6 +2,7 @@ package engine
 
 import (
 	"regexp"
+	"slices"
 
 	"github.com/unicrons/tagctl/internal/config"
 	"github.com/unicrons/tagctl/internal/types"
@@ -110,6 +111,15 @@ func (e *Evaluator) EvaluateResourceFindings(resource types.Resource) []types.Fi
 func (e *Evaluator) evaluateRequirementFinding(resource types.Resource, req config.TagRequirement, required bool) types.Finding {
 	value, hasTag := resource.Tags[req.Name]
 
+	if valueUnknown(resource, req.Name) {
+		return types.Finding{
+			Resource: resource,
+			Tag:      req.Name,
+			Status:   types.StatusPass,
+			Reason:   types.ReasonCompliant,
+		}
+	}
+
 	// Check if tag is missing
 	if !hasTag {
 		if required {
@@ -179,6 +189,10 @@ func (e *Evaluator) evaluateRequirementFinding(resource types.Resource, req conf
 func (e *Evaluator) evaluateRequirement(resource types.Resource, req config.TagRequirement, required bool) *types.Violation {
 	value, hasTag := resource.Tags[req.Name]
 
+	if valueUnknown(resource, req.Name) {
+		return nil
+	}
+
 	// Check if tag is missing
 	if !hasTag {
 		if required {
@@ -229,6 +243,12 @@ func (e *Evaluator) evaluateRequirement(resource types.Resource, req config.TagR
 	}
 
 	return nil
+}
+
+// valueUnknown reports whether a tag's value is only known once the resource
+// exists: the key counts as present and compliant, its value is not checked.
+func valueUnknown(resource types.Resource, tag string) bool {
+	return slices.Contains(resource.UnknownTags, tag)
 }
 
 // EvaluateResources evaluates multiple resources and returns a ScanResult.
