@@ -80,6 +80,7 @@ tagctl plan        # proposes the tags to add
 tagctl apply       # writes them, after you confirm
 ```
 
+`go install` needs Go 1.26.6 or later, the version `go.mod` requires.
 Pre-built binaries for Linux, macOS and Windows (amd64 and arm64) are attached
 to every [release](https://github.com/unicrons/tagctl/releases) with a
 `checksums.txt`.
@@ -216,8 +217,9 @@ specific file instead of the latest. Flags, exit codes and CI gates are in the
 ## Contributing
 
 Bug reports and pull requests are welcome. The [contributing guide](CONTRIBUTING.md)
-and [development docs](docs/development.mdx) cover the setup (`make setup`),
-the checks CI runs (`make check`) and the commit conventions.
+and [development docs](docs/development.mdx) cover the setup (`make setup`, or
+the dev container in `.devcontainer/`), the checks CI runs (`make check`) and
+the commit conventions.
 
 ## License
 

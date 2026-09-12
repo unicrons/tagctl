@@ -19,7 +19,7 @@ Be respectful, inclusive, and constructive. We're all here to build something us
 
 ### Prerequisites
 
-- Go 1.26 or later
+- Go 1.26.6 or later (the version in `go.mod`)
 - Git
 - Make
 - AWS credentials (for testing with real resources)
@@ -45,6 +45,14 @@ make build
 `$(go env GOPATH)/bin` and enables the pre-commit hook, which checks the staged
 content for secrets, formatting, lint, build and short tests. See
 [Development](docs/development.mdx) for the details.
+
+### Dev Container
+
+`.devcontainer/devcontainer.json` provides Go 1.26 and Node.js 22 (for the
+Mintlify docs) for VS Code Dev Containers or GitHub Codespaces. It runs
+`make tools` when the container is created but not `make hooks`; see
+[Development](docs/development.mdx#dev-container) for why and how to enable the
+hook.
 
 ### Verify Setup
 

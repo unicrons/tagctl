@@ -31,6 +31,35 @@ make test
 ./bin/tagctl scan --mock
 ```
 
+Building needs Go 1.26.6 or later, the version `go.mod` requires.
+
+## Dev Container
+
+`.devcontainer/devcontainer.json` opens the repository in VS Code Dev Containers
+or GitHub Codespaces with:
+
+| Component | Source |
+|-----------|--------|
+| Go 1.26 on Debian 13 (trixie) | `mcr.microsoft.com/devcontainers/go:2-1.26-trixie` |
+| Node.js 22, for the Mintlify docs | `ghcr.io/devcontainers/features/node:2` |
+| golangci-lint and trufflehog | `make tools`, run when the container is created |
+
+The container does not run `make hooks`. With a local checkout the repository
+is mounted from your machine, so `git config core.hooksPath` would also enable
+the hook for commits made outside the container. Run `make hooks` yourself to
+opt in.
+
+To preview the docs, install the Mintlify CLI at the version
+`.github/workflows/ci.yml` pins:
+
+```bash
+npm install -g mint@4.2.313
+cd docs && mint dev
+```
+
+The image sets `GOTOOLCHAIN=local`, so it never downloads a newer Go. When
+`go.mod` moves to a new Go minor version, bump the image tag with it.
+
 ## Development Setup
 
 ### 1. Install Development Tools
