@@ -339,6 +339,10 @@ Go than `go.mod` targets refuses to run:
 go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.2
 ```
 
+`make tools` runs that install (`GOLANGCI_LINT_VERSION` in the `Makefile`) and
+fetches trufflehog `TRUFFLEHOG_VERSION` through its checksum-verifying install
+script: trufflehog's `go.mod` has `replace` directives, so `go install` fails.
+
 Running with `--no-config` is not a substitute: the default linter set omits
 `prealloc`, `goconst` and others the repo enables, so it reports clean on code
 CI will reject.
@@ -353,8 +357,14 @@ commit type. Commit subjects are `type(scope): summary`, at most 60 characters.
 
 ## Git Hooks
 
-Pre-commit hook runs: secret scanning, `gofmt` check, `golangci-lint` on the
-changed revision (`go vet` when the binary is missing), build, and tests.
+The pre-commit hook runs on a copy of the index (`<git dir>/tagctl-pre-commit`),
+never the working tree: `.githooks/check-secrets.sh` on the staged files (any
+trufflehog finding fails; `.trufflehog-ignore` holds path regexes), `gofmt` on
+staged Go files, `golangci-lint --new-from-patch` with the staged diff (whole
+tree on a root commit; `go vet` when the binary is missing), `go build
+-buildvcs=false` (the copy sits inside `.git`) and `go test -short`. Tools
+resolve from `$(go env GOPATH)/bin` first, where `make tools` installs the
+versions CI pins.
 
 Install with: `make hooks`
 

@@ -41,6 +41,11 @@ make test
 make build
 ```
 
+`make setup` installs golangci-lint and trufflehog at the versions CI pins into
+`$(go env GOPATH)/bin` and enables the pre-commit hook, which checks the staged
+content for secrets, formatting, lint, build and short tests. See
+[Development](docs/development.mdx) for the details.
+
 ### Verify Setup
 
 ```bash
@@ -116,9 +121,14 @@ Release notes are generated from these subjects, so `feat`, `fix` and `docs`
 commits are what users will read. CI rejects a PR whose commits or title do
 not follow the format (`scripts/check-commits.sh`).
 
-CI runs only the jobs the diff needs: Lint, Test and Build when Go files
-change, Gosec on the packages holding the changed Go files, Docs when `docs/`
-changes, the secrets scan always. A skipped job counts as passed.
+CI runs only the jobs the diff needs. Lint (shellcheck on `scripts/*.sh` and
+`.githooks/*`, then golangci-lint), Test (Linux and macOS) and Build run when
+Go files change or anything the build and tests read: `go.mod`/`go.sum`,
+`.golangci.yml`, `internal/report/templates/`, `testdata/`, `permissions/`,
+`docs/providers/aws.mdx`, `Makefile`, `scripts/` and `.githooks/`. Gosec scans
+the packages holding the changed Go files (the whole module when only other
+inputs changed), Docs runs when `docs/` changes and the secrets scan always
+runs. A skipped job counts as passed.
 
 ### 5. Push and Create PR
 

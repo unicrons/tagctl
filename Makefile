@@ -14,6 +14,12 @@ GOMOD=$(GOCMD) mod
 GOVET=$(GOCMD) vet
 GOFMT=$(GOCMD) fmt
 
+# Development tools, pinned to the versions .github/workflows/ci.yml uses
+GOLANGCI_LINT_VERSION := v2.13.2
+TRUFFLEHOG_VERSION := v3.97.4
+TOOLS_BIN := $(or $(shell $(GOCMD) env GOBIN),$(shell $(GOCMD) env GOPATH)/bin)
+GOLANGCI_LINT := $(or $(wildcard $(TOOLS_BIN)/golangci-lint),$(shell command -v golangci-lint))
+
 # Default target
 all: fmt vet test build
 
@@ -43,10 +49,10 @@ coverage: test
 
 ## lint: Run golangci-lint
 lint:
-	@if command -v golangci-lint >/dev/null 2>&1; then \
-		golangci-lint run ./...; \
+	@if [ -n "$(GOLANGCI_LINT)" ]; then \
+		$(GOLANGCI_LINT) run ./...; \
 	else \
-		echo "golangci-lint not installed, running go vet only"; \
+		echo "golangci-lint not installed (run: make tools), running go vet only"; \
 		$(GOVET) ./...; \
 	fi
 
@@ -102,10 +108,9 @@ check: check-secrets check-fmt vet build test-short
 	@echo ""
 	@echo "All checks passed!"
 
-## check-secrets: Check for secrets in staged files
+## check-secrets: Scan the files git would commit for secrets
 check-secrets:
-	@echo "Checking for secrets..."
-	@./.githooks/check-secrets.sh || true
+	@./.githooks/check-secrets.sh
 
 ## iam-templates: Re-render permissions/aws/*.yaml from the JSON policies
 iam-templates:
@@ -116,24 +121,15 @@ check-fmt:
 	@echo "Checking Go formatting..."
 	@test -z "$$(gofmt -l .)" || (echo "Run 'make fmt' to fix formatting:" && gofmt -l . && exit 1)
 
-## tools: Install development tools (trufflehog, golangci-lint)
+# trufflehog cannot be go-installed (its go.mod has replace directives); its
+# install script verifies the release archive against the published checksums.
+## tools: Install pinned golangci-lint and trufflehog into the Go bin directory
 tools:
-	@echo "Installing development tools..."
-	@if ! command -v trufflehog >/dev/null 2>&1; then \
-		echo "Installing trufflehog..."; \
-		brew install trufflehog 2>/dev/null || \
-		curl -sSfL https://raw.githubusercontent.com/trufflesecurity/trufflehog/v3.97.4/scripts/install.sh | sh -s -- -b /usr/local/bin v3.97.4; \
-	else \
-		echo "trufflehog already installed"; \
-	fi
-	@if ! command -v golangci-lint >/dev/null 2>&1; then \
-		echo "Installing golangci-lint..."; \
-		brew install golangci-lint 2>/dev/null || \
-		go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.2; \
-	else \
-		echo "golangci-lint already installed"; \
-	fi
-	@echo "Done! Run 'make hooks' to enable pre-commit checks."
+	@mkdir -p "$(TOOLS_BIN)"
+	GOBIN="$(TOOLS_BIN)" $(GOCMD) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
+	@script=$$(curl -sSfL https://raw.githubusercontent.com/trufflesecurity/trufflehog/$(TRUFFLEHOG_VERSION)/scripts/install.sh) && \
+		printf '%s\n' "$$script" | sh -s -- -b "$(TOOLS_BIN)" $(TRUFFLEHOG_VERSION)
+	@echo "Installed into $(TOOLS_BIN). Run 'make hooks' to enable pre-commit checks."
 
 ## setup: Complete development setup (tools + hooks)
 setup: tools hooks

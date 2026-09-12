@@ -39,12 +39,17 @@ make test
 make tools
 ```
 
-This installs:
+This installs the versions CI pins into `$(go env GOPATH)/bin` (`GOBIN` when
+set). The pre-commit hook, `make lint` and `make check-secrets` look there
+before `PATH`, so an older copy elsewhere does not get in the way.
 
-| Tool | Purpose |
-|------|---------|
-| **trufflehog** | Secret detection |
-| **golangci-lint** | Go linter (14 linters enabled in `.golangci.yml`) |
+| Tool | Version | Purpose |
+|------|---------|---------|
+| **trufflehog** | v3.97.4 | Secret detection |
+| **golangci-lint** | v2.13.2 | Go linter (14 linters enabled in `.golangci.yml`) |
+
+To bump a tool, change `TRUFFLEHOG_VERSION` or `GOLANGCI_LINT_VERSION` in the
+`Makefile` and the matching pin in `.github/workflows/ci.yml`.
 
 ### 2. Enable Pre-commit Hooks
 
@@ -60,15 +65,17 @@ make hooks-uninstall
 
 ## Pre-commit Checks
 
-Every commit runs these checks automatically:
+Every commit runs these checks automatically. The hook copies the index into
+the git directory and runs them there, so it checks what is staged: an unstaged
+fix does not rescue a commit and an unstaged mistake does not block it.
 
 | Check | Tool | Description |
 |-------|------|-------------|
-| Secrets | trufflehog | AWS keys, tokens, private keys |
-| Format | gofmt | Code formatting |
-| Lint | golangci-lint | Static analysis |
+| Secrets | trufflehog | Staged files; any finding fails, verified or not |
+| Format | gofmt | Staged Go files |
+| Lint | golangci-lint | Issues on staged lines against `HEAD` (the whole tree on a first commit; `go vet` when golangci-lint is not installed) |
 | Build | go build | Compilation check |
-| Tests | go test | Unit tests |
+| Tests | go test | Unit tests (`-short`) |
 
 ### Running Checks Manually
 
@@ -133,7 +140,16 @@ Trufflehog scans for:
 - API tokens (GitHub, Slack)
 - High-entropy strings
 
-Add false positives to `.trufflehog-ignore` (one path per line).
+`make check-secrets` scans every file git would commit (tracked files plus
+untracked ones `.gitignore` does not exclude); the pre-commit hook scans the
+staged files. Any finding fails the check, verified or not.
+
+To accept a false positive, add a regular expression matching its path to
+`.trufflehog-ignore`, one per line (`#` starts a comment):
+
+```text
+^test/testdata/fake-credentials\.json$
+```
 
 ## Makefile Targets
 
@@ -157,7 +173,7 @@ make lint          # Run golangci-lint
 
 # Development
 make setup         # Install tools + hooks
-make tools         # Install trufflehog, golangci-lint
+make tools         # Install pinned trufflehog, golangci-lint
 make hooks         # Enable pre-commit hooks
 make check         # Run all checks
 ```
