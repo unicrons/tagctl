@@ -219,7 +219,9 @@ specific file instead of the latest. Flags, exit codes and CI gates are in the
 Bug reports and pull requests are welcome. The [contributing guide](CONTRIBUTING.md)
 and [development docs](docs/development.mdx) cover the setup (`make setup`, or
 the dev container in `.devcontainer/`), the checks CI runs (`make check`) and
-the commit conventions.
+the commit conventions. Participation follows the
+[Code of Conduct](CODE_OF_CONDUCT.md); report vulnerabilities privately as
+[SECURITY.md](SECURITY.md) describes, not in a public issue.
 
 ## License
 

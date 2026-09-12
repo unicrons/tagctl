@@ -13,7 +13,9 @@ Thank you for your interest in contributing to tagctl! This guide will help you 
 
 ## Code of Conduct
 
-Be respectful, inclusive, and constructive. We're all here to build something useful.
+This project follows the [Contributor Covenant 2.1](CODE_OF_CONDUCT.md). By
+taking part you agree to uphold it; the Enforcement section says how to report
+unacceptable behavior privately.
 
 ## Getting Started
 
@@ -453,9 +455,14 @@ for _, r := range resources {
 
 ## Getting Help
 
-- **Questions**: Open a GitHub Discussion
-- **Bugs**: Open a GitHub Issue
-- **Features**: Open a GitHub Issue with `[Feature Request]` prefix
+[Open an issue](https://github.com/unicrons/tagctl/issues/new/choose) with the
+form that fits; blank issues are disabled:
+
+- **Questions**: the Question form, after checking the [docs](docs/)
+- **Bugs**: the Bug report form, with account ids, ARNs and credentials redacted
+- **Features**: the Feature request form
+- **Security vulnerabilities**: never a public issue; follow
+  [SECURITY.md](SECURITY.md)
 
 ## Releases
 

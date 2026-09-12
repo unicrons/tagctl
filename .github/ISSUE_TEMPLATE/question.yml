@@ -1,0 +1,26 @@
+name: Question
+description: Ask how to use tagctl when the documentation does not answer it.
+title: "[Question]: "
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Leave account ids, ARNs, credentials and other private data out of the question.
+  - type: textarea
+    id: question
+    attributes:
+      label: Question
+      description: What you want to do and where you are stuck.
+    validations:
+      required: true
+  - type: textarea
+    id: tried
+    attributes:
+      label: What you tried
+      description: Commands, config snippets (redacted) and the documentation pages you read.
+  - type: input
+    id: version
+    attributes:
+      label: tagctl version
+      description: The `Version` line of `tagctl --version`.

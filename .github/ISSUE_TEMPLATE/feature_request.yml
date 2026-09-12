@@ -1,0 +1,52 @@
+name: Feature request
+description: Propose a new capability or a change to an existing one.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Check the [roadmap](https://github.com/unicrons/tagctl/blob/main/docs/roadmap.mdx) and the existing issues first. Leave account ids, ARNs and other private data out of the examples.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Scan and evaluate
+        - Plan and apply
+        - Policy and rules (tagctl.yaml)
+        - Reports and CI gates (SARIF, JUnit, OCSF, HTML)
+        - AWS provider (new service or resource type)
+        - Other providers (Kubernetes, GCP, Azure)
+        - Terraform
+        - Cost
+        - Documentation
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What you are trying to do and what stops you today.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: How it could work, for example the command, flag or config key and its output.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Workarounds you use now or other approaches you ruled out.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched the existing issues and this is not requested yet.
+          required: true
