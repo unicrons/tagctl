@@ -308,7 +308,7 @@ Run 'tagctl apply' to execute this plan.
 |--------|---------|
 | `+` | Tag will be added |
 | `~` | Tag will be updated |
-| `-` | Tag will be removed |
+| `-` | Tag will be removed (`apply` rejects plans with removals) |
 
 ### Change Reasons
 
@@ -329,6 +329,11 @@ tagctl apply [flags]
 This is the only command that writes to the cloud. The shipped `TagctlScan`
 role cannot run it; assume `TagctlApply` for this run with `--role` (see
 [Scan role vs apply role](/credentials#scan-role-vs-apply-role)).
+
+`apply` only adds and updates tags. A plan with any other action (for example
+a hand-edited `remove`) is rejected when it is loaded, before the confirmation
+prompt, and nothing is written. Interrupting a run (Ctrl-C) stops sending
+changes: the ones not sent yet are reported as failed with `context canceled`.
 
 <ParamField path="--plan" type="string" default="latest in output/">
   Plan file to apply. If not specified, uses the most recent plan.
@@ -379,7 +384,6 @@ Changes to apply:
   • 3 resources will be modified
   • 5 tags will be added
   • 0 tags will be updated
-  • 0 tags will be removed
 
 Do you want to apply these changes? [y/N]: y
 

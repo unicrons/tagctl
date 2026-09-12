@@ -22,7 +22,7 @@ var applyCmd = &cobra.Command{
 	Long: `Apply executes the changes from a previously generated plan.
 
 Before applying, it will:
-  • Load the plan file
+  • Load the plan file and reject any change other than add or update
   • Show a summary of changes
   • Ask for confirmation (unless --auto-approve is set)
 
@@ -149,7 +149,6 @@ func printPlanSummary(planFile string, plan *types.Plan) {
 	fmt.Printf("  • %d resources will be modified\n", summary.TotalResources)
 	fmt.Printf("  • %d tags will be added\n", summary.TagsAdded)
 	fmt.Printf("  • %d tags will be updated\n", summary.TagsUpdated)
-	fmt.Printf("  • %d tags will be removed\n", summary.TagsRemoved)
 	fmt.Println()
 }
 
@@ -241,6 +240,9 @@ func loadPlan(path string) (*types.Plan, error) {
 
 	var plan types.Plan
 	if err := json.Unmarshal(data, &plan); err != nil {
+		return nil, err
+	}
+	if err := engine.ValidatePlan(&plan); err != nil {
 		return nil, err
 	}
 

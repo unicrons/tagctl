@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -181,6 +182,77 @@ func TestRealApplier_FailedResourceReportsEveryChange(t *testing.T) {
 	}
 	if p.calls != 1 || result.ErrorCount != 3 || result.SuccessCount != 0 || len(result.Errors) != 3 {
 		t.Errorf("calls = %d, result = %+v", p.calls, result)
+	}
+}
+
+type funcProvider func(id string) error
+
+func (f funcProvider) Name() string { return "aws" }
+func (f funcProvider) ListResources(context.Context) ([]types.Resource, error) {
+	return nil, nil
+}
+func (f funcProvider) ApplyTags(_ context.Context, id string, _ map[string]string) error {
+	return f(id)
+}
+
+func TestRealApplier_SerializesCallback(t *testing.T) {
+	changes := changesFor(200, 2)
+	applier := NewApplier([]provider.Provider{funcProvider(func(string) error { return nil })})
+	var reported []string
+	applier.SetCallback(func(change types.TagChange, _ bool, _ error) {
+		reported = append(reported, change.Tag)
+	})
+
+	if _, err := applier.Apply(context.Background(), &types.Plan{Changes: changes}); err != nil {
+		t.Fatal(err)
+	}
+	if len(reported) != len(changes) {
+		t.Errorf("callback reported %d changes, want %d", len(reported), len(changes))
+	}
+}
+
+func TestRealApplier_StopsDispatchingWhenCancelled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var calls atomic.Int32
+	applier := NewApplier([]provider.Provider{funcProvider(func(string) error {
+		calls.Add(1)
+		cancel()
+		return nil
+	})})
+	applier.SetConcurrency(1)
+
+	result, err := applier.Apply(ctx, &types.Plan{Changes: changesFor(5, 2)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls.Load() != 1 || result.SuccessCount != 2 || result.ErrorCount != 8 {
+		t.Fatalf("calls = %d, result = %+v", calls.Load(), result)
+	}
+	for _, e := range result.Errors {
+		if e.Error != context.Canceled.Error() {
+			t.Errorf("%s on %s failed with %q, want the context error", e.Change.Tag, e.Change.Resource.ID, e.Error)
+		}
+	}
+}
+
+func TestRealApplier_RejectsUnsupportedActionsBeforeAnyCall(t *testing.T) {
+	for _, action := range []types.ChangeAction{types.ActionRemove, "", "rename"} {
+		t.Run(string(action), func(t *testing.T) {
+			var calls atomic.Int32
+			p := funcProvider(func(string) error { calls.Add(1); return nil })
+			changes := changesFor(2, 1)
+			changes[1].Action = action
+
+			_, err := NewApplier([]provider.Provider{p}).Apply(context.Background(), &types.Plan{Changes: changes})
+
+			if err == nil || !strings.Contains(err.Error(), `"tag0"`) || !strings.Contains(err.Error(), "i-1") {
+				t.Errorf("err = %v, want an error naming the tag and resource", err)
+			}
+			if calls.Load() != 0 {
+				t.Errorf("provider called %d times, want 0", calls.Load())
+			}
+		})
 	}
 }
 

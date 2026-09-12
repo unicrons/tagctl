@@ -182,7 +182,7 @@ ignore:
 1. **Scan**: `engine.Scanner` → `provider.Provider.ListResources()` → `[]types.Resource`
 2. **Evaluate**: `engine.Evaluator` → `[]types.Finding` (PASS or FAILED)
 3. **Plan**: `engine.Planner` → filters FAILED findings with `missing` reason → `[]types.TagChange`
-4. **Apply**: `engine.Applier` → `provider.Provider.ApplyTags()` → cloud API calls
+4. **Apply**: `engine.ValidatePlan` (add/update only) → `engine.Applier` → `provider.Provider.ApplyTags()` → cloud API calls
 
 ### Findings Model
 
