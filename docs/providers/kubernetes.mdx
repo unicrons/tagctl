@@ -19,11 +19,16 @@ Currently, only **AWS** is supported. See the [AWS Provider](/providers/aws) doc
 | Service | `k8s_service` | `metadata.labels` |
 | Namespace | `k8s_namespace` | `metadata.labels` |
 | ConfigMap | `k8s_configmap` | `metadata.labels` |
-| Secret | `k8s_secret` | `metadata.labels` |
+| Secret | `k8s_secret` | `metadata.labels` (opt-in) |
 
 <Note>
   In Kubernetes, "tags" are called **labels**. tagctl treats them the same way.
 </Note>
+
+Secrets are scanned only when `k8s_secret` is listed in `resource_types`. tagctl reads them through
+the metadata API (`PartialObjectMetadata`), so secret data is never downloaded, and service account
+tokens are excluded with the field selector `type!=kubernetes.io/service-account-token`. Every list
+call is paginated (`limit` 500 with `continue` tokens).
 
 ## Configuration
 
@@ -63,7 +68,8 @@ clouds:
 </ParamField>
 
 <ParamField path="resource_types" type="string[]">
-  Resource types to scan. Defaults to all supported types.
+  Resource types to scan, from the table above. Defaults to every type except `k8s_secret`.
+  `tagctl validate` rejects an unknown or repeated type.
 </ParamField>
 
 ## Authentication
@@ -143,11 +149,22 @@ metadata:
   name: tagctl-reader
 rules:
   - apiGroups: [""]
-    resources: ["pods", "services", "namespaces", "configmaps", "secrets"]
+    resources: ["pods", "services", "namespaces", "configmaps"]
     verbs: ["get", "list"]
   - apiGroups: ["apps"]
     resources: ["deployments"]
     verbs: ["get", "list"]
+```
+
+### Secrets (Opt-In)
+
+Grant this only when `resource_types` lists `k8s_secret`. Kubernetes RBAC cannot restrict `list` to
+metadata: the role allows reading secret data even though tagctl requests metadata only.
+
+```yaml
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["list"]           # add "patch" for apply
 ```
 
 ### Read-Write (Apply)
@@ -159,7 +176,7 @@ metadata:
   name: tagctl-writer
 rules:
   - apiGroups: [""]
-    resources: ["pods", "services", "namespaces", "configmaps", "secrets"]
+    resources: ["pods", "services", "namespaces", "configmaps"]
     verbs: ["get", "list", "patch"]
   - apiGroups: ["apps"]
     resources: ["deployments"]
@@ -302,6 +319,15 @@ clouds:
         - k8s_deployment
         - k8s_service
       # Only scan deployments and services
+```
+
+To scan secrets as well, list every type you want, `k8s_secret` included:
+
+```yaml
+clouds:
+  kubernetes:
+    - name: prod
+      resource_types: [k8s_deployment, k8s_service, k8s_secret]
 ```
 
 ## Troubleshooting

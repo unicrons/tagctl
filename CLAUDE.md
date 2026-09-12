@@ -233,7 +233,11 @@ use `Findings`. The `violations` JSON key is kept for backwards compatibility.
   `internal/cli/auth.go` and override a config with at most one AWS entry.
 - **Kubernetes**: provider exists under `internal/provider/k8s/` but is **not wired**
   into `initProviders()` yet (commented TODO). A `clouds.kubernetes` entry
-  validates but scans nothing.
+  validates but scans nothing. `resource_types` is checked against
+  `config.KubernetesResourceTypes` (the single source; the k8s constants alias
+  it). Secrets are opt-in, listed and patched through the metadata client so
+  their data is never fetched; every List goes through `eachPage`
+  (Limit/Continue).
 
 Each provider implements the `provider.Provider` interface (`Name`,
 `ListResources`, `ApplyTags`); `AccountID()` is AWS-specific.
@@ -392,8 +396,8 @@ Install with: `make hooks`
 7. **Config validation runs on every command**: `loadConfig()` calls
    `config.Validate()`. It does not require a cloud provider (scan has demo mode,
    evaluate reads JSON); it checks the account shape (no static keys, role
-   options only with `role_arn`, unknown fields rejected), region codes and
-   regex patterns
+   options only with `role_arn`, unknown fields rejected), region codes, regex
+   patterns and Kubernetes `resource_types` (unknown or repeated types rejected)
 
 8. **Bulk tags are eventually consistent**: `tag:GetResources` can lag a few
    minutes behind `tagctl apply`. Per-resource tag APIs are read-after-write,

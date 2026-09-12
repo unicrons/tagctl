@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -66,8 +68,53 @@ type KubernetesCluster struct {
 	// Namespaces to scan. Empty list means all namespaces.
 	Namespaces []string `yaml:"namespaces" mapstructure:"namespaces"`
 
-	// ResourceTypes to scan. Empty list means all supported types.
+	// ResourceTypes to scan. Empty list means KubernetesDefaultResourceTypes.
 	ResourceTypes []string `yaml:"resource_types" mapstructure:"resource_types"`
+}
+
+// Kubernetes resource types accepted in resource_types.
+const (
+	KubernetesPod        = "k8s_pod"
+	KubernetesDeployment = "k8s_deployment"
+	KubernetesService    = "k8s_service"
+	KubernetesNamespace  = "k8s_namespace"
+	KubernetesConfigMap  = "k8s_configmap"
+	KubernetesSecret     = "k8s_secret"
+)
+
+// KubernetesResourceTypes are every value resource_types accepts.
+var KubernetesResourceTypes = []string{
+	KubernetesPod,
+	KubernetesDeployment,
+	KubernetesService,
+	KubernetesNamespace,
+	KubernetesConfigMap,
+	KubernetesSecret,
+}
+
+// KubernetesDefaultResourceTypes are scanned when resource_types is empty.
+// Secrets are left out: they are scanned only when listed explicitly.
+var KubernetesDefaultResourceTypes = []string{
+	KubernetesPod,
+	KubernetesDeployment,
+	KubernetesService,
+	KubernetesNamespace,
+	KubernetesConfigMap,
+}
+
+func (k KubernetesCluster) validateResourceTypes(i int) error {
+	seen := make(map[string]bool, len(k.ResourceTypes))
+	for _, rt := range k.ResourceTypes {
+		if !slices.Contains(KubernetesResourceTypes, rt) {
+			return fmt.Errorf("kubernetes[%d]: unknown resource type %q (supported: %s)",
+				i, rt, strings.Join(KubernetesResourceTypes, ", "))
+		}
+		if seen[rt] {
+			return fmt.Errorf("kubernetes[%d]: resource type %q listed twice", i, rt)
+		}
+		seen[rt] = true
+	}
+	return nil
 }
 
 // AWSAccount represents an AWS account configuration.
@@ -290,6 +337,9 @@ func (c *Config) Validate() error {
 	for i, k8s := range c.Clouds.Kubernetes {
 		if k8s.Name == "" {
 			return fmt.Errorf("kubernetes[%d]: name is required", i)
+		}
+		if err := k8s.validateResourceTypes(i); err != nil {
+			return err
 		}
 	}
 
