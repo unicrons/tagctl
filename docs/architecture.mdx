@@ -336,7 +336,10 @@ wg.Wait()
 
 ## Error Handling
 
-- Partial failures are collected and reported
+- A provider that fails discovery does not discard the resources other
+  providers returned: the scan is marked `partial`, every provider error is
+  joined, and `tagctl scan` writes its reports and then fails unless
+  `--allow-partial` is set
 - Operations continue when possible
 - A resource whose tags cannot be read is skipped with an error, never reported
   as untagged: a network failure must not become a compliance finding. The same

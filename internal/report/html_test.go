@@ -72,6 +72,31 @@ func TestWriteHTML_NoFindingsHasNoPager(t *testing.T) {
 	}
 }
 
+func TestWriteHTML_MarksPartialScan(t *testing.T) {
+	const notice = `<div class="partial" role="alert">`
+	scan := scanOf(passed("i-1", "aws_instance", "123", tagEnv))
+
+	var complete bytes.Buffer
+	if err := WriteHTML(&complete, scan, HTMLOptions{}); err != nil {
+		t.Fatalf("WriteHTML: %v", err)
+	}
+	if strings.Contains(complete.String(), notice) {
+		t.Error("partial notice rendered for a complete scan")
+	}
+
+	scan.Partial = true
+	scan.Errors = []string{`provider aws: <b>AccessDenied</b>`}
+	var partial bytes.Buffer
+	if err := WriteHTML(&partial, scan, HTMLOptions{}); err != nil {
+		t.Fatalf("WriteHTML: %v", err)
+	}
+	for _, want := range []string{notice, "<li>provider aws: &lt;b&gt;AccessDenied&lt;/b&gt;</li>"} {
+		if !strings.Contains(partial.String(), want) {
+			t.Errorf("output missing %q", want)
+		}
+	}
+}
+
 func TestBuildHTMLReport_Matrix(t *testing.T) {
 	scan := scanOf(
 		passed("i-1", "aws_instance", "123", tagEnv),

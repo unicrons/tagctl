@@ -122,6 +122,10 @@ tagctl scan [flags]
   Use mock data for demonstration
 </ParamField>
 
+<ParamField path="--allow-partial" type="boolean" default="false">
+  Succeed with a warning on stderr when discovery failed for part of the estate. Without it a [partial scan](#partial-scans) writes its reports and then fails
+</ParamField>
+
 <CodeGroup>
 ```bash Scan all regions (default)
 tagctl scan
@@ -247,6 +251,40 @@ The `--output` flag controls what's printed to stdout. Output files are **always
 ```
 </Accordion>
 
+### Partial scans
+
+A scan is partial when discovery fails for part of the estate: a region or a
+service the role cannot list, or one that keeps throttling after the retries.
+The resources the other providers returned are still evaluated, and the JSON and
+HTML reports carry the failures, one entry per provider that failed:
+
+```json
+{
+  "scanned_at": "2026-02-02T10:51:48Z",
+  "partial": true,
+  "errors": [
+    "provider aws: operation error EC2: DescribeInstances, api error UnauthorizedOperation"
+  ],
+  "total_resources": 142,
+  ...
+}
+```
+
+Both keys are omitted from a complete scan. The CSV, SARIF, JUnit and OCSF
+reports are not marked.
+
+Credentials are checked before discovery starts: an account whose credentials or
+role are rejected at startup stops the scan with an error and no reports.
+
+A partial scan writes every report, including `--sarif`, `--junit` and `--ocsf`,
+and then fails before the CI gate runs: a compliance percentage over part of the
+estate can pass a gate the whole estate would fail. `--allow-partial` accepts the
+scan instead: a warning goes to stderr and the gate runs on the partial result.
+
+`plan`, `diff` and `--baseline` print a warning to stderr when they read a
+partial scan file. Resources it missed get no plan changes; in a diff they show
+up as new or removed resources, and their failures as regressions or resolved.
+
 ## tagctl plan
 
 Generate a plan to fix tag violations based on scan results.
@@ -256,7 +294,7 @@ tagctl plan [flags]
 ```
 
 <ParamField path="--scan" type="string" default="latest in output/">
-  Path to scan results file to use. If not specified, uses the most recent scan.
+  Path to scan results file to use. If not specified, uses the most recent scan. A [partial scan](#partial-scans) prints a warning: resources it missed get no changes.
 </ParamField>
 
 <ParamField path="--out" type="string" default="output/plan-TIMESTAMP.json">
@@ -621,6 +659,10 @@ independently.
 | **Removed resources** | Present only in the baseline scan |
 
 A resource with the same ID in a different account is a different resource.
+
+When either file is a [partial scan](#partial-scans), `diff` prints a warning to
+stderr: resources discovery missed look new or removed, and their findings look
+regressed or resolved.
 
 ### Example output
 

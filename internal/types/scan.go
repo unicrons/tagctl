@@ -7,6 +7,13 @@ type ScanResult struct {
 	// ScannedAt is when the scan was performed.
 	ScannedAt time.Time `json:"scanned_at"`
 
+	// Partial is true when discovery failed for part of the estate, so
+	// resources may be missing from every count and finding.
+	Partial bool `json:"partial,omitempty"`
+
+	// Errors lists the discovery failures of a partial scan.
+	Errors []string `json:"errors,omitempty"`
+
 	// TotalResources is the total number of resources scanned.
 	TotalResources int `json:"total_resources"`
 

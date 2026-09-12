@@ -30,6 +30,8 @@ type HTMLReport struct {
 	Compliant     int
 	NonCompliant  int
 	CompliancePct float64
+	Partial       bool
+	Errors        []string
 	Missing       int
 	Invalid       int
 	HeadlineLead  string
@@ -110,6 +112,8 @@ func BuildHTMLReport(scan *types.ScanResult, opts HTMLOptions) HTMLReport {
 		Compliant:     scan.CompliantCount,
 		NonCompliant:  scan.TotalResources - scan.CompliantCount,
 		CompliancePct: scan.CompliancePct,
+		Partial:       scan.Partial,
+		Errors:        scan.Errors,
 		Accounts:      htmlAccounts(scan),
 		Tags:          htmlTags(scan, findings),
 		Findings:      htmlFindings(findings),

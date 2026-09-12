@@ -24,6 +24,8 @@ h1{font-weight:700;font-size:40px;line-height:1.08;letter-spacing:-.03em;margin:
 h1 .n{color:var(--coral)}
 h1 .ok{color:var(--ind2)}
 .lede{color:var(--dim);margin:0;max-width:60ch;font-size:17px}
+.partial{margin:24px 0 0;padding:14px 18px;background:var(--coralsoft);border-left:4px solid var(--coral);font-size:14px;max-width:90ch}
+.partial ul{margin:6px 0 0;padding-left:18px;font:13px var(--mono);color:var(--dim);overflow-wrap:anywhere}
 .policy{display:flex;gap:14px;flex-wrap:wrap;margin:30px 0 8px}
 .tag{position:relative;display:flex;flex-direction:column;gap:2px;padding:14px 22px 14px 34px;background:var(--soft);min-width:150px;clip-path:polygon(16px 0,100% 0,100% 100%,16px 100%,0 50%)}
 .tag::before{content:"";position:absolute;left:14px;top:50%;width:8px;height:8px;border-radius:50%;background:#fff;transform:translateY(-50%)}
@@ -94,6 +96,9 @@ footer code{font:12px var(--mono)}
 
   <h1>{{if .HeadlineLead}}<span class="{{if .NonCompliant}}n{{else}}ok{{end}}">{{.HeadlineLead}}</span> {{end}}{{.HeadlineRest}}</h1>
   <p class="lede">{{.Lede}}</p>
+{{if .Partial}}
+  <div class="partial" role="alert"><b>Partial scan.</b> Discovery failed for part of the estate, so resources may be missing from every number in this report.<ul>{{range .Errors}}<li>{{.}}</li>{{end}}</ul></div>
+{{end}}
 
 {{if .Tags}}
   <div class="policy">

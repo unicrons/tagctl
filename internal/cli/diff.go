@@ -64,6 +64,10 @@ func runDiff(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	const diffConsequence = "new, removed and resolved counts may be wrong"
+	warnPartialScan(os.Stderr, baselinePath, baseline, diffConsequence)
+	warnPartialScan(os.Stderr, currentPath, current, diffConsequence)
+
 	result := engine.Diff(baseline, current)
 
 	if strings.ToLower(outputFormat) == formatJSON {
