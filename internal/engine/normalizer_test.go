@@ -1,6 +1,9 @@
 package engine
 
 import (
+	"fmt"
+	"math/rand/v2"
+	"strings"
 	"testing"
 
 	"github.com/unicrons/tagctl/internal/types"
@@ -261,8 +264,8 @@ func TestNormalize_IgnoresNameTagByDefault(t *testing.T) {
 
 func TestNormalize_IgnoresConfiguredTags(t *testing.T) {
 	resources := taggedResources("build-id", map[string]int{
-		"build-100": 1,
-		"build-101": 1,
+		"build-abc": 1,
+		"build-abd": 1,
 	})
 
 	result := NewNormalizer(NormalizeOptions{
@@ -316,6 +319,95 @@ func TestNormalize_EmptyValuesAreSkipped(t *testing.T) {
 
 	if !result.IsEmpty() {
 		t.Errorf("clustered empty values: %+v", result.Clusters)
+	}
+}
+
+func TestNormalize_TypoGuards(t *testing.T) {
+	tests := []struct {
+		name     string
+		distance int
+		values   map[string]int
+		want     bool
+	}{
+		{"two-letter codes", 1, map[string]int{"us": 3, "uk": 2}, false},
+		{"short versions", 1, map[string]int{"v1": 3, "v2": 2}, false},
+		{"three letters each", 1, map[string]int{"api": 3, "app": 1}, false},
+		{"three letters each, last differs", 1, map[string]int{"dev": 3, "dew": 1}, false},
+		{"letter dropped from four", 1, map[string]int{valueProd: 3, "prd": 1}, true},
+		{"four letters", 1, map[string]int{valueProd: 3, "prud": 1}, true},
+		{"region numbers", 1, map[string]int{"us-east-1": 3, "us-east-2": 2}, false},
+		{"build numbers", 1, map[string]int{"build-100": 3, "build-101": 2}, false},
+		{"same digits", 1, map[string]int{"backend-1": 3, "backnd-1": 1}, true},
+		{"length gap over the distance", 1, map[string]int{"platform": 3, "platfo": 1}, false},
+		{"two edits in four letters", 2, map[string]int{"test": 3, "temp": 1}, false},
+		{"two edits in four letters, swapped", 2, map[string]int{"east": 3, "west": 1}, false},
+		{"two edits from three letters", 2, map[string]int{"dev": 3, "demo": 1}, false},
+		{"two edits in seven letters", 2, map[string]int{"staging": 3, "stagign": 1}, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := NewNormalizer(NormalizeOptions{MaxDistance: tt.distance}).Normalize(taggedResources("team", tt.values))
+
+			if got := !result.IsEmpty(); got != tt.want {
+				t.Fatalf("clustered = %v, want %v: %+v", got, tt.want, result.Clusters)
+			}
+			if tt.want && result.Clusters[0].Variants[0].Match != types.MatchTypo {
+				t.Errorf("match kind = %q, want typo", result.Clusters[0].Variants[0].Match)
+			}
+		})
+	}
+}
+
+func TestNormalize_AbbreviationsNeedSameDigits(t *testing.T) {
+	tests := []struct {
+		name   string
+		values map[string]int
+		want   bool
+	}{
+		{"region number prefix", map[string]int{"us-east-1": 3, "us-east-10": 1}, false},
+		{"build number prefix", map[string]int{"build-10": 3, "build-100": 1}, false},
+		{"number added to a word", map[string]int{valueProd: 3, "prod2": 1}, false},
+		{"plain prefix", map[string]int{"production": 3, valueProd: 1}, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := NewNormalizer(NormalizeOptions{MatchAbbreviations: true}).Normalize(taggedResources(tagEnvironment, tt.values))
+
+			if got := !result.IsEmpty(); got != tt.want {
+				t.Fatalf("clustered = %v, want %v: %+v", got, tt.want, result.Clusters)
+			}
+			if tt.want && result.Clusters[0].Variants[0].Match != types.MatchAbbreviation {
+				t.Errorf("match kind = %q, want abbreviation", result.Clusters[0].Variants[0].Match)
+			}
+		})
+	}
+}
+
+// stagn is one edit from stagng but two from the canonical staging.
+func transitiveResources() []types.Resource {
+	return taggedResources(tagEnvironment, map[string]int{
+		"staging": 5,
+		"stagng":  2,
+		"stagn":   1,
+	})
+}
+
+func TestNormalize_LabelsIndirectMembersTransitive(t *testing.T) {
+	cluster := findCluster(NewNormalizer(NormalizeOptions{MaxDistance: 1}).Normalize(transitiveResources()), tagEnvironment)
+	if cluster == nil {
+		t.Fatal("no cluster for environment")
+	}
+
+	want := map[string]types.MatchKind{"stagng": types.MatchTypo, "stagn": types.MatchTransitive}
+	if len(cluster.Variants) != len(want) {
+		t.Fatalf("variants = %v, want stagng and stagn", variantValues(cluster))
+	}
+	for _, variant := range cluster.Variants {
+		if variant.Match != want[variant.Value] {
+			t.Errorf("variant %q matched as %q, want %q", variant.Value, variant.Match, want[variant.Value])
+		}
 	}
 }
 
@@ -378,6 +470,23 @@ func TestNormalizePlan(t *testing.T) {
 	}
 }
 
+func TestNormalizePlan_SkipsTransitiveVariants(t *testing.T) {
+	result := NewNormalizer(NormalizeOptions{MaxDistance: 1}).Normalize(transitiveResources())
+	plan := NormalizePlan(result)
+
+	if len(plan.Changes) != 2 {
+		t.Fatalf("got %d changes, want 2 (the stagng resources only)", len(plan.Changes))
+	}
+	for _, change := range plan.Changes {
+		if change.OldValue != "stagng" {
+			t.Errorf("plan rewrites %q, want only stagng", change.OldValue)
+		}
+	}
+	if got := result.AffectedResources(); got != len(plan.Changes) {
+		t.Errorf("AffectedResources() = %d, want %d to match the plan", got, len(plan.Changes))
+	}
+}
+
 func TestNormalizePlan_EmptyResult(t *testing.T) {
 	plan := NormalizePlan(&types.NormalizeResult{})
 
@@ -416,28 +525,102 @@ func TestNormalizeValue(t *testing.T) {
 }
 
 func TestEditDistance(t *testing.T) {
+	long := strings.Repeat("a", 200)
+
 	tests := []struct {
-		a, b string
-		want int
+		a, b  string
+		limit int
+		want  int
 	}{
-		{"", "", 0},
-		{valueProd, valueProd, 0},
-		{valueProd, "prd", 1},
-		{"staging", "stagign", 2},
-		{"kitten", "sitting", 3},
-		{"", "abc", 3},
-		{"abc", "", 3},
-		{"café", "cafe", 1},
+		{"", "", 0, 0},
+		{valueProd, valueProd, 1, 0},
+		{valueProd, "prd", 1, 1},
+		{"staging", "stagign", 2, 2},
+		{"staging", "stagign", 1, 2},
+		{"kitten", "sitting", 3, 3},
+		{"kitten", "sitting", 2, 3},
+		{"kitten", "sitting", 0, 1},
+		{"", "abc", 3, 3},
+		{"abc", "", 1, 2},
+		{"production", valueProd, 6, 6},
+		{"production", valueProd, 5, 6},
+		{"café", "cafe", 1, 1},
+		{long, long[1:] + "b", 2, 1},
+		{long, "b" + long[2:] + "c", 2, 2},
+		{long, long + "bb", 1, 2},
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.a+"/"+tt.b, func(t *testing.T) {
-			if got := editDistance(tt.a, tt.b); got != tt.want {
-				t.Errorf("editDistance(%q, %q) = %d, want %d", tt.a, tt.b, got, tt.want)
+		t.Run(fmt.Sprintf("%.12s/%.12s/%d", tt.a, tt.b, tt.limit), func(t *testing.T) {
+			if got := editDistance([]rune(tt.a), []rune(tt.b), tt.limit); got != tt.want {
+				t.Errorf("editDistance(%q, %q, %d) = %d, want %d", tt.a, tt.b, tt.limit, got, tt.want)
 			}
-			// Distance is symmetric.
-			if got := editDistance(tt.b, tt.a); got != tt.want {
-				t.Errorf("editDistance(%q, %q) = %d, want %d (not symmetric)", tt.b, tt.a, got, tt.want)
+			if got := editDistance([]rune(tt.b), []rune(tt.a), tt.limit); got != tt.want {
+				t.Errorf("editDistance(%q, %q, %d) = %d, want %d (not symmetric)", tt.b, tt.a, tt.limit, got, tt.want)
+			}
+		})
+	}
+}
+
+// levenshtein is the unbounded textbook distance editDistance is checked against.
+func levenshtein(a, b []rune) int {
+	previous := make([]int, len(b)+1)
+	current := make([]int, len(b)+1)
+	for j := range previous {
+		previous[j] = j
+	}
+	for i := 1; i <= len(a); i++ {
+		current[0] = i
+		for j := 1; j <= len(b); j++ {
+			cost := 1
+			if a[i-1] == b[j-1] {
+				cost = 0
+			}
+			current[j] = min(current[j-1]+1, previous[j]+1, previous[j-1]+cost)
+		}
+		previous, current = current, previous
+	}
+	return previous[len(b)]
+}
+
+func FuzzEditDistance(f *testing.F) {
+	f.Add("staging", "stagign", uint8(1))
+	f.Add("kitten", "sitting", uint8(3))
+	f.Add("café", "cafe", uint8(0))
+	f.Add("", "abc", uint8(2))
+
+	f.Fuzz(func(t *testing.T, a, b string, limit uint8) {
+		ra, rb := []rune(a), []rune(b)
+		if len(ra) > 300 || len(rb) > 300 {
+			t.Skip()
+		}
+		k := int(limit % 8)
+
+		want := min(levenshtein(ra, rb), k+1)
+		if got := editDistance(ra, rb, k); got != want {
+			t.Fatalf("editDistance(%q, %q, %d) = %d, want %d", a, b, k, got, want)
+		}
+		if got := editDistance(rb, ra, k); got != want {
+			t.Fatalf("editDistance(%q, %q, %d) = %d, want %d (not symmetric)", b, a, k, got, want)
+		}
+	})
+}
+
+func TestDigitsOf(t *testing.T) {
+	tests := []struct {
+		in, want string
+	}{
+		{"useast1", "1"},
+		{"build100", "100"},
+		{"1v2", "12"},
+		{"staging", ""},
+		{"", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.in, func(t *testing.T) {
+			if got := digitsOf(tt.in); got != tt.want {
+				t.Errorf("digitsOf(%q) = %q, want %q", tt.in, got, tt.want)
 			}
 		})
 	}
@@ -533,5 +716,37 @@ func TestPreferCanonical(t *testing.T) {
 					tt.candidate, tt.best, tt.candidateCount, tt.bestCount, got, tt.want)
 			}
 		})
+	}
+}
+
+// highCardinalityResources gives each resource its own random lower-case value
+// of 6 to 14 letters, the shape of a tag nobody added to ignore_tags.
+func highCardinalityResources(count int) []types.Resource {
+	rng := rand.New(rand.NewPCG(1, 2))
+	resources := make([]types.Resource, count)
+
+	for i := range resources {
+		value := make([]byte, 6+rng.IntN(9))
+		for j := range value {
+			value[j] = byte('a' + rng.IntN(26))
+		}
+		resources[i] = types.Resource{
+			ID:       "i-" + string(value),
+			Provider: "aws",
+			Account:  "111",
+			Tags:     map[string]string{"cost-center": string(value)},
+		}
+	}
+
+	return resources
+}
+
+func BenchmarkNormalize_HighCardinality(b *testing.B) {
+	resources := highCardinalityResources(2000)
+	normalizer := NewNormalizer(DefaultNormalizeOptions())
+
+	b.ReportAllocs()
+	for b.Loop() {
+		normalizer.Normalize(resources)
 	}
 }

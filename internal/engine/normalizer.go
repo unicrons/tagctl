@@ -47,6 +47,14 @@ func DefaultNormalizeOptions() NormalizeOptions {
 // Below this, unrelated values collide far too easily.
 const minAbbreviationLength = 3
 
+// minTypoLength is the fewest letters and digits the longer value of a typo
+// needs: "prd" is a typo of "prod", while "api" and "app" are different values.
+const minTypoLength = 4
+
+// typoRunesPerEdit allows one edit per this many letters and digits of the
+// shorter value, so "test" and "temp" stay apart even at max_distance 2.
+const typoRunesPerEdit = 3
+
 // Normalizer finds tag values that are variants of one another.
 type Normalizer struct {
 	opts    NormalizeOptions
@@ -82,7 +90,8 @@ func NewNormalizer(opts NormalizeOptions) *Normalizer {
 // Values are grouped by three signals, in order of confidence: they differ
 // only in case, separators or spacing; they are within the configured edit
 // distance of each other; or one is an abbreviation of the other. A cluster is
-// only reported when it actually contains more than one spelling.
+// only reported when it actually contains more than one spelling, and a variant
+// that matches the canonical value only through another variant is transitive.
 func (n *Normalizer) Normalize(resources []types.Resource) *types.NormalizeResult {
 	byTag := n.collectValues(resources)
 
@@ -187,9 +196,14 @@ func (n *Normalizer) groupValues(tag string, values []string) [][]string {
 		}
 	}
 
-	for i := 0; i < len(values); i++ {
-		for j := i + 1; j < len(values); j++ {
-			if _, ok := n.match(tag, values[i], values[j]); ok {
+	prepared := make([]preparedValue, len(values))
+	for i, value := range values {
+		prepared[i] = n.prepare(tag, value)
+	}
+
+	for i := 0; i < len(prepared); i++ {
+		for j := i + 1; j < len(prepared); j++ {
+			if _, ok := n.match(prepared[i], prepared[j]); ok {
 				union(i, j)
 			}
 		}
@@ -210,33 +224,62 @@ func (n *Normalizer) groupValues(tag string, values []string) [][]string {
 	return groups
 }
 
+// preparedValue is a tag value with everything a pairwise match reads
+// computed once, since every value is compared with every other.
+type preparedValue struct {
+	norm    string
+	runes   []rune
+	digits  string
+	allowed bool
+}
+
+func (n *Normalizer) prepare(tag, value string) preparedValue {
+	norm := normalizeValue(value)
+	return preparedValue{norm: norm, runes: []rune(norm), digits: digitsOf(norm), allowed: n.isAllowed(tag, value)}
+}
+
 // match reports whether two values mean the same thing, and why.
 //
 // Two values the policy both allows are never matched: "dev" and "devops" can
 // legitimately coexist, and proposing to collapse them would be wrong.
-func (n *Normalizer) match(tag, a, b string) (types.MatchKind, bool) {
-	if n.isAllowed(tag, a) && n.isAllowed(tag, b) {
+func (n *Normalizer) match(a, b preparedValue) (types.MatchKind, bool) {
+	if a.allowed && b.allowed {
 		return "", false
 	}
 
-	normA, normB := normalizeValue(a), normalizeValue(b)
-	if normA == "" || normB == "" {
+	if a.norm == "" || b.norm == "" {
 		return "", false
 	}
 
-	if normA == normB {
+	if a.norm == b.norm {
 		return types.MatchCasing, true
 	}
 
-	if n.opts.MaxDistance > 0 && editDistance(normA, normB) <= n.opts.MaxDistance {
+	// "us-east-1" and "us-east-10" are different values, not a typo or an abbreviation.
+	if a.digits != b.digits {
+		return "", false
+	}
+
+	if n.isTypo(a.runes, b.runes) {
 		return types.MatchTypo, true
 	}
 
-	if n.opts.MatchAbbreviations && isAbbreviation(normA, normB) {
+	if n.opts.MatchAbbreviations && isAbbreviation(a.norm, b.norm) {
 		return types.MatchAbbreviation, true
 	}
 
 	return "", false
+}
+
+// isTypo reports whether two normalized values are within MaxDistance edits,
+// counting no more than one edit per typoRunesPerEdit runes of the shorter.
+func (n *Normalizer) isTypo(a, b []rune) bool {
+	shorter, longer := min(len(a), len(b)), max(len(a), len(b))
+	limit := min(n.opts.MaxDistance, shorter/typoRunesPerEdit)
+	if limit <= 0 || longer < minTypoLength {
+		return false
+	}
+	return editDistance(a, b, limit) <= limit
 }
 
 // buildCluster turns a group of equivalent values into a cluster, choosing the
@@ -251,15 +294,14 @@ func (n *Normalizer) buildCluster(tag string, group []string, usages map[string]
 		CanonicalFromPolicy: fromPolicy,
 	}
 
+	preparedCanonical := n.prepare(tag, canonical)
 	for _, value := range group {
 		if value == canonical {
 			continue
 		}
-		kind, ok := n.match(tag, canonical, value)
+		kind, ok := n.match(preparedCanonical, n.prepare(tag, value))
 		if !ok {
-			// Grouped transitively rather than directly; report it as the
-			// weakest signal rather than claiming a match that was not made.
-			kind = types.MatchAbbreviation
+			kind = types.MatchTransitive
 		}
 		cluster.Variants = append(cluster.Variants, types.ValueVariant{
 			Value:     value,
@@ -357,6 +399,9 @@ func NormalizePlan(result *types.NormalizeResult) *types.Plan {
 
 	for _, cluster := range result.Clusters {
 		for _, variant := range cluster.Variants {
+			if variant.Match == types.MatchTransitive {
+				continue
+			}
 			for _, resource := range variant.Resources {
 				plan.Changes = append(plan.Changes, types.TagChange{
 					Resource: resource,
@@ -412,53 +457,67 @@ func isAbbreviation(a, b string) bool {
 	return strings.HasPrefix(longer, shorter)
 }
 
-// editDistance is the Levenshtein distance between two strings.
-func editDistance(a, b string) int {
-	if a == b {
-		return 0
+// editDistance is the Levenshtein distance between a and b when it is at most
+// limit, and limit+1 when it is larger.
+func editDistance(a, b []rune, limit int) int {
+	over := limit + 1
+	if len(a) > len(b) {
+		a, b = b, a
 	}
-	if a == "" {
-		return len([]rune(b))
-	}
-	if b == "" {
-		return len([]rune(a))
+	if len(b)-len(a) > limit {
+		return over
 	}
 
-	ra, rb := []rune(a), []rune(b)
-
-	// Only the previous row is needed at any point.
-	previous := make([]int, len(rb)+1)
-	current := make([]int, len(rb)+1)
+	// Values up to 127 runes keep both rows on the stack.
+	var buf [2 * 128]int
+	rows := buf[:]
+	if width := len(b) + 1; 2*width > len(rows) {
+		rows = make([]int, 2*width)
+	}
+	previous, current := rows[:len(b)+1], rows[len(b)+1:2*(len(b)+1)]
 
 	for j := range previous {
-		previous[j] = j
+		previous[j] = min(j, over)
 	}
 
-	for i := 1; i <= len(ra); i++ {
-		current[0] = i
-		for j := 1; j <= len(rb); j++ {
+	// A cell further than limit from the diagonal is already over the limit,
+	// so each row only fills the band around it.
+	for i := 1; i <= len(a); i++ {
+		lo, hi := max(1, i-limit), min(len(b), i+limit)
+		current[lo-1] = over
+		if lo == 1 {
+			current[0] = min(i, over)
+		}
+
+		rowMin := current[lo-1]
+		for j := lo; j <= hi; j++ {
 			cost := 1
-			if ra[i-1] == rb[j-1] {
+			if a[i-1] == b[j-1] {
 				cost = 0
 			}
-			current[j] = min3(
-				current[j-1]+1,     // insertion
-				previous[j]+1,      // deletion
-				previous[j-1]+cost, // substitution
-			)
+			current[j] = min(previous[j-1]+cost, previous[j]+1, current[j-1]+1, over)
+			rowMin = min(rowMin, current[j])
+		}
+		if hi < len(b) {
+			current[hi+1] = over
+		}
+
+		if rowMin > limit {
+			return over
 		}
 		previous, current = current, previous
 	}
 
-	return previous[len(rb)]
+	return previous[len(b)]
 }
 
-func min3(a, b, c int) int {
-	if b < a {
-		a = b
+// digitsOf is the digits of a value, in order.
+func digitsOf(value string) string {
+	var b strings.Builder
+	for _, r := range value {
+		if unicode.IsDigit(r) {
+			b.WriteRune(r)
+		}
 	}
-	if c < a {
-		a = c
-	}
-	return a
+	return b.String()
 }

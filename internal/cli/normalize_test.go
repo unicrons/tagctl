@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"encoding/json"
 	"io"
 	"os"
@@ -266,6 +267,26 @@ func TestWriteNormalizePlan(t *testing.T) {
 	}
 	if plan.Changes[0].NewValue != valueProd {
 		t.Errorf("new value = %q, want prod", plan.Changes[0].NewValue)
+	}
+}
+
+func TestWriteNormalizeExamples_LabelsTransitiveVariants(t *testing.T) {
+	result := &types.NormalizeResult{Clusters: []types.ValueCluster{{
+		Tag:       "environment",
+		Canonical: "staging",
+		Variants: []types.ValueVariant{
+			{Value: "stagng", Count: 1, Match: types.MatchTypo, Resources: []types.Resource{{ID: "i-4"}}},
+			{Value: "stagn", Count: 1, Match: types.MatchTransitive, Resources: []types.Resource{{ID: "i-5"}}},
+		},
+	}}}
+
+	var buf bytes.Buffer
+	writeNormalizeExamples(&buf, result)
+
+	want := "  environment=\"stagng\": i-4\n" +
+		"  environment=\"stagn\" (transitive, not in the plan): i-5\n\n"
+	if got := buf.String(); got != want {
+		t.Errorf("examples =\n%s\nwant\n%s", got, want)
 	}
 }
 

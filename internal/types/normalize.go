@@ -18,12 +18,15 @@ func (r *NormalizeResult) IsEmpty() bool {
 	return len(r.Clusters) == 0
 }
 
-// AffectedResources is the number of resources that would change.
+// AffectedResources is the number of resources that would change: every
+// variant except the transitive ones, which a normalize plan leaves alone.
 func (r *NormalizeResult) AffectedResources() int {
 	total := 0
 	for _, cluster := range r.Clusters {
 		for _, variant := range cluster.Variants {
-			total += variant.Count
+			if variant.Match != MatchTransitive {
+				total += variant.Count
+			}
 		}
 	}
 	return total
@@ -85,4 +88,8 @@ const (
 
 	// MatchAbbreviation means one value is a prefix of the other.
 	MatchAbbreviation MatchKind = "abbreviation"
+
+	// MatchTransitive means the value matches another variant but not the
+	// canonical value, so a normalize plan does not rewrite it.
+	MatchTransitive MatchKind = "transitive"
 )
