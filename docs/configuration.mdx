@@ -283,7 +283,8 @@ loads `tagctl.yaml` (`scan`, `plan`, `apply`, `evaluate` without `--policy`,
 - Region codes (`eu-west1`, `EU-WEST-1` and duplicates are rejected)
 - `policy.required[].name` present; regex patterns in
   `policy.required[].pattern` and `rules.infer[].from_name[].pattern` compile
-- Kubernetes cluster names
+- Kubernetes cluster names and `resource_types` (unknown or repeated types are
+  rejected)
 
 `tagctl validate` is stricter than the commands: it also fails on a file with
 no cloud account or no tag policy, and warns about unknown providers, a

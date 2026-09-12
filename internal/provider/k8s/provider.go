@@ -5,10 +5,11 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/metadata"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 
@@ -20,29 +21,20 @@ import (
 // providerName identifies this provider in resources and errors.
 const providerName = "kubernetes"
 
-// Supported resource types
+// Supported resource types.
 const (
-	ResourceTypePod        = "k8s_pod"
-	ResourceTypeDeployment = "k8s_deployment"
-	ResourceTypeService    = "k8s_service"
-	ResourceTypeNamespace  = "k8s_namespace"
-	ResourceTypeConfigMap  = "k8s_configmap"
-	ResourceTypeSecret     = "k8s_secret"
+	ResourceTypePod        = config.KubernetesPod
+	ResourceTypeDeployment = config.KubernetesDeployment
+	ResourceTypeService    = config.KubernetesService
+	ResourceTypeNamespace  = config.KubernetesNamespace
+	ResourceTypeConfigMap  = config.KubernetesConfigMap
+	ResourceTypeSecret     = config.KubernetesSecret
 )
-
-// DefaultResourceTypes are the resource types scanned by default.
-var DefaultResourceTypes = []string{
-	ResourceTypePod,
-	ResourceTypeDeployment,
-	ResourceTypeService,
-	ResourceTypeNamespace,
-	ResourceTypeConfigMap,
-	ResourceTypeSecret,
-}
 
 // Provider implements the provider.Provider interface for Kubernetes.
 type Provider struct {
 	clientset     kubernetes.Interface
+	metadata      metadata.Interface
 	cluster       config.KubernetesCluster
 	namespaces    []string
 	resourceTypes []string
@@ -91,29 +83,25 @@ func New(ctx context.Context, cluster config.KubernetesCluster) (*Provider, erro
 		return nil, provider.NewProviderError(providerName, "create_clientset", "", err)
 	}
 
-	resourceTypes := cluster.ResourceTypes
-	if len(resourceTypes) == 0 {
-		resourceTypes = DefaultResourceTypes
+	metadataClient, err := metadata.NewForConfig(cfg)
+	if err != nil {
+		return nil, provider.NewProviderError(providerName, "create_metadata_client", "", err)
 	}
 
-	return &Provider{
-		clientset:     clientset,
-		cluster:       cluster,
-		namespaces:    cluster.Namespaces,
-		resourceTypes: resourceTypes,
-	}, nil
+	return NewWithClients(clientset, metadataClient, cluster), nil
 }
 
-// NewWithClientset creates a new Kubernetes provider with a pre-configured clientset.
-// This is useful for testing.
-func NewWithClientset(clientset kubernetes.Interface, cluster config.KubernetesCluster) *Provider {
+// NewWithClients creates a Kubernetes provider from pre-built clients.
+// The metadata client serves secrets, whose data tagctl never reads.
+func NewWithClients(clientset kubernetes.Interface, metadataClient metadata.Interface, cluster config.KubernetesCluster) *Provider {
 	resourceTypes := cluster.ResourceTypes
 	if len(resourceTypes) == 0 {
-		resourceTypes = DefaultResourceTypes
+		resourceTypes = slices.Clone(config.KubernetesDefaultResourceTypes)
 	}
 
 	return &Provider{
 		clientset:     clientset,
+		metadata:      metadataClient,
 		cluster:       cluster,
 		namespaces:    cluster.Namespaces,
 		resourceTypes: resourceTypes,
@@ -130,8 +118,29 @@ func (p *Provider) ClusterName() string {
 	return p.cluster.Name
 }
 
+type namespacedLister func(ctx context.Context, namespace string) ([]types.Resource, error)
+
+func (p *Provider) namespacedListers() map[string]namespacedLister {
+	return map[string]namespacedLister{
+		ResourceTypePod:        p.listPods,
+		ResourceTypeDeployment: p.listDeployments,
+		ResourceTypeService:    p.listServices,
+		ResourceTypeConfigMap:  p.listConfigMaps,
+		ResourceTypeSecret:     p.listSecrets,
+	}
+}
+
 // ListResources discovers all labeled resources across configured namespaces.
+// An unsupported resource type fails before any API call.
 func (p *Provider) ListResources(ctx context.Context) ([]types.Resource, error) {
+	listers := p.namespacedListers()
+	for _, rt := range p.resourceTypes {
+		if _, ok := listers[rt]; !ok && rt != ResourceTypeNamespace {
+			return nil, provider.NewProviderError(providerName, "list_resources", "",
+				&UnsupportedResourceError{ResourceType: rt})
+		}
+	}
+
 	namespaces, err := p.getNamespaces(ctx)
 	if err != nil {
 		return nil, err
@@ -140,34 +149,20 @@ func (p *Provider) ListResources(ctx context.Context) ([]types.Resource, error) 
 	var allResources []types.Resource
 	var mu sync.Mutex
 	var wg sync.WaitGroup
-	errChan := make(chan error, len(namespaces)*len(p.resourceTypes))
+	errChan := make(chan error, len(namespaces)*len(p.resourceTypes)+1)
 
 	for _, ns := range namespaces {
-		ns := ns
-
 		for _, rt := range p.resourceTypes {
-			rt := rt
+			list, ok := listers[rt]
+			if !ok {
+				continue
+			}
 
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
 
-				var resources []types.Resource
-				var err error
-
-				switch rt {
-				case ResourceTypePod:
-					resources, err = p.listPods(ctx, ns)
-				case ResourceTypeDeployment:
-					resources, err = p.listDeployments(ctx, ns)
-				case ResourceTypeService:
-					resources, err = p.listServices(ctx, ns)
-				case ResourceTypeConfigMap:
-					resources, err = p.listConfigMaps(ctx, ns)
-				case ResourceTypeSecret:
-					resources, err = p.listSecrets(ctx, ns)
-				}
-
+				resources, err := list(ctx, ns)
 				if err != nil {
 					errChan <- err
 					return
@@ -221,19 +216,24 @@ func (p *Provider) ApplyTags(ctx context.Context, resourceID string, tags map[st
 		return provider.NewProviderError(providerName, "apply_labels", resourceID, err)
 	}
 
+	patch, err := buildLabelPatch(tags)
+	if err != nil {
+		return provider.NewProviderError(providerName, "apply_labels", resourceID, err)
+	}
+
 	switch resourceType {
 	case ResourceTypePod:
-		return p.patchPodLabels(ctx, namespace, name, tags)
+		return p.patchPodLabels(ctx, namespace, name, patch)
 	case ResourceTypeDeployment:
-		return p.patchDeploymentLabels(ctx, namespace, name, tags)
+		return p.patchDeploymentLabels(ctx, namespace, name, patch)
 	case ResourceTypeService:
-		return p.patchServiceLabels(ctx, namespace, name, tags)
+		return p.patchServiceLabels(ctx, namespace, name, patch)
 	case ResourceTypeNamespace:
-		return p.patchNamespaceLabels(ctx, name, tags)
+		return p.patchNamespaceLabels(ctx, name, patch)
 	case ResourceTypeConfigMap:
-		return p.patchConfigMapLabels(ctx, namespace, name, tags)
+		return p.patchConfigMapLabels(ctx, namespace, name, patch)
 	case ResourceTypeSecret:
-		return p.patchSecretLabels(ctx, namespace, name, tags)
+		return p.patchSecretLabels(ctx, namespace, name, patch)
 	default:
 		return provider.NewProviderError(providerName, "apply_labels", resourceID,
 			&UnsupportedResourceError{ResourceType: resourceType})
@@ -246,14 +246,13 @@ func (p *Provider) getNamespaces(ctx context.Context) ([]string, error) {
 		return p.namespaces, nil
 	}
 
-	// List all namespaces
-	nsList, err := p.clientset.CoreV1().Namespaces().List(ctx, metav1.ListOptions{})
+	items, err := p.allNamespaces(ctx)
 	if err != nil {
-		return nil, provider.NewProviderError(providerName, "list_namespaces", "", err)
+		return nil, err
 	}
 
-	namespaces := make([]string, 0, len(nsList.Items))
-	for _, ns := range nsList.Items {
+	namespaces := make([]string, 0, len(items))
+	for _, ns := range items {
 		namespaces = append(namespaces, ns.Name)
 	}
 

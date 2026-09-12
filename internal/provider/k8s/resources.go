@@ -3,142 +3,151 @@ package k8s
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/fields"
 	k8stypes "k8s.io/apimachinery/pkg/types"
 
 	"github.com/unicrons/tagctl/internal/provider"
 	"github.com/unicrons/tagctl/internal/types"
 )
 
+// listPageSize is the Limit sent on every List call.
+const listPageSize = 500
+
+var secretsResource = corev1.SchemeGroupVersion.WithResource("secrets")
+
+// withoutServiceAccountTokens filters out the tokens Kubernetes mints for service accounts.
+var withoutServiceAccountTokens = fields.OneTermNotEqualSelector("type", string(corev1.SecretTypeServiceAccountToken)).String()
+
+var errRepeatedContinue = errors.New("list returned the same continue token twice")
+
+type pagedList interface {
+	GetContinue() string
+}
+
+// eachPage lists with Limit/Continue and visits every page until the server
+// returns no continue token.
+func eachPage[L pagedList](ctx context.Context, opts metav1.ListOptions,
+	list func(context.Context, metav1.ListOptions) (L, error), visit func(L),
+) error {
+	opts.Limit = listPageSize
+	for {
+		page, err := list(ctx, opts)
+		if err != nil {
+			return err
+		}
+		visit(page)
+
+		next := page.GetContinue()
+		if next == "" {
+			return nil
+		}
+		if next == opts.Continue {
+			return errRepeatedContinue
+		}
+		opts.Continue = next
+	}
+}
+
+// newResource builds a resource from object metadata; namespace is empty for
+// cluster-scoped objects.
+func (p *Provider) newResource(resourceType, namespace string, meta metav1.ObjectMeta) types.Resource {
+	resource := types.Resource{
+		ID:       buildResourceID(resourceType, namespace, meta.Name),
+		Name:     meta.Name,
+		Type:     resourceType,
+		Region:   namespace,
+		Account:  p.cluster.Name,
+		Provider: providerName,
+		Tags:     copyLabels(meta.Labels),
+	}
+
+	if !meta.CreationTimestamp.IsZero() {
+		t := meta.CreationTimestamp.Time
+		resource.CreatedAt = &t
+	}
+
+	return resource
+}
+
 // listPods lists all pods in a namespace.
 func (p *Provider) listPods(ctx context.Context, namespace string) ([]types.Resource, error) {
-	pods, err := p.clientset.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{})
+	var resources []types.Resource
+	err := eachPage(ctx, metav1.ListOptions{}, p.clientset.CoreV1().Pods(namespace).List, func(page *corev1.PodList) {
+		for _, pod := range page.Items {
+			// Skip pods that are completed or failed
+			if pod.Status.Phase == corev1.PodSucceeded || pod.Status.Phase == corev1.PodFailed {
+				continue
+			}
+			resources = append(resources, p.newResource(ResourceTypePod, namespace, pod.ObjectMeta))
+		}
+	})
 	if err != nil {
 		return nil, provider.NewProviderError(providerName, "list_pods", namespace, err)
 	}
-
-	resources := make([]types.Resource, 0, len(pods.Items))
-	for _, pod := range pods.Items {
-		// Skip pods that are completed or failed
-		if pod.Status.Phase == corev1.PodSucceeded || pod.Status.Phase == corev1.PodFailed {
-			continue
-		}
-
-		resource := types.Resource{
-			ID:       buildResourceID(ResourceTypePod, namespace, pod.Name),
-			Name:     pod.Name,
-			Type:     ResourceTypePod,
-			Region:   namespace,
-			Account:  p.cluster.Name,
-			Provider: providerName,
-			Tags:     copyLabels(pod.Labels),
-		}
-
-		if !pod.CreationTimestamp.IsZero() {
-			t := pod.CreationTimestamp.Time
-			resource.CreatedAt = &t
-		}
-
-		resources = append(resources, resource)
-	}
-
 	return resources, nil
 }
 
 // listDeployments lists all deployments in a namespace.
 func (p *Provider) listDeployments(ctx context.Context, namespace string) ([]types.Resource, error) {
-	deployments, err := p.clientset.AppsV1().Deployments(namespace).List(ctx, metav1.ListOptions{})
+	var resources []types.Resource
+	err := eachPage(ctx, metav1.ListOptions{}, p.clientset.AppsV1().Deployments(namespace).List, func(page *appsv1.DeploymentList) {
+		for _, deploy := range page.Items {
+			resources = append(resources, p.newResource(ResourceTypeDeployment, namespace, deploy.ObjectMeta))
+		}
+	})
 	if err != nil {
 		return nil, provider.NewProviderError(providerName, "list_deployments", namespace, err)
 	}
-
-	resources := make([]types.Resource, 0, len(deployments.Items))
-	for _, deploy := range deployments.Items {
-		resource := types.Resource{
-			ID:       buildResourceID(ResourceTypeDeployment, namespace, deploy.Name),
-			Name:     deploy.Name,
-			Type:     ResourceTypeDeployment,
-			Region:   namespace,
-			Account:  p.cluster.Name,
-			Provider: providerName,
-			Tags:     copyLabels(deploy.Labels),
-		}
-
-		if !deploy.CreationTimestamp.IsZero() {
-			t := deploy.CreationTimestamp.Time
-			resource.CreatedAt = &t
-		}
-
-		resources = append(resources, resource)
-	}
-
 	return resources, nil
 }
 
 // listServices lists all services in a namespace.
 func (p *Provider) listServices(ctx context.Context, namespace string) ([]types.Resource, error) {
-	services, err := p.clientset.CoreV1().Services(namespace).List(ctx, metav1.ListOptions{})
+	var resources []types.Resource
+	err := eachPage(ctx, metav1.ListOptions{}, p.clientset.CoreV1().Services(namespace).List, func(page *corev1.ServiceList) {
+		for _, svc := range page.Items {
+			resources = append(resources, p.newResource(ResourceTypeService, namespace, svc.ObjectMeta))
+		}
+	})
 	if err != nil {
 		return nil, provider.NewProviderError(providerName, "list_services", namespace, err)
 	}
-
-	resources := make([]types.Resource, 0, len(services.Items))
-	for _, svc := range services.Items {
-		resource := types.Resource{
-			ID:       buildResourceID(ResourceTypeService, namespace, svc.Name),
-			Name:     svc.Name,
-			Type:     ResourceTypeService,
-			Region:   namespace,
-			Account:  p.cluster.Name,
-			Provider: providerName,
-			Tags:     copyLabels(svc.Labels),
-		}
-
-		if !svc.CreationTimestamp.IsZero() {
-			t := svc.CreationTimestamp.Time
-			resource.CreatedAt = &t
-		}
-
-		resources = append(resources, resource)
-	}
-
 	return resources, nil
+}
+
+// allNamespaces lists every namespace in the cluster.
+func (p *Provider) allNamespaces(ctx context.Context) ([]corev1.Namespace, error) {
+	var namespaces []corev1.Namespace
+	err := eachPage(ctx, metav1.ListOptions{}, p.clientset.CoreV1().Namespaces().List, func(page *corev1.NamespaceList) {
+		namespaces = append(namespaces, page.Items...)
+	})
+	if err != nil {
+		return nil, provider.NewProviderError(providerName, "list_namespaces", "", err)
+	}
+	return namespaces, nil
 }
 
 // listNamespaces lists all namespaces.
 func (p *Provider) listNamespaces(ctx context.Context) ([]types.Resource, error) {
-	namespaces, err := p.clientset.CoreV1().Namespaces().List(ctx, metav1.ListOptions{})
+	namespaces, err := p.allNamespaces(ctx)
 	if err != nil {
-		return nil, provider.NewProviderError(providerName, "list_namespaces", "", err)
+		return nil, err
 	}
 
-	resources := make([]types.Resource, 0, len(namespaces.Items))
-	for _, ns := range namespaces.Items {
+	resources := make([]types.Resource, 0, len(namespaces))
+	for _, ns := range namespaces {
 		// Filter by configured namespaces if set
 		if len(p.namespaces) > 0 && !contains(p.namespaces, ns.Name) {
 			continue
 		}
-
-		resource := types.Resource{
-			ID:       buildResourceID(ResourceTypeNamespace, "", ns.Name),
-			Name:     ns.Name,
-			Type:     ResourceTypeNamespace,
-			Region:   "",
-			Account:  p.cluster.Name,
-			Provider: providerName,
-			Tags:     copyLabels(ns.Labels),
-		}
-
-		if !ns.CreationTimestamp.IsZero() {
-			t := ns.CreationTimestamp.Time
-			resource.CreatedAt = &t
-		}
-
-		resources = append(resources, resource)
+		resources = append(resources, p.newResource(ResourceTypeNamespace, "", ns.ObjectMeta))
 	}
 
 	return resources, nil
@@ -146,72 +155,35 @@ func (p *Provider) listNamespaces(ctx context.Context) ([]types.Resource, error)
 
 // listConfigMaps lists all configmaps in a namespace.
 func (p *Provider) listConfigMaps(ctx context.Context, namespace string) ([]types.Resource, error) {
-	configMaps, err := p.clientset.CoreV1().ConfigMaps(namespace).List(ctx, metav1.ListOptions{})
+	var resources []types.Resource
+	err := eachPage(ctx, metav1.ListOptions{}, p.clientset.CoreV1().ConfigMaps(namespace).List, func(page *corev1.ConfigMapList) {
+		for _, cm := range page.Items {
+			resources = append(resources, p.newResource(ResourceTypeConfigMap, namespace, cm.ObjectMeta))
+		}
+	})
 	if err != nil {
 		return nil, provider.NewProviderError(providerName, "list_configmaps", namespace, err)
 	}
-
-	resources := make([]types.Resource, 0, len(configMaps.Items))
-	for _, cm := range configMaps.Items {
-		resource := types.Resource{
-			ID:       buildResourceID(ResourceTypeConfigMap, namespace, cm.Name),
-			Name:     cm.Name,
-			Type:     ResourceTypeConfigMap,
-			Region:   namespace,
-			Account:  p.cluster.Name,
-			Provider: providerName,
-			Tags:     copyLabels(cm.Labels),
-		}
-
-		if !cm.CreationTimestamp.IsZero() {
-			t := cm.CreationTimestamp.Time
-			resource.CreatedAt = &t
-		}
-
-		resources = append(resources, resource)
-	}
-
 	return resources, nil
 }
 
-// listSecrets lists all secrets in a namespace.
+// listSecrets lists secret metadata in a namespace; secret data never reaches tagctl.
 func (p *Provider) listSecrets(ctx context.Context, namespace string) ([]types.Resource, error) {
-	secrets, err := p.clientset.CoreV1().Secrets(namespace).List(ctx, metav1.ListOptions{})
+	var resources []types.Resource
+	opts := metav1.ListOptions{FieldSelector: withoutServiceAccountTokens}
+	err := eachPage(ctx, opts, p.metadata.Resource(secretsResource).Namespace(namespace).List, func(page *metav1.PartialObjectMetadataList) {
+		for _, secret := range page.Items {
+			resources = append(resources, p.newResource(ResourceTypeSecret, namespace, secret.ObjectMeta))
+		}
+	})
 	if err != nil {
 		return nil, provider.NewProviderError(providerName, "list_secrets", namespace, err)
 	}
-
-	resources := make([]types.Resource, 0, len(secrets.Items))
-	for _, secret := range secrets.Items {
-		// Skip service account tokens and other system secrets
-		if secret.Type == corev1.SecretTypeServiceAccountToken {
-			continue
-		}
-
-		resource := types.Resource{
-			ID:       buildResourceID(ResourceTypeSecret, namespace, secret.Name),
-			Name:     secret.Name,
-			Type:     ResourceTypeSecret,
-			Region:   namespace,
-			Account:  p.cluster.Name,
-			Provider: providerName,
-			Tags:     copyLabels(secret.Labels),
-		}
-
-		if !secret.CreationTimestamp.IsZero() {
-			t := secret.CreationTimestamp.Time
-			resource.CreatedAt = &t
-		}
-
-		resources = append(resources, resource)
-	}
-
 	return resources, nil
 }
 
 // patchPodLabels patches labels on a pod.
-func (p *Provider) patchPodLabels(ctx context.Context, namespace, name string, labels map[string]string) error {
-	patch := buildLabelPatch(labels)
+func (p *Provider) patchPodLabels(ctx context.Context, namespace, name string, patch []byte) error {
 	_, err := p.clientset.CoreV1().Pods(namespace).Patch(ctx, name, k8stypes.MergePatchType, patch, metav1.PatchOptions{})
 	if err != nil {
 		return provider.NewProviderError(providerName, "patch_pod_labels", buildResourceID(ResourceTypePod, namespace, name), err)
@@ -220,8 +192,7 @@ func (p *Provider) patchPodLabels(ctx context.Context, namespace, name string, l
 }
 
 // patchDeploymentLabels patches labels on a deployment.
-func (p *Provider) patchDeploymentLabels(ctx context.Context, namespace, name string, labels map[string]string) error {
-	patch := buildLabelPatch(labels)
+func (p *Provider) patchDeploymentLabels(ctx context.Context, namespace, name string, patch []byte) error {
 	_, err := p.clientset.AppsV1().Deployments(namespace).Patch(ctx, name, k8stypes.MergePatchType, patch, metav1.PatchOptions{})
 	if err != nil {
 		return provider.NewProviderError(providerName, "patch_deployment_labels", buildResourceID(ResourceTypeDeployment, namespace, name), err)
@@ -230,8 +201,7 @@ func (p *Provider) patchDeploymentLabels(ctx context.Context, namespace, name st
 }
 
 // patchServiceLabels patches labels on a service.
-func (p *Provider) patchServiceLabels(ctx context.Context, namespace, name string, labels map[string]string) error {
-	patch := buildLabelPatch(labels)
+func (p *Provider) patchServiceLabels(ctx context.Context, namespace, name string, patch []byte) error {
 	_, err := p.clientset.CoreV1().Services(namespace).Patch(ctx, name, k8stypes.MergePatchType, patch, metav1.PatchOptions{})
 	if err != nil {
 		return provider.NewProviderError(providerName, "patch_service_labels", buildResourceID(ResourceTypeService, namespace, name), err)
@@ -240,8 +210,7 @@ func (p *Provider) patchServiceLabels(ctx context.Context, namespace, name strin
 }
 
 // patchNamespaceLabels patches labels on a namespace.
-func (p *Provider) patchNamespaceLabels(ctx context.Context, name string, labels map[string]string) error {
-	patch := buildLabelPatch(labels)
+func (p *Provider) patchNamespaceLabels(ctx context.Context, name string, patch []byte) error {
 	_, err := p.clientset.CoreV1().Namespaces().Patch(ctx, name, k8stypes.MergePatchType, patch, metav1.PatchOptions{})
 	if err != nil {
 		return provider.NewProviderError(providerName, "patch_namespace_labels", buildResourceID(ResourceTypeNamespace, "", name), err)
@@ -250,8 +219,7 @@ func (p *Provider) patchNamespaceLabels(ctx context.Context, name string, labels
 }
 
 // patchConfigMapLabels patches labels on a configmap.
-func (p *Provider) patchConfigMapLabels(ctx context.Context, namespace, name string, labels map[string]string) error {
-	patch := buildLabelPatch(labels)
+func (p *Provider) patchConfigMapLabels(ctx context.Context, namespace, name string, patch []byte) error {
 	_, err := p.clientset.CoreV1().ConfigMaps(namespace).Patch(ctx, name, k8stypes.MergePatchType, patch, metav1.PatchOptions{})
 	if err != nil {
 		return provider.NewProviderError(providerName, "patch_configmap_labels", buildResourceID(ResourceTypeConfigMap, namespace, name), err)
@@ -259,10 +227,10 @@ func (p *Provider) patchConfigMapLabels(ctx context.Context, namespace, name str
 	return nil
 }
 
-// patchSecretLabels patches labels on a secret.
-func (p *Provider) patchSecretLabels(ctx context.Context, namespace, name string, labels map[string]string) error {
-	patch := buildLabelPatch(labels)
-	_, err := p.clientset.CoreV1().Secrets(namespace).Patch(ctx, name, k8stypes.MergePatchType, patch, metav1.PatchOptions{})
+// patchSecretLabels patches labels on a secret through the metadata client,
+// so the response carries metadata and not the secret data.
+func (p *Provider) patchSecretLabels(ctx context.Context, namespace, name string, patch []byte) error {
+	_, err := p.metadata.Resource(secretsResource).Namespace(namespace).Patch(ctx, name, k8stypes.MergePatchType, patch, metav1.PatchOptions{})
 	if err != nil {
 		return provider.NewProviderError(providerName, "patch_secret_labels", buildResourceID(ResourceTypeSecret, namespace, name), err)
 	}
@@ -293,14 +261,17 @@ func parseResourceID(resourceID string) (resourceType, namespace, name string, e
 }
 
 // buildLabelPatch builds a JSON merge patch for labels.
-func buildLabelPatch(labels map[string]string) []byte {
-	patch := map[string]interface{}{
-		"metadata": map[string]interface{}{
+func buildLabelPatch(labels map[string]string) ([]byte, error) {
+	patch := map[string]any{
+		"metadata": map[string]any{
 			"labels": labels,
 		},
 	}
-	data, _ := json.Marshal(patch)
-	return data
+	data, err := json.Marshal(patch)
+	if err != nil {
+		return nil, fmt.Errorf("marshal label patch: %w", err)
+	}
+	return data, nil
 }
 
 // copyLabels makes a copy of a labels map.
