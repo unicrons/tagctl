@@ -135,6 +135,9 @@ func TestCheckCostCoverage(t *testing.T) {
 		if !strings.Contains(err.Error(), "cost-center") {
 			t.Errorf("error should name the failing tag, got: %v", err)
 		}
+		if code := ExitCode(err); code != exitGateFailed {
+			t.Errorf("ExitCode() = %d, want %d for a failed cost gate", code, exitGateFailed)
+		}
 		if strings.Contains(err.Error(), "owner") {
 			t.Errorf("error names a tag that passed, got: %v", err)
 		}

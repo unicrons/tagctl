@@ -132,15 +132,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 		fmt.Fprintf(os.Stderr, "Warning: accepting a partial scan (%d provider(s) failed discovery); resources may be missing from the results\n", len(result.Errors))
 	}
 
-	gateResult, gateErr := gateOpts.evaluate(result)
-	if gateErr != nil {
-		return gateErr
-	}
-	if !gateResult.Passed {
-		return gateResult.Error()
-	}
-
-	return nil
+	return gateOpts.check(result)
 }
 
 // discoverResources scans the configured providers. A partial scan returns

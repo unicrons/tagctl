@@ -31,6 +31,7 @@ internal/
 │   ├── terraform.go      # Terraform plan/state checking
 │   ├── cost.go           # Cost attribution reporting
 │   ├── gate.go           # CI gate flags shared by scan/evaluate/terraform
+│   ├── exitcode.go       # ExitCode: 0 success, 1 gate failed, 2 other error
 │   ├── init.go           # Config scaffolding
 │   ├── validate.go       # Config validation
 │   ├── output.go         # Table/JSON/CSV/HTML output
@@ -186,6 +187,14 @@ ignore:
 2. **Evaluate**: `engine.Evaluator` → `[]types.Finding` (PASS or FAILED)
 3. **Plan**: `engine.Planner` → filters FAILED findings with `missing` reason → `[]types.TagChange`
 4. **Apply**: `engine.ValidatePlan` (add/update only) → `engine.Applier` → `provider.Provider.ApplyTags()` → cloud API calls
+
+### Exit codes
+
+`main` exits with `cli.ExitCode(err)`: 0 on success, 1 when the error is marked
+with `gateFailed`, 2 for anything else (Cobra usage errors, partial scans and
+failed applies included). `gateOptions.check` marks `--fail-under`/`--fail-on-new`;
+`cost --fail-under`, `diff --fail-on-regression` and `normalize --fail-on-drift`
+wrap their own. A new gate that returns an unmarked error exits 2.
 
 ### Findings Model
 

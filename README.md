@@ -62,7 +62,7 @@ tagctl apply   # Fix it.           → tags written after a confirmation prompt
 |---|---|
 | **Wide coverage** | 106 AWS resource types, the same services Prowler audits, from EC2 and S3 to GuardDuty, WAF, Bedrock and IAM roles. Every region unless you say otherwise. See [the full list](docs/providers/aws.mdx). |
 | **Fixes, not just findings** | Infer tags from resource names (`web-prod-api` → `environment: prod`), fill gaps with conditional defaults, preview with `plan`, write with `apply`. |
-| **CI native** | SARIF for GitHub code scanning, JUnit for any CI, compliance gates (`--fail-under`, `--fail-on-new`), and `diff` to report what got worse since a baseline. |
+| **CI native** | SARIF for GitHub code scanning, JUnit for any CI, compliance gates (`--fail-under`, `--fail-on-new`) that exit `1` on a policy failure and `2` on any other error, and `diff` to report what got worse since a baseline. |
 | **Shift left** | `terraform` checks a plan or state against the policy before anything is created, honouring `default_tags`. |
 | **FinOps signals** | `cost` puts a currency figure on the spend your tags fail to attribute; `normalize` catches `prod` / `Production` / `PROD` before it splits a cost report. |
 | **OCSF** | Every finding as an OCSF 1.4 Compliance Finding, ready for Security Lake or any OCSF-native SIEM. |

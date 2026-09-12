@@ -16,10 +16,8 @@ var (
 
 func main() {
 	// The root command sets SilenceErrors, so the message is printed here.
-	// Without this a failing command exits 1 saying nothing, which is useless
-	// in a pipeline.
 	if err := cli.Execute(version, buildTime); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
-		os.Exit(1)
+		os.Exit(cli.ExitCode(err))
 	}
 }

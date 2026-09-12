@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -87,7 +88,7 @@ func runApply(cmd *cobra.Command, args []string) error {
 	printPlanSummary(planFile, plan)
 
 	if !autoApprove {
-		confirmed, confirmErr := confirmApply()
+		confirmed, confirmErr := confirmApply(ctx, os.Stdin)
 		if confirmErr != nil {
 			return confirmErr
 		}
@@ -152,18 +153,31 @@ func printPlanSummary(planFile string, plan *types.Plan) {
 	fmt.Println()
 }
 
-// confirmApply asks the operator to confirm before any tag is written.
-func confirmApply() (bool, error) {
+// confirmApply asks the operator to confirm before any tag is written. Ctrl-C
+// at the prompt cancels ctx, which returns at once instead of waiting for Enter.
+func confirmApply(ctx context.Context, in io.Reader) (bool, error) {
 	fmt.Print("Do you want to apply these changes? [y/N]: ")
 
-	reader := bufio.NewReader(os.Stdin)
-	response, err := reader.ReadString('\n')
-	if err != nil {
-		return false, fmt.Errorf("failed to read response: %w", err)
+	type answer struct {
+		line string
+		err  error
 	}
+	answers := make(chan answer, 1)
+	go func() {
+		line, err := bufio.NewReader(in).ReadString('\n')
+		answers <- answer{line: line, err: err}
+	}()
 
-	response = strings.TrimSpace(strings.ToLower(response))
-	return response == "y" || response == "yes", nil
+	select {
+	case <-ctx.Done():
+		return false, fmt.Errorf("apply cancelled: %w", ctx.Err())
+	case got := <-answers:
+		if got.err != nil {
+			return false, fmt.Errorf("failed to read response: %w", got.err)
+		}
+		response := strings.TrimSpace(strings.ToLower(got.line))
+		return response == "y" || response == "yes", nil
+	}
 }
 
 // buildApplier returns the applier to run the plan with: a mock one when

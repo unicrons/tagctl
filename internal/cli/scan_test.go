@@ -150,19 +150,24 @@ func runPartialScan(t *testing.T, flags map[string]string) (*types.ScanResult, e
 func TestRunScan_PartialDiscovery(t *testing.T) {
 	const partialErr, gateErr = "--allow-partial", "compliance gate failed"
 	tests := []struct {
-		name    string
-		flags   map[string]string
-		wantErr string
+		name     string
+		flags    map[string]string
+		wantErr  string
+		wantCode int
 	}{
-		{name: "fails after writing reports", wantErr: partialErr},
-		{name: "fails before the gate", flags: map[string]string{"fail-under": "100"}, wantErr: partialErr},
-		{name: "succeeds with --allow-partial", flags: map[string]string{"allow-partial": "true"}},
-		{name: "runs the gate with --allow-partial", flags: map[string]string{"allow-partial": "true", "fail-under": "100"}, wantErr: gateErr},
+		{name: "fails after writing reports", wantErr: partialErr, wantCode: exitError},
+		{name: "fails before the gate", flags: map[string]string{"fail-under": "100"}, wantErr: partialErr, wantCode: exitError},
+		{name: "succeeds with --allow-partial", flags: map[string]string{"allow-partial": "true"}, wantCode: exitOK},
+		{name: "runs the gate with --allow-partial", flags: map[string]string{"allow-partial": "true", "fail-under": "100"}, wantErr: gateErr, wantCode: exitGateFailed},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			written, err := runPartialScan(t, tt.flags)
+
+			if code := ExitCode(err); code != tt.wantCode {
+				t.Errorf("ExitCode(%v) = %d, want %d", err, code, tt.wantCode)
+			}
 
 			switch {
 			case tt.wantErr == "":
