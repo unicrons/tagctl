@@ -77,6 +77,7 @@ func runPlan(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load scan results: %w", err)
 	}
 	spinner.Success(fmt.Sprintf("Loaded scan from %s", scanPath))
+	warnPartialScan(os.Stderr, scanPath, scanResult, "resources it missed get no changes in this plan")
 
 	log.Info("Using scan results from: %s", scanPath)
 	log.Info("Found %d violations to analyze", len(scanResult.Violations))

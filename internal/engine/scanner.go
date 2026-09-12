@@ -3,6 +3,8 @@ package engine
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"sync"
 
 	"github.com/unicrons/tagctl/internal/config"
@@ -43,18 +45,17 @@ func NewScanner(providers []provider.Provider, policy config.PolicyConfig, ignor
 	}, nil
 }
 
-// Scan discovers resources from all providers and evaluates them against the policy.
+// Scan discovers and evaluates resources; provider errors mark the result partial and are returned joined.
 func (s *RealScanner) Scan(ctx context.Context) (*types.ScanResult, error) {
 	log.Info("Scanner: Starting scan with %d provider(s)", len(s.providers))
 
 	var allResources []types.Resource
 	var mu sync.Mutex
 	var wg sync.WaitGroup
-	errChan := make(chan error, len(s.providers))
+	// One slot per provider keeps the joined error in provider order.
+	errs := make([]error, len(s.providers))
 
-	// Collect resources from all providers in parallel
-	for _, p := range s.providers {
-		p := p
+	for i, p := range s.providers {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -72,19 +73,15 @@ func (s *RealScanner) Scan(ctx context.Context) (*types.ScanResult, error) {
 
 			if err != nil {
 				log.Error("Scanner: Provider %s had errors: %v", p.Name(), err)
-				errChan <- err
+				errs[i] = fmt.Errorf("provider %s: %w", p.Name(), err)
 			}
 		}()
 	}
 
 	wg.Wait()
-	close(errChan)
 
-	// Collect errors
-	// errChan is closed after every writer finished, so len is the exact count.
-	errs := make([]error, 0, len(errChan))
-	for err := range errChan {
-		errs = append(errs, err)
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("scan cancelled: %w", err)
 	}
 
 	log.Info("Scanner: Collected %d total resources from all providers", len(allResources))
@@ -101,13 +98,18 @@ func (s *RealScanner) Scan(ctx context.Context) (*types.ScanResult, error) {
 	log.Info("Scanner: Evaluation complete - %d compliant, %d violations (%.1f%%)",
 		result.CompliantCount, result.ViolationCount, result.CompliancePct)
 
-	// Return partial results with first error if any
-	if len(errs) > 0 {
-		log.Error("Scanner: Scan completed with %d error(s)", len(errs))
-		return result, errs[0]
+	discoveryErr := errors.Join(errs...)
+	if discoveryErr != nil {
+		result.Partial = true
+		for _, err := range errs {
+			if err != nil {
+				result.Errors = append(result.Errors, err.Error())
+			}
+		}
+		log.Error("Scanner: Scan is partial, %d provider(s) failed", len(result.Errors))
 	}
 
-	return result, nil
+	return result, discoveryErr
 }
 
 // filterIgnored removes resources that should be ignored.

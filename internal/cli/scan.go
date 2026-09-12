@@ -1,10 +1,13 @@
 package cli
 
 import (
+	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 
 	"github.com/spf13/cobra"
+	"github.com/unicrons/tagctl/internal/config"
 	"github.com/unicrons/tagctl/internal/engine"
 	"github.com/unicrons/tagctl/internal/log"
 	"github.com/unicrons/tagctl/internal/types"
@@ -20,6 +23,10 @@ The scan will:
   • Discover all taggable resources
   • Evaluate each resource against required tags
   • Generate a compliance report
+
+When discovery fails for part of the estate (a region or a service the role
+cannot list), the reports are still written and marked partial, then the scan
+fails. Pass --allow-partial to accept a partial scan with a warning.
 
 Examples:
   # Scan all regions (default)
@@ -37,21 +44,29 @@ Examples:
   tagctl scan --role arn:aws:iam::123456789012:role/TagctlScan --external-id 1234
 
   # Output as JSON
-  tagctl scan --output json`,
+  tagctl scan --output json
+
+  # Accept a scan where some regions or services could not be listed
+  tagctl scan --allow-partial`,
 	RunE: runScan,
 }
 
 func init() {
 	scanCmd.Flags().Bool("verbose", false, "show detailed violation information")
 	scanCmd.Flags().Bool("mock", false, "use mock data for demonstration")
+	scanCmd.Flags().Bool("allow-partial", false, "succeed with a warning when discovery failed for part of the estate")
 	scanCmd.Flags().StringSlice("region", nil, "AWS region(s) to scan (default: all available regions)")
 	addAWSAuthFlags(scanCmd)
 	addGateFlags(scanCmd)
 }
 
+// scanProviders builds the providers a real scan runs against; tests replace it.
+var scanProviders = initProviders
+
 func runScan(cmd *cobra.Command, args []string) error {
 	verbose, _ := cmd.Flags().GetBool("verbose")
 	useMock, _ := cmd.Flags().GetBool("mock")
+	allowPartial, _ := cmd.Flags().GetBool("allow-partial")
 	regions, _ := cmd.Flags().GetStringSlice("region")
 	gateOpts := readGateFlags(cmd)
 
@@ -71,6 +86,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 	}
 
 	var result *types.ScanResult
+	var discoveryErr error
 
 	// Use mock scanner if requested or if no providers are configured
 	if useMock || !hasConfiguredProviders(cfg) {
@@ -87,32 +103,9 @@ func runScan(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("scan failed: %w", err)
 		}
 	} else {
-		// Initialize providers with spinner
-		spinner := NewSpinner("Initializing cloud providers...")
-		spinner.Start()
-
-		providers, provErr := initProviders(ctx, cfg, regions)
-		if provErr != nil {
-			spinner.Fail("Failed to initialize providers")
-			return provErr
-		}
-		spinner.Success(fmt.Sprintf("Initialized %d provider(s)", len(providers)))
-
-		// Create scanner
-		scanner, scannerErr := engine.NewScanner(providers, cfg.Policy, cfg.Ignore)
-		if scannerErr != nil {
-			return fmt.Errorf("failed to create scanner: %w", scannerErr)
-		}
-
-		// Run scan with spinner
-		spinner = NewSpinner("Discovering resources...")
-		spinner.Start()
-
-		result, err = scanner.Scan(ctx)
-		if err != nil {
-			spinner.Fail(fmt.Sprintf("Scan completed with errors: %v", err))
-		} else {
-			spinner.Success(fmt.Sprintf("Discovered %d resources", result.TotalResources))
+		result, discoveryErr = discoverResources(ctx, cfg, regions)
+		if result == nil {
+			return discoveryErr
 		}
 	}
 
@@ -132,6 +125,13 @@ func runScan(cmd *cobra.Command, args []string) error {
 		return reportErr
 	}
 
+	if discoveryErr != nil {
+		if !allowPartial {
+			return fmt.Errorf("scan is partial, pass --allow-partial to accept it: %w", discoveryErr)
+		}
+		fmt.Fprintf(os.Stderr, "Warning: accepting a partial scan (%d provider(s) failed discovery); resources may be missing from the results\n", len(result.Errors))
+	}
+
 	gateResult, gateErr := gateOpts.evaluate(result)
 	if gateErr != nil {
 		return gateErr
@@ -141,6 +141,39 @@ func runScan(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+// discoverResources scans the configured providers. A partial scan returns
+// both the result and the discovery error; any other failure returns no result.
+func discoverResources(ctx context.Context, cfg *config.Config, regions []string) (*types.ScanResult, error) {
+	spinner := NewSpinner("Initializing cloud providers...")
+	spinner.Start()
+
+	providers, err := scanProviders(ctx, cfg, regions)
+	if err != nil {
+		spinner.Fail("Failed to initialize providers")
+		return nil, err
+	}
+	spinner.Success(fmt.Sprintf("Initialized %d provider(s)", len(providers)))
+
+	scanner, err := engine.NewScanner(providers, cfg.Policy, cfg.Ignore)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create scanner: %w", err)
+	}
+
+	spinner = NewSpinner("Discovering resources...")
+	spinner.Start()
+
+	result, err := scanner.Scan(ctx)
+	switch {
+	case result == nil:
+		spinner.Fail("Scan failed")
+	case err != nil:
+		spinner.Fail(fmt.Sprintf("Discovered %d resources, but discovery failed for part of the estate", result.TotalResources))
+	default:
+		spinner.Success(fmt.Sprintf("Discovered %d resources", result.TotalResources))
+	}
+	return result, err
 }
 
 // ANSI color codes

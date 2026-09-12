@@ -93,6 +93,7 @@ func (o gateOptions) evaluate(scan *types.ScanResult) (*report.GateResult, error
 		if err != nil {
 			return nil, err
 		}
+		warnPartialScan(os.Stderr, o.baseline, baseline, "--fail-on-new may count resources it missed as regressions")
 		diff = engine.Diff(baseline, scan)
 	}
 

@@ -179,7 +179,10 @@ ignore:
 
 ### Data Flow
 
-1. **Scan**: `engine.Scanner` → `provider.Provider.ListResources()` → `[]types.Resource`
+1. **Scan**: `engine.Scanner` → `provider.Provider.ListResources()` → `[]types.Resource`.
+   A provider error keeps the other resources, sets `ScanResult.Partial`/`Errors`
+   and is returned joined; `scan` writes its reports, then fails unless
+   `--allow-partial`. `plan`, `diff` and `--baseline` warn on a partial scan file
 2. **Evaluate**: `engine.Evaluator` → `[]types.Finding` (PASS or FAILED)
 3. **Plan**: `engine.Planner` → filters FAILED findings with `missing` reason → `[]types.TagChange`
 4. **Apply**: `engine.ValidatePlan` (add/update only) → `engine.Applier` → `provider.Provider.ApplyTags()` → cloud API calls

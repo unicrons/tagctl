@@ -1,6 +1,8 @@
 package types
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -147,5 +149,25 @@ func TestScanResult_CalculateCompliance_ByTag(t *testing.T) {
 	// owner: (50 - 0) / (50 + 50) = 50%
 	if result.ByTag["owner"].CompliancePct != 50.0 {
 		t.Errorf("owner CompliancePct = %v, want 50.0", result.ByTag["owner"].CompliancePct)
+	}
+}
+
+func TestScanResult_JSONCarriesPartialOnlyWhenSet(t *testing.T) {
+	complete, err := json.Marshal(NewScanResult())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(complete), `"partial"`) || strings.Contains(string(complete), `"errors"`) {
+		t.Errorf("complete scan JSON = %s, want no partial or errors keys", complete)
+	}
+
+	partial, err := json.Marshal(&ScanResult{Partial: true, Errors: []string{"provider aws: AccessDenied"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"partial":true`, `"errors":["provider aws: AccessDenied"]`} {
+		if !strings.Contains(string(partial), want) {
+			t.Errorf("partial scan JSON = %s, missing %s", partial, want)
+		}
 	}
 }
