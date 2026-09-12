@@ -11,6 +11,7 @@ Metadata:
           - TrustedPrincipalArn
           - ExternalId
           - RequireMFA
+          - OrgId
       - Label:
           default: Role settings
         Parameters:
@@ -43,6 +44,15 @@ Parameters:
       roles assumed by people; keep false for CI, where no MFA context exists.
     Default: "false"
     AllowedValues: ["true", "false"]
+  OrgId:
+    Type: String
+    Description: >-
+      Optional. AWS Organizations id. When set, the caller must also belong to
+      this organization (aws:PrincipalOrgID), on top of matching
+      TrustedPrincipalArn.
+    Default: ""
+    AllowedPattern: "^(o-[a-z0-9]{10,32})?$"
+    ConstraintDescription: must be empty or an organization id such as o-a1b2c3d4e5
   RoleName:
     Type: String
     Description: Name of the role. Referenced from tagctl.yaml as role_arn.
@@ -67,8 +77,11 @@ Conditions:
       - Fn::Equals: [{Ref: ExternalId}, ""]
   MFARequired:
     Fn::Equals: [{Ref: RequireMFA}, "true"]
+  HasOrgId:
+    Fn::Not:
+      - Fn::Equals: [{Ref: OrgId}, ""]
   HasTrustConditions:
-    Fn::Or: [{Condition: HasExternalId}, {Condition: MFARequired}]
+    Fn::Or: [{Condition: HasExternalId}, {Condition: MFARequired}, {Condition: HasOrgId}]
   HasPermissionsBoundary:
     Fn::Not:
       - Fn::Equals: [{Ref: PermissionsBoundaryArn}, ""]
@@ -99,8 +112,15 @@ Resources:
                 - StringEquals:
                     Fn::If:
                       - HasExternalId
-                      - sts:ExternalId: {Ref: ExternalId}
-                      - {Ref: AWS::NoValue}
+                      - Fn::If:
+                          - HasOrgId
+                          - sts:ExternalId: {Ref: ExternalId}
+                            aws:PrincipalOrgID: {Ref: OrgId}
+                          - sts:ExternalId: {Ref: ExternalId}
+                      - Fn::If:
+                          - HasOrgId
+                          - aws:PrincipalOrgID: {Ref: OrgId}
+                          - {Ref: AWS::NoValue}
                   Bool:
                     Fn::If:
                       - MFARequired
@@ -183,7 +203,6 @@ Resources:
                   - cloudwatch:DescribeAlarms
                   - cloudformation:DescribeStacks
                   - codebuild:ListProjects
-                  - codebuild:BatchGetProjects
                   - secretsmanager:ListSecrets
                   - acm:ListCertificates
                   - kms:ListKeys

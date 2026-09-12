@@ -15,7 +15,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatch"
 	cwtypes "github.com/aws/aws-sdk-go-v2/service/cloudwatch/types"
 	"github.com/aws/aws-sdk-go-v2/service/codebuild"
-	codebuildtypes "github.com/aws/aws-sdk-go-v2/service/codebuild/types"
 	"github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider"
 	cognitotypes "github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider/types"
 	"github.com/aws/aws-sdk-go-v2/service/elasticbeanstalk"
@@ -105,23 +104,12 @@ func (m *mockCognitoClient) ListUserPools(ctx context.Context, params *cognitoid
 }
 
 type mockCodeBuildClient struct {
-	names   []string
-	tags    map[string][]codebuildtypes.Tag
-	err     error
-	batches []int
+	names []string
+	err   error
 }
 
 func (m *mockCodeBuildClient) ListProjects(ctx context.Context, params *codebuild.ListProjectsInput, optFns ...func(*codebuild.Options)) (*codebuild.ListProjectsOutput, error) {
 	return &codebuild.ListProjectsOutput{Projects: m.names}, m.err
-}
-
-func (m *mockCodeBuildClient) BatchGetProjects(ctx context.Context, params *codebuild.BatchGetProjectsInput, optFns ...func(*codebuild.Options)) (*codebuild.BatchGetProjectsOutput, error) {
-	m.batches = append(m.batches, len(params.Names))
-	out := &codebuild.BatchGetProjectsOutput{}
-	for _, n := range params.Names {
-		out.Projects = append(out.Projects, codebuildtypes.Project{Name: aws.String(n), Arn: aws.String("arn:cb:" + n), Tags: m.tags[n]})
-	}
-	return out, nil
 }
 
 type mockBackupClient struct {
@@ -228,21 +216,27 @@ func TestListUserPools(t *testing.T) {
 	}
 }
 
-func TestListCodeBuildProjects_Batches(t *testing.T) {
-	names := make([]string, 0, codeBuildBatchSize+1)
-	for i := 0; i <= codeBuildBatchSize; i++ {
-		names = append(names, "p"+string(rune('0'+i%10))+string(rune('a'+i/10)))
+func TestListCodeBuildProjects_ReadsTagsFromBulkSource(t *testing.T) {
+	arn := "arn:aws:codebuild:us-east-1:123456789012:project/deploy"
+	p := bulkProvider(map[string]map[string]string{arn: {"owner": "x"}})
+	mock := &mockCodeBuildClient{names: []string{"deploy", "untagged"}}
+	resources, err := p.listCodeBuildProjectsFrom(context.Background(), mock, defaultRegion)
+	if err != nil || len(resources) != 2 {
+		t.Fatalf("resources = %+v, err = %v", resources, err)
 	}
-	mock := &mockCodeBuildClient{names: names, tags: map[string][]codebuildtypes.Tag{names[0]: {{Key: aws.String("owner"), Value: aws.String("x")}}}}
+	if resources[0].ARN != arn || resources[0].Type != "aws_codebuild_project" || resources[0].Tags["owner"] != "x" {
+		t.Errorf("tagged project = %+v", resources[0])
+	}
+	if resources[1].Tags == nil || len(resources[1].Tags) != 0 {
+		t.Errorf("untagged project tags = %v, want empty", resources[1].Tags)
+	}
+}
+
+func TestListCodeBuildProjects_SkippedWithoutBulkTags(t *testing.T) {
+	mock := &mockCodeBuildClient{names: []string{"deploy"}}
 	resources, err := testProvider().listCodeBuildProjectsFrom(context.Background(), mock, defaultRegion)
-	if err != nil || len(resources) != codeBuildBatchSize+1 {
-		t.Fatalf("resources = %d, err = %v", len(resources), err)
-	}
-	if len(mock.batches) != 2 || mock.batches[0] != codeBuildBatchSize || mock.batches[1] != 1 {
-		t.Errorf("BatchGetProjects batches = %v, want [100 1]", mock.batches)
-	}
-	if resources[0].Tags["owner"] != "x" || resources[1].Tags == nil {
-		t.Errorf("tags: %+v / %+v", resources[0].Tags, resources[1].Tags)
+	if err != nil || resources != nil {
+		t.Errorf("resources = %+v, err = %v, want the service skipped", resources, err)
 	}
 }
 

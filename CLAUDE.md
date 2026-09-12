@@ -95,6 +95,8 @@ test/
 permissions/aws/          # IAM policies (JSON, source of truth) and the
                           # TagctlScan / TagctlApply CloudFormation roles
                           # rendered from them by scripts/render-iam-templates.py
+                          # (CodeBuild tagging and the protected tag key deny
+                          # are opt-in apply template parameters)
 ```
 
 ## Key Commands
@@ -315,10 +317,13 @@ same ids SARIF uses, keep them aligned. The full mapping is the contract in
    `TestGetResourceType_AllSupportedServices` and `TestTaggingIdentifier`,
    which pin the supported service set
 8. Add the read actions to `permissions/aws/tagctl-scan-policy.json` and the
-   write action to `tagctl-apply-policy.json`, run `make iam-templates` to
-   re-render the CloudFormation roles, and paste the same JSON into
-   `docs/providers/aws.mdx`. `TestPermissionPolicies_*` pins the three copies
-   together and fails when a lister calls an API no policy allows
+   write action to `tagctl-apply-policy.json`, with the ARN pattern of the
+   tagged resource type taken from the Service Authorization Reference (`"*"`
+   only when it lists no resource type; `unscopedWriteActions` pins those),
+   run `make iam-templates` to re-render the CloudFormation roles, and paste
+   the same JSON into `docs/providers/aws.mdx`. `TestPermissionPolicies_*` pins
+   the copies together, fails when a lister calls an API no policy allows and
+   keeps the apply role under IAM's 10,240-character inline policy limit
 9. Add the resource to the table in `docs/providers/aws.mdx` and bump the
    count in README, `docs/introduction.mdx`, `docs/configuration.mdx`,
    `docs/development.mdx` and `docs/architecture.mdx`

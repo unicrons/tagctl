@@ -1,0 +1,15 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "CodeBuildTagging",
+      "Effect": "Allow",
+      "Action": [
+        "codebuild:UpdateProject"
+      ],
+      "Resource": [
+        "arn:aws:codebuild:*:*:project/*"
+      ]
+    }
+  ]
+}

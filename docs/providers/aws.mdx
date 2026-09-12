@@ -124,7 +124,7 @@ are then read in bulk through the Resource Groups Tagging API (see
 | CloudWatch Metric Alarm | `aws_cloudwatch_metric_alarm` | `tag:TagResources` |
 | CloudWatch Composite Alarm | `aws_cloudwatch_composite_alarm` | `tag:TagResources` |
 | CloudFormation Stack | `aws_cloudformation_stack` | `tag:TagResources` |
-| CodeBuild Project | `aws_codebuild_project` | `tag:TagResources` |
+| CodeBuild Project | `aws_codebuild_project` | `tag:TagResources` ([opt-in](#codebuild-tagging-opt-in)) |
 | Secrets Manager Secret | `aws_secretsmanager_secret` | `tag:TagResources` |
 | ACM Certificate | `aws_acm_certificate` | `tag:TagResources` |
 | KMS Key (customer-managed) | `aws_kms_key` | `kms:TagResource` |
@@ -179,7 +179,7 @@ Discovery and tag reading are two different steps:
    seconds. A discovered ARN missing from the sweep is untagged. Services
    whose Describe call already returns tags inline never need it: EC2, Auto
    Scaling, ECS, EKS, EFS, RDS clusters and snapshots, MSK, Redshift, Secrets
-   Manager, CloudFormation, CodeBuild, FSx, API Gateway, Access Analyzer,
+   Manager, CloudFormation, FSx, API Gateway, Access Analyzer,
    Amplify, AppSync, Batch, Direct Connect, DLM, DRS, GuardDuty, Lightsail,
    Data Pipeline and SSM documents. ALB/NLB load balancers and Global
    Accelerator always read tags through their own API
@@ -194,7 +194,8 @@ When `tag:GetResources` is denied or fails, tagctl degrades in two ways:
 - Services with no usable tag API of their own are **skipped** with an
   `[ERROR]` line naming the service and region, and are never reported as
   untagged: ACM, ACM PCA, AppStream, Athena, Backup, Bedrock, CloudFront,
-  CloudWatch alarms, CodeArtifact, CodeCommit, CodePipeline, Cognito, Config,
+  CloudWatch alarms, CodeArtifact, CodeBuild, CodeCommit, CodePipeline,
+  Cognito, Config,
   DataSync, Directory Service, DMS, Elastic Beanstalk, EMR, EventBridge,
   Firehose, Firewall Manager, Glacier, Glue, IAM, MemoryDB, MQ, Network
   Firewall, OpenSearch, Roles Anywhere, Route 53, SageMaker, SES, Service
@@ -306,7 +307,7 @@ CloudFormation templates under
 | Role | Policies | Commands | Hand it to |
 |------|----------|----------|------------|
 | `TagctlScan` | `TagctlScan` | `scan`, `plan`, `diff`, `normalize`, `terraform`, `cost` | Scheduled jobs, CI, auditors. It cannot write a tag. |
-| `TagctlApply` | `TagctlScan` + `TagctlApply` | `apply` | People and pipelines that remediate, behind MFA or an external id. |
+| `TagctlApply` | `TagctlScan` + `TagctlApply`, plus `TagctlApplyCodeBuild` and `TagctlProtectedTagKeys` when enabled | `apply` | People and pipelines that remediate, behind MFA or an external id. |
 
 The apply policy is additive: it holds only the tag write actions and always
 sits next to the scan policy, which is where `sts:GetCallerIdentity`, the
@@ -323,15 +324,19 @@ aws cloudformation deploy \
 
 `TrustedPrincipalArn` is who may assume the role: an account root, a role or
 an Identity Center permission set. `ExternalId`, `RequireMFA` (default `true`
-on the apply template), `MaxSessionDuration` and `PermissionsBoundaryArn` are
-optional. The `TagctlConfig` output is the entry to paste under `clouds.aws`;
-the base identity only needs `sts:AssumeRole` on the role. For many accounts,
-deploy the same template as a StackSet.
+on the apply template), `OrgId`, `MaxSessionDuration` and
+`PermissionsBoundaryArn` are optional. `OrgId` adds `aws:PrincipalOrgID` to the
+trust policy, so the caller must also belong to that organization. The apply
+template adds `AllowCodeBuildTagging` and `ProtectedTagKeys`, described below.
+The `TagctlConfig` output is the entry to paste under `clouds.aws`; the base
+identity only needs `sts:AssumeRole` on the role. For many accounts, deploy the
+same template as a StackSet.
 
 The policy documents are also available on their own as
-`tagctl-scan-policy.json` and `tagctl-apply-policy.json`, for Terraform or a
-role you already have. Every copy on this page is checked against those files
-by `go test ./internal/provider/aws/`.
+`tagctl-scan-policy.json`, `tagctl-apply-policy.json` and
+`tagctl-apply-codebuild-policy.json`, for Terraform or a role you already have.
+Every copy on this page is checked against those files by
+`go test ./internal/provider/aws/`.
 
 ### Read-Only (Scan)
 
@@ -409,7 +414,6 @@ by `go test ./internal/provider/aws/`.
         "cloudwatch:DescribeAlarms",
         "cloudformation:DescribeStacks",
         "codebuild:ListProjects",
-        "codebuild:BatchGetProjects",
         "secretsmanager:ListSecrets",
         "acm:ListCertificates",
         "kms:ListKeys",
@@ -532,15 +536,59 @@ by `go test ./internal/provider/aws/`.
         "lightsail:TagResource",
         "globalaccelerator:TagResource"
       ],
-      "Resource": "*"
+      "Resource": [
+        "arn:aws:ec2:*:*:instance/*",
+        "arn:aws:ec2:*::image/*",
+        "arn:aws:ec2:*:*:volume/*",
+        "arn:aws:ec2:*::snapshot/*",
+        "arn:aws:ec2:*:*:launch-template/*",
+        "arn:aws:ec2:*:*:security-group/*",
+        "arn:aws:ec2:*:*:vpc/*",
+        "arn:aws:ec2:*:*:subnet/*",
+        "arn:aws:ec2:*:*:internet-gateway/*",
+        "arn:aws:ec2:*:*:natgateway/*",
+        "arn:aws:ec2:*:*:vpc-endpoint/*",
+        "arn:aws:ec2:*:*:elastic-ip/*",
+        "arn:aws:s3:::*",
+        "arn:aws:rds:*:*:db:*",
+        "arn:aws:rds:*:*:cluster:*",
+        "arn:aws:rds:*:*:snapshot:*",
+        "arn:aws:lambda:*:*:function:*",
+        "arn:aws:sns:*:*:*",
+        "arn:aws:sqs:*:*:*",
+        "arn:aws:elasticloadbalancing:*:*:loadbalancer/*",
+        "arn:aws:elasticloadbalancing:*:*:targetgroup/*",
+        "arn:aws:autoscaling:*:*:autoScalingGroup:*:autoScalingGroupName/*",
+        "arn:aws:dynamodb:*:*:table/*",
+        "arn:aws:ecs:*:*:cluster/*",
+        "arn:aws:ecs:*:*:service/*",
+        "arn:aws:eks:*:*:cluster/*",
+        "arn:aws:elasticache:*:*:cluster:*",
+        "arn:aws:elasticfilesystem:*:*:file-system/*",
+        "arn:aws:ecr:*:*:repository/*",
+        "arn:aws:kms:*:*:key/*",
+        "arn:aws:kinesis:*:*:stream/*",
+        "arn:aws:logs:*:*:log-group:*",
+        "arn:aws:lightsail:*:*:Instance/*",
+        "arn:aws:globalaccelerator::*:accelerator/*"
+      ]
     },
     {
       "Sid": "TaggingAPI",
       "Effect": "Allow",
       "Action": [
         "tag:TagResources",
+        "workspaces:CreateTags"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "TaggingAPIServices",
+      "Effect": "Allow",
+      "Action": [
         "elasticbeanstalk:AddTags",
         "apigateway:PUT",
+        "apigateway:POST",
         "route53:ChangeTagsForResource",
         "cloudfront:TagResource",
         "fsx:TagResource",
@@ -556,7 +604,6 @@ by `go test ./internal/provider/aws/`.
         "cognito-idp:TagResource",
         "cloudwatch:TagResource",
         "cloudformation:TagResource",
-        "codebuild:UpdateProject",
         "secretsmanager:TagResource",
         "acm:AddTagsToCertificate",
         "iam:TagRole",
@@ -579,7 +626,6 @@ by `go test ./internal/provider/aws/`.
         "codeartifact:TagResource",
         "codecommit:TagResource",
         "codepipeline:TagResource",
-        "servicecatalog:TagResource",
         "wellarchitected:TagResource",
         "athena:TagResource",
         "dms:AddTagsToResource",
@@ -598,10 +644,74 @@ by `go test ./internal/provider/aws/`.
         "dlm:TagResource",
         "drs:TagResource",
         "ssm:AddTagsToResource",
-        "ssm-incidents:TagResource",
-        "workspaces:CreateTags"
+        "ssm-incidents:TagResource"
       ],
-      "Resource": "*"
+      "Resource": [
+        "arn:aws:elasticbeanstalk:*:*:environment/*",
+        "arn:aws:apigateway:*::/tags/*",
+        "arn:aws:route53:::hostedzone/*",
+        "arn:aws:cloudfront::*:distribution/*",
+        "arn:aws:fsx:*:*:file-system/*",
+        "arn:aws:backup:*:*:backup-vault:*",
+        "arn:aws:redshift:*:*:cluster:*",
+        "arn:aws:es:*:*:domain/*",
+        "arn:aws:firehose:*:*:deliverystream/*",
+        "arn:aws:kafka:*:*:cluster/*",
+        "arn:aws:glue:*:*:job/*",
+        "arn:aws:sagemaker:*:*:endpoint/*",
+        "arn:aws:sagemaker:*:*:notebook-instance/*",
+        "arn:aws:events:*:*:rule/*",
+        "arn:aws:states:*:*:stateMachine:*",
+        "arn:aws:cognito-idp:*:*:userpool/*",
+        "arn:aws:cloudwatch:*:*:alarm:*",
+        "arn:aws:cloudformation:*:*:stack/*",
+        "arn:aws:secretsmanager:*:*:secret:*",
+        "arn:aws:acm:*:*:certificate/*",
+        "arn:aws:iam::*:role/*",
+        "arn:aws:access-analyzer:*:*:analyzer/*",
+        "arn:aws:acm-pca:*:*:certificate-authority/*",
+        "arn:aws:cloudtrail:*:*:trail/*",
+        "arn:aws:config:*:*:config-rule/*",
+        "arn:aws:ds:*:*:directory/*",
+        "arn:aws:fms:*:*:policy/*",
+        "arn:aws:guardduty:*:*:detector/*",
+        "arn:aws:network-firewall:*:*:firewall/*",
+        "arn:aws:rolesanywhere:*:*:trust-anchor/*",
+        "arn:aws:waf-regional:*:*:webacl/*",
+        "arn:aws:waf::*:webacl/*",
+        "arn:aws:wafv2:*:*:*/webacl/*",
+        "arn:aws:shield::*:protection/*",
+        "arn:aws:amplify:*:*:apps/*",
+        "arn:aws:appsync:*:*:apis/*",
+        "arn:aws:bedrock:*:*:guardrail/*",
+        "arn:aws:codeartifact:*:*:domain/*",
+        "arn:aws:codeartifact:*:*:repository/*",
+        "arn:aws:codecommit:*:*:*",
+        "arn:aws:codepipeline:*:*:*",
+        "arn:aws:wellarchitected:*:*:workload/*",
+        "arn:aws:athena:*:*:workgroup/*",
+        "arn:aws:dms:*:*:rep:*",
+        "arn:aws:datapipeline:*:*:pipeline/*",
+        "arn:aws:datasync:*:*:task/*",
+        "arn:aws:elasticmapreduce:*:*:cluster/*",
+        "arn:aws:glacier:*:*:vaults/*",
+        "arn:aws:memorydb:*:*:cluster/*",
+        "arn:aws:mq:*:*:broker:*",
+        "arn:aws:ses:*:*:identity/*",
+        "arn:aws:ses:*:*:configuration-set/*",
+        "arn:aws:storagegateway:*:*:gateway/*",
+        "arn:aws:transfer:*:*:server/*",
+        "arn:aws:appstream:*:*:fleet/*",
+        "arn:aws:appstream:*:*:stack/*",
+        "arn:aws:batch:*:*:compute-environment/*",
+        "arn:aws:batch:*:*:job-queue/*",
+        "arn:aws:directconnect:*:*:dxcon/*",
+        "arn:aws:dlm:*:*:policy/*",
+        "arn:aws:drs:*:*:source-server/*",
+        "arn:aws:ssm:*:*:parameter/*",
+        "arn:aws:ssm:*:*:document/*",
+        "arn:aws:ssm-incidents::*:response-plan/*"
+      ]
     }
   ]
 }
@@ -617,9 +727,86 @@ by `go test ./internal/provider/aws/`.
   rest of the batch still applies.
 </Note>
 
-<Tip>
-  For production, scope the `Resource` field to specific ARN patterns instead of `"*"`.
-</Tip>
+Each service action only reaches the ARNs of the resource types tagctl tags,
+as the
+[Service Authorization Reference](https://docs.aws.amazon.com/service-authorization/latest/reference/reference_policies_actions-resources-contextkeys.html)
+lists them: `ec2:CreateTags` cannot tag a transit gateway. The reference maps
+API Gateway tagging (REST and HTTP/WebSocket APIs) to `apigateway:PUT`, `POST`
+and `PATCH`; the policy grants `PUT` and `POST` on `/tags/*` only, so they
+cannot create, update or import an API. `tag:TagResources` and
+`workspaces:CreateTags` stay on `"*"` because the reference lists no resource
+type for them. The ARNs use the `aws` partition; in AWS China or GovCloud
+replace `arn:aws:` with `arn:aws-cn:` or `arn:aws-us-gov:`.
+
+<Note>
+  Service Catalog portfolios are discovered, but tagging them may fail. The
+  Resource Groups
+  [supported resources](https://docs.aws.amazon.com/ARG/latest/userguide/supported-resources.html)
+  table marks `AWS::ServiceCatalog::Portfolio` as not taggable through Tag
+  Editor. The reference maps `servicecatalog:TagResource` only to AppRegistry
+  applications and attribute groups, which tagctl never tags, so the policy
+  does not grant it. Portfolio tags change through
+  `servicecatalog:UpdatePortfolio`, which tagctl neither calls nor grants. The
+  reference does not say which action `tag:TagResources` checks for a
+  portfolio.
+</Note>
+
+### CodeBuild Tagging (Opt-In)
+
+CodeBuild has no tag-only IAM action: project tags are written through
+`codebuild:UpdateProject`, which can also replace a project's buildspec and
+service role. It is not part of the apply policy, so by default `tagctl apply`
+reports CodeBuild changes as failed and applies the rest. Deploy the apply
+template with `AllowCodeBuildTagging=true`, or attach this policy yourself:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "CodeBuildTagging",
+      "Effect": "Allow",
+      "Action": [
+        "codebuild:UpdateProject"
+      ],
+      "Resource": [
+        "arn:aws:codebuild:*:*:project/*"
+      ]
+    }
+  ]
+}
+```
+
+### Protected Tag Keys
+
+`ProtectedTagKeys` on the apply template attaches `TagctlProtectedTagKeys`, a
+Deny on any request whose `aws:TagKeys` match one of the comma-separated keys
+(`ForAnyValue:StringLike`, wildcards allowed, no spaces around the commas).
+Use it for the keys your ABAC policies check, so the apply role cannot grant
+itself or anyone else access by rewriting them:
+
+```bash
+aws cloudformation deploy \
+  --template-file permissions/aws/tagctl-apply-role.yaml \
+  --stack-name tagctl-apply-role \
+  --capabilities CAPABILITY_NAMED_IAM \
+  --parameter-overrides \
+    TrustedPrincipalArn=arn:aws:iam::222222222222:role/platform-admin \
+    ProtectedTagKeys=access-team,access-level
+```
+
+<Warning>
+  The deny only applies to actions whose Service Authorization Reference entry
+  lists `aws:TagKeys`. `s3:PutBucketTagging`, `route53:ChangeTagsForResource`
+  and `glacier:AddTagsToVault` do not, so S3 bucket, Route 53 hosted zone and
+  Glacier vault tags stay writable. `StringLike` is case-sensitive, but tag
+  keys on IAM users and roles are not: `iam:TagRole` with `Access-Team`
+  overwrites `access-team` without matching `ProtectedTagKeys=access-team`.
+  List the case variants, or use `?` for letters whose case may vary
+  (`?ccess-?eam`). IAM caps the inline policies of a role at
+  10,240 characters in total, whitespace excluded; the apply role leaves about
+  900 for the key list.
+</Warning>
 
 ## Multi-Account Setup
 

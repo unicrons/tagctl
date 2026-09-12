@@ -11,7 +11,6 @@ import (
 	cfntypes "github.com/aws/aws-sdk-go-v2/service/cloudformation/types"
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatch"
 	"github.com/aws/aws-sdk-go-v2/service/codebuild"
-	codebuildtypes "github.com/aws/aws-sdk-go-v2/service/codebuild/types"
 	"github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider"
 	"github.com/aws/aws-sdk-go-v2/service/elasticbeanstalk"
 	"github.com/aws/aws-sdk-go-v2/service/eventbridge"
@@ -58,7 +57,6 @@ type cognitoAPI interface {
 
 type codeBuildAPI interface {
 	ListProjects(ctx context.Context, params *codebuild.ListProjectsInput, optFns ...func(*codebuild.Options)) (*codebuild.ListProjectsOutput, error)
-	BatchGetProjects(ctx context.Context, params *codebuild.BatchGetProjectsInput, optFns ...func(*codebuild.Options)) (*codebuild.BatchGetProjectsOutput, error)
 }
 
 type backupAPI interface {
@@ -72,9 +70,6 @@ type fsxAPI interface {
 type beanstalkAPI interface {
 	DescribeEnvironments(ctx context.Context, params *elasticbeanstalk.DescribeEnvironmentsInput, optFns ...func(*elasticbeanstalk.Options)) (*elasticbeanstalk.DescribeEnvironmentsOutput, error)
 }
-
-// codeBuildBatchSize is the maximum number of projects per BatchGetProjects call.
-const codeBuildBatchSize = 100
 
 // cognitoPageSize is the maximum ListUserPools page size.
 const cognitoPageSize = 60
@@ -309,44 +304,25 @@ func (p *Provider) listCodeBuildProjects(ctx context.Context, region string) ([]
 	return p.listCodeBuildProjectsFrom(ctx, p.getCodeBuildClient(region), region)
 }
 
+// BatchGetProjects is avoided: it returns every environment variable in clear.
 func (p *Provider) listCodeBuildProjectsFrom(ctx context.Context, client codeBuildAPI, region string) ([]types.Resource, error) {
-	var names []string
+	if !p.requireBulkTags(region, "CodeBuild") {
+		return nil, nil
+	}
+	var resources []types.Resource
 	paginator := codebuild.NewListProjectsPaginator(client, &codebuild.ListProjectsInput{})
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
 			return nil, provider.NewProviderError(providerName, "list_codebuild_projects", "", err)
 		}
-		names = append(names, output.Projects...)
-	}
-
-	var resources []types.Resource
-	for _, batch := range chunk(names, codeBuildBatchSize) {
-		output, err := client.BatchGetProjects(ctx, &codebuild.BatchGetProjectsInput{Names: batch})
-		if err != nil {
-			return nil, provider.NewProviderError(providerName, "describe_codebuild_projects", "", err)
-		}
-		for _, pr := range output.Projects {
-			name := aws.ToString(pr.Name)
-			resources = append(resources, types.Resource{
-				ID: name, Name: name, ARN: aws.ToString(pr.Arn), Type: "aws_codebuild_project",
-				Region: region, Account: p.accountID, Provider: providerName,
-				Tags: codeBuildTagsToMap(pr.Tags), CreatedAt: pr.Created,
-			})
+		for _, name := range output.Projects {
+			arn := fmt.Sprintf("arn:aws:codebuild:%s:%s:project/%s", region, p.accountID, name)
+			resources = append(resources, p.bulkResource(region, "aws_codebuild_project", name, name, arn, nil))
 		}
 	}
 	log.Debug("AWS CodeBuild: Found %d projects in %s", len(resources), region)
 	return resources, nil
-}
-
-func codeBuildTagsToMap(tags []codebuildtypes.Tag) map[string]string {
-	result := make(map[string]string)
-	for _, tag := range tags {
-		if tag.Key != nil && tag.Value != nil {
-			result[*tag.Key] = *tag.Value
-		}
-	}
-	return result
 }
 
 func (p *Provider) listBackupVaults(ctx context.Context, region string) ([]types.Resource, error) {

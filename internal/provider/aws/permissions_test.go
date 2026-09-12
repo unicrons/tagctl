@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"unicode"
 
 	"gopkg.in/yaml.v3"
 )
@@ -18,26 +19,77 @@ import (
 // templates and the docs page embed copies; these tests keep every copy equal
 // to the file and the file equal to what the provider actually calls.
 
+const (
+	scanPolicyFile      = "tagctl-scan-policy.json"
+	applyPolicyFile     = "tagctl-apply-policy.json"
+	codeBuildPolicyFile = "tagctl-apply-codebuild-policy.json"
+)
+
 type policyDocument struct {
 	Version   string            `json:"Version" yaml:"Version"`
 	Statement []policyStatement `json:"Statement" yaml:"Statement"`
 }
 
 type policyStatement struct {
-	Sid      string   `json:"Sid" yaml:"Sid"`
-	Effect   string   `json:"Effect" yaml:"Effect"`
-	Action   []string `json:"Action" yaml:"Action"`
-	Resource string   `json:"Resource" yaml:"Resource"`
+	Sid       string                    `json:"Sid" yaml:"Sid"`
+	Effect    string                    `json:"Effect" yaml:"Effect"`
+	Action    stringOrList              `json:"Action" yaml:"Action"`
+	Resource  stringOrList              `json:"Resource" yaml:"Resource"`
+	Condition map[string]map[string]any `json:"Condition,omitempty" yaml:"Condition,omitempty"`
+}
+
+// stringOrList is a policy field IAM accepts either as one string or a list.
+type stringOrList []string
+
+func (s *stringOrList) UnmarshalJSON(data []byte) error {
+	var one string
+	if err := json.Unmarshal(data, &one); err == nil {
+		*s = stringOrList{one}
+		return nil
+	}
+	var many []string
+	if err := json.Unmarshal(data, &many); err != nil {
+		return err
+	}
+	*s = many
+	return nil
+}
+
+func (s *stringOrList) UnmarshalYAML(node *yaml.Node) error {
+	if node.Kind == yaml.ScalarNode {
+		*s = stringOrList{node.Value}
+		return nil
+	}
+	var many []string
+	if err := node.Decode(&many); err != nil {
+		return err
+	}
+	*s = many
+	return nil
+}
+
+func (s stringOrList) isWildcard() bool {
+	return len(s) == 1 && s[0] == "*"
+}
+
+// templatePolicy is an inline policy of the template role; condition names
+// the Fn::If condition that attaches it, empty when always attached.
+type templatePolicy struct {
+	condition string
+	document  policyDocument
+}
+
+type cfnPolicy struct {
+	PolicyName     string         `yaml:"PolicyName"`
+	PolicyDocument policyDocument `yaml:"PolicyDocument"`
+	If             []yaml.Node    `yaml:"Fn::If"`
 }
 
 type cfnTemplate struct {
 	Resources map[string]struct {
 		Type       string `yaml:"Type"`
 		Properties struct {
-			Policies []struct {
-				PolicyName     string         `yaml:"PolicyName"`
-				PolicyDocument policyDocument `yaml:"PolicyDocument"`
-			} `yaml:"Policies"`
+			Policies []cfnPolicy `yaml:"Policies"`
 		} `yaml:"Properties"`
 	} `yaml:"Resources"`
 }
@@ -70,7 +122,7 @@ func loadPolicyFile(t *testing.T, name string) policyDocument {
 	return doc
 }
 
-func loadTemplatePolicies(t *testing.T, name string) map[string]policyDocument {
+func loadTemplatePolicies(t *testing.T, name string) map[string]templatePolicy {
 	t.Helper()
 	var tpl cfnTemplate
 	if err := yaml.Unmarshal(readFile(t, "permissions", "aws", name), &tpl); err != nil {
@@ -80,9 +132,17 @@ func loadTemplatePolicies(t *testing.T, name string) map[string]policyDocument {
 	if !ok || role.Type != "AWS::IAM::Role" {
 		t.Fatalf("%s: no AWS::IAM::Role resource named Role", name)
 	}
-	out := make(map[string]policyDocument, len(role.Properties.Policies))
+	out := make(map[string]templatePolicy, len(role.Properties.Policies))
 	for _, p := range role.Properties.Policies {
-		out[p.PolicyName] = p.PolicyDocument
+		if p.If == nil {
+			out[p.PolicyName] = templatePolicy{document: p.PolicyDocument}
+			continue
+		}
+		var inner cfnPolicy
+		if len(p.If) != 3 || p.If[1].Decode(&inner) != nil {
+			t.Fatalf("%s: Fn::If policy entry must be [condition, policy, AWS::NoValue]", name)
+		}
+		out[inner.PolicyName] = templatePolicy{condition: p.If[0].Value, document: inner.PolicyDocument}
 	}
 	return out
 }
@@ -125,10 +185,20 @@ func actionSet(docs ...policyDocument) map[string]bool {
 	return set
 }
 
-var actionPattern = regexp.MustCompile(`^[a-z0-9-]+:[A-Za-z0-9]+$`)
+var (
+	actionPattern = regexp.MustCompile(`^[a-z0-9-]+:[A-Za-z0-9]+$`)
+	// arn:aws:<service>:<region>:<account>:<resource>, service spelled out.
+	resourceARNPattern = regexp.MustCompile(`^arn:aws:([a-z0-9-]+):[a-z0-9*-]*:[0-9*]*:.+$`)
+
+	// unscopedWriteActions may stay on "*", with the Service Authorization Reference reason.
+	unscopedWriteActions = map[string]string{
+		"tag:TagResources":      "lists no resource type",
+		"workspaces:CreateTags": "lists no resource type",
+	}
+)
 
 func TestPermissionPolicies_WellFormed(t *testing.T) {
-	for _, name := range []string{"tagctl-scan-policy.json", "tagctl-apply-policy.json"} {
+	for _, name := range []string{scanPolicyFile, applyPolicyFile, codeBuildPolicyFile} {
 		doc := loadPolicyFile(t, name)
 		if doc.Version != "2012-10-17" {
 			t.Errorf("%s: Version = %q", name, doc.Version)
@@ -138,9 +208,7 @@ func TestPermissionPolicies_WellFormed(t *testing.T) {
 			if st.Effect != "Allow" {
 				t.Errorf("%s/%s: Effect = %q", name, st.Sid, st.Effect)
 			}
-			if st.Resource != "*" {
-				t.Errorf("%s/%s: Resource = %q, the docs tell users to scope it themselves", name, st.Sid, st.Resource)
-			}
+			services := map[string]bool{}
 			for _, a := range st.Action {
 				if !actionPattern.MatchString(a) {
 					t.Errorf("%s/%s: malformed action %q", name, st.Sid, a)
@@ -149,6 +217,32 @@ func TestPermissionPolicies_WellFormed(t *testing.T) {
 					t.Errorf("%s: %q listed in both %s and %s", name, a, prev, st.Sid)
 				}
 				seen[a] = st.Sid
+				services[a[:strings.Index(a, ":")]] = true
+			}
+			if st.Resource.isWildcard() {
+				for _, a := range st.Action {
+					if _, unscoped := unscopedWriteActions[a]; name != scanPolicyFile && !unscoped {
+						t.Errorf("%s/%s: %s is allowed on \"*\"; scope it to the ARNs of the types tagctl tags", name, st.Sid, a)
+					}
+				}
+				continue
+			}
+			scoped := map[string]bool{}
+			for _, r := range st.Resource {
+				m := resourceARNPattern.FindStringSubmatch(r)
+				if m == nil {
+					t.Errorf("%s/%s: malformed Resource %q", name, st.Sid, r)
+					continue
+				}
+				if !services[m[1]] {
+					t.Errorf("%s/%s: Resource %q matches no action of the statement", name, st.Sid, r)
+				}
+				scoped[m[1]] = true
+			}
+			for _, a := range st.Action {
+				if !scoped[a[:strings.Index(a, ":")]] {
+					t.Errorf("%s/%s: %s has no Resource in its service namespace, IAM would deny it", name, st.Sid, a)
+				}
 			}
 		}
 	}
@@ -157,7 +251,7 @@ func TestPermissionPolicies_WellFormed(t *testing.T) {
 var writeAction = regexp.MustCompile(`^[a-z0-9-]+:(Tag|Untag|Add|Create|Put|Change|Update|Delete)`)
 
 func TestPermissionPolicies_ScanIsReadOnly(t *testing.T) {
-	scan := loadPolicyFile(t, "tagctl-scan-policy.json")
+	scan := loadPolicyFile(t, scanPolicyFile)
 	for a := range actionSet(scan) {
 		if writeAction.MatchString(a) {
 			t.Errorf("scan policy grants a write action: %s", a)
@@ -166,42 +260,98 @@ func TestPermissionPolicies_ScanIsReadOnly(t *testing.T) {
 	if !actionSet(scan)["tag:GetResources"] {
 		t.Error("scan policy lacks tag:GetResources, the bulk tag sweep")
 	}
-	apply := loadPolicyFile(t, "tagctl-apply-policy.json")
+	apply := loadPolicyFile(t, applyPolicyFile)
 	if !actionSet(apply)["tag:TagResources"] {
 		t.Error("apply policy lacks tag:TagResources, the Tagging API fallback")
 	}
-	for a := range actionSet(apply) {
+	for a := range actionSet(apply, loadPolicyFile(t, codeBuildPolicyFile)) {
 		if actionSet(scan)[a] {
 			t.Errorf("%s is in both policies; the apply role already attaches the scan policy", a)
 		}
 	}
 }
 
-func TestPermissionPolicies_TemplatesMatchFiles(t *testing.T) {
-	scan := loadPolicyFile(t, "tagctl-scan-policy.json")
-	apply := loadPolicyFile(t, "tagctl-apply-policy.json")
+func TestPermissionPolicies_CodeBuildTaggingIsOptIn(t *testing.T) {
+	if actionSet(loadPolicyFile(t, applyPolicyFile))["codebuild:UpdateProject"] {
+		t.Error("the default apply policy grants codebuild:UpdateProject, which can rewrite a project's buildspec")
+	}
+	if got := actionSet(loadPolicyFile(t, codeBuildPolicyFile)); !reflect.DeepEqual(got, map[string]bool{"codebuild:UpdateProject": true}) {
+		t.Errorf("%s actions = %v, want only codebuild:UpdateProject", codeBuildPolicyFile, got)
+	}
+}
 
-	want := map[string]map[string]policyDocument{
-		"tagctl-scan-role.yaml":  {"TagctlScan": scan},
-		"tagctl-apply-role.yaml": {"TagctlScan": scan, "TagctlApply": apply},
+func TestPermissionPolicies_TemplatesMatchFiles(t *testing.T) {
+	scan := loadPolicyFile(t, scanPolicyFile)
+	apply := loadPolicyFile(t, applyPolicyFile)
+	codeBuild := loadPolicyFile(t, codeBuildPolicyFile)
+
+	want := map[string]map[string]templatePolicy{
+		"tagctl-scan-role.yaml": {"TagctlScan": {document: scan}},
+		"tagctl-apply-role.yaml": {
+			"TagctlScan":           {document: scan},
+			"TagctlApply":          {document: apply},
+			"TagctlApplyCodeBuild": {condition: "CodeBuildTagging", document: codeBuild},
+		},
 	}
 	for name, policies := range want {
 		got := loadTemplatePolicies(t, name)
+		if name == "tagctl-apply-role.yaml" {
+			checkProtectedTagKeysPolicy(t, got["TagctlProtectedTagKeys"])
+			delete(got, "TagctlProtectedTagKeys")
+		}
 		if !reflect.DeepEqual(got, policies) {
 			t.Errorf("%s: inline policies differ from permissions/aws/*.json; regenerate the template", name)
 		}
 	}
 }
 
+func checkProtectedTagKeysPolicy(t *testing.T, p templatePolicy) {
+	t.Helper()
+	if p.condition != "HasProtectedTagKeys" || len(p.document.Statement) != 1 {
+		t.Fatalf("TagctlProtectedTagKeys must be one statement attached under HasProtectedTagKeys, got %+v", p)
+	}
+	st := p.document.Statement[0]
+	if st.Effect != "Deny" || !st.Action.isWildcard() || !st.Resource.isWildcard() {
+		t.Errorf("TagctlProtectedTagKeys = %+v, want Deny on every action and resource", st)
+	}
+	if _, ok := st.Condition["ForAnyValue:StringLike"]["aws:TagKeys"]; !ok {
+		t.Errorf("TagctlProtectedTagKeys condition = %v, want ForAnyValue:StringLike on aws:TagKeys", st.Condition)
+	}
+}
+
 func TestPermissionPolicies_DocsMatchFiles(t *testing.T) {
 	cases := map[string]string{
-		"### Read-Only (Scan)":   "tagctl-scan-policy.json",
-		"### Read-Write (Apply)": "tagctl-apply-policy.json",
+		"### Read-Only (Scan)":           scanPolicyFile,
+		"### Read-Write (Apply)":         applyPolicyFile,
+		"### CodeBuild Tagging (Opt-In)": codeBuildPolicyFile,
 	}
 	for heading, file := range cases {
 		if got, want := loadDocsPolicy(t, heading), loadPolicyFile(t, file); !reflect.DeepEqual(got, want) {
 			t.Errorf("docs/providers/aws.mdx %q differs from permissions/aws/%s", heading, file)
 		}
+	}
+}
+
+const (
+	// roleInlinePolicyLimit is IAM's cap on the combined inline policies of a
+	// role, whitespace excluded.
+	roleInlinePolicyLimit = 10240
+	// protectedTagKeysReserve keeps room for the template-only deny.
+	protectedTagKeysReserve = 768
+)
+
+func TestPermissionPolicies_ApplyRoleFitsInlineLimit(t *testing.T) {
+	size := 0
+	for _, name := range []string{scanPolicyFile, applyPolicyFile, codeBuildPolicyFile} {
+		for _, r := range string(readFile(t, "permissions", "aws", name)) {
+			if !unicode.IsSpace(r) {
+				size++
+			}
+		}
+	}
+	if size > roleInlinePolicyLimit-protectedTagKeysReserve {
+		t.Errorf("apply role inline policies use %d characters; IAM allows %d and %d are kept for TagctlProtectedTagKeys",
+			size, roleInlinePolicyLimit, protectedTagKeysReserve)
 	}
 }
 
@@ -219,10 +369,10 @@ var (
 	notSDKCalls = map[string]bool{"ListResources": true}
 )
 
-// Every SDK operation the provider calls must be allowed by one of the two
+// Every SDK operation the provider calls must be allowed by one of the
 // policies, so adding a lister without extending the policy fails here.
 func TestPermissionPolicies_CoverProviderCalls(t *testing.T) {
-	allowed := actionSet(loadPolicyFile(t, "tagctl-scan-policy.json"), loadPolicyFile(t, "tagctl-apply-policy.json"))
+	allowed := actionSet(loadPolicyFile(t, scanPolicyFile), loadPolicyFile(t, applyPolicyFile), loadPolicyFile(t, codeBuildPolicyFile))
 	suffixes := map[string]bool{}
 	for a := range allowed {
 		suffixes[a[strings.Index(a, ":")+1:]] = true

@@ -17,10 +17,26 @@ def policy_yaml(doc, indent):
         out.append(f"{pad}  - Sid: {st['Sid']}")
         out.append(f"{pad}    Effect: {st['Effect']}")
         out.append(f"{pad}    Action:")
-        for a in st["Action"]:
-            out.append(f"{pad}      - {a}")
-        out.append(f'{pad}    Resource: "{st["Resource"]}"')
+        out.extend(f"{pad}      - {a}" for a in st["Action"])
+        if isinstance(st["Resource"], str):
+            out.append(f'{pad}    Resource: "{st["Resource"]}"')
+        else:
+            out.append(f"{pad}    Resource:")
+            out.extend(f'{pad}      - "{r}"' for r in st["Resource"])
     return "\n".join(out)
+
+
+def policy_entry(name, source, condition):
+    doc = load(source)
+    if condition is None:
+        return f"        - PolicyName: {name}\n          PolicyDocument:\n{policy_yaml(doc, 12)}\n"
+    return (
+        f"        - Fn::If:\n"
+        f"            - {condition}\n"
+        f"            - PolicyName: {name}\n"
+        f"              PolicyDocument:\n{policy_yaml(doc, 16)}\n"
+        f"            - {{Ref: AWS::NoValue}}\n"
+    )
 
 
 HEADER = """AWSTemplateFormatVersion: "2010-09-09"
@@ -36,13 +52,14 @@ Metadata:
           - TrustedPrincipalArn
           - ExternalId
           - RequireMFA
+          - OrgId
       - Label:
           default: Role settings
         Parameters:
           - RoleName
           - MaxSessionDuration
           - PermissionsBoundaryArn
-
+{extra_groups}
 Parameters:
   TrustedPrincipalArn:
     Type: String
@@ -68,6 +85,15 @@ Parameters:
       roles assumed by people; keep false for CI, where no MFA context exists.
     Default: "{mfa_default}"
     AllowedValues: ["true", "false"]
+  OrgId:
+    Type: String
+    Description: >-
+      Optional. AWS Organizations id. When set, the caller must also belong to
+      this organization (aws:PrincipalOrgID), on top of matching
+      TrustedPrincipalArn.
+    Default: ""
+    AllowedPattern: "^(o-[a-z0-9]{{10,32}})?$"
+    ConstraintDescription: must be empty or an organization id such as o-a1b2c3d4e5
   RoleName:
     Type: String
     Description: Name of the role. Referenced from tagctl.yaml as role_arn.
@@ -85,19 +111,22 @@ Parameters:
     Type: String
     Description: Optional permissions boundary to attach to the role.
     Default: ""
-
+{extra_parameters}
 Conditions:
   HasExternalId:
     Fn::Not:
       - Fn::Equals: [{{Ref: ExternalId}}, ""]
   MFARequired:
     Fn::Equals: [{{Ref: RequireMFA}}, "true"]
+  HasOrgId:
+    Fn::Not:
+      - Fn::Equals: [{{Ref: OrgId}}, ""]
   HasTrustConditions:
-    Fn::Or: [{{Condition: HasExternalId}}, {{Condition: MFARequired}}]
+    Fn::Or: [{{Condition: HasExternalId}}, {{Condition: MFARequired}}, {{Condition: HasOrgId}}]
   HasPermissionsBoundary:
     Fn::Not:
       - Fn::Equals: [{{Ref: PermissionsBoundaryArn}}, ""]
-
+{extra_conditions}
 Resources:
   Role:
     Type: AWS::IAM::Role
@@ -124,8 +153,15 @@ Resources:
                 - StringEquals:
                     Fn::If:
                       - HasExternalId
-                      - sts:ExternalId: {{Ref: ExternalId}}
-                      - {{Ref: AWS::NoValue}}
+                      - Fn::If:
+                          - HasOrgId
+                          - sts:ExternalId: {{Ref: ExternalId}}
+                            aws:PrincipalOrgID: {{Ref: OrgId}}
+                          - sts:ExternalId: {{Ref: ExternalId}}
+                      - Fn::If:
+                          - HasOrgId
+                          - aws:PrincipalOrgID: {{Ref: OrgId}}
+                          - {{Ref: AWS::NoValue}}
                   Bool:
                     Fn::If:
                       - MFARequired
@@ -136,6 +172,55 @@ Resources:
         - Key: managed-by
           Value: tagctl
       Policies:
+"""
+
+APPLY_GROUPS = """      - Label:
+          default: What the role may tag
+        Parameters:
+          - AllowCodeBuildTagging
+          - ProtectedTagKeys
+"""
+
+APPLY_PARAMETERS = """  AllowCodeBuildTagging:
+    Type: String
+    Description: >-
+      Grant codebuild:UpdateProject. CodeBuild has no tag-only action, and this
+      one can also replace a project's buildspec and service role, so it is off
+      by default and tagctl apply reports CodeBuild changes as failed.
+    Default: "false"
+    AllowedValues: ["true", "false"]
+  ProtectedTagKeys:
+    Type: String
+    Description: >-
+      Optional. Comma-separated tag keys, wildcards allowed and no spaces
+      around the commas, that the role may never add, change or remove, such as
+      the keys your ABAC policies check. Adds a Deny on aws:TagKeys.
+    Default: ""
+"""
+
+APPLY_CONDITIONS = """  CodeBuildTagging:
+    Fn::Equals: [{Ref: AllowCodeBuildTagging}, "true"]
+  HasProtectedTagKeys:
+    Fn::Not:
+      - Fn::Equals: [{Ref: ProtectedTagKeys}, ""]
+"""
+
+# Template-only: the denied keys are a deployment parameter, not a JSON file.
+PROTECTED_TAG_KEYS_POLICY = """        - Fn::If:
+            - HasProtectedTagKeys
+            - PolicyName: TagctlProtectedTagKeys
+              PolicyDocument:
+                Version: "2012-10-17"
+                Statement:
+                  - Sid: DenyProtectedTagKeys
+                    Effect: Deny
+                    Action: "*"
+                    Resource: "*"
+                    Condition:
+                      ForAnyValue:StringLike:
+                        aws:TagKeys:
+                          Fn::Split: [",", {Ref: ProtectedTagKeys}]
+            - {Ref: AWS::NoValue}
 """
 
 FOOTER = """
@@ -162,33 +247,47 @@ TEMPLATES = [
         "role_description": "Read-only role for tagctl scans",
         "mfa_default": "false",
         "session_default": 3600,
-        "policies": [("TagctlScan", "tagctl-scan-policy.json")],
+        "extra_groups": "",
+        "extra_parameters": "",
+        "extra_conditions": "",
+        "policies": [("TagctlScan", "tagctl-scan-policy.json", None)],
+        "extra_policies": "",
     },
     {
         "file": "tagctl-apply-role.yaml",
         "description": (
             "tagctl remediation role. Everything the scan role can do, plus "
-            "writing tags on the 106 supported resource types. Assume it only "
-            "to run tagctl apply."
+            "writing tags on the supported resource types, each action scoped "
+            "to the ARNs tagctl tags. Assume it only to run tagctl apply."
         ),
         "role_name": "TagctlApply",
         "role_description": "Read-write role for tagctl apply",
         "mfa_default": "true",
         "session_default": 3600,
+        "extra_groups": APPLY_GROUPS,
+        "extra_parameters": APPLY_PARAMETERS,
+        "extra_conditions": APPLY_CONDITIONS,
         "policies": [
-            ("TagctlScan", "tagctl-scan-policy.json"),
-            ("TagctlApply", "tagctl-apply-policy.json"),
+            ("TagctlScan", "tagctl-scan-policy.json", None),
+            ("TagctlApply", "tagctl-apply-policy.json", None),
+            ("TagctlApplyCodeBuild", "tagctl-apply-codebuild-policy.json", "CodeBuildTagging"),
         ],
+        "extra_policies": PROTECTED_TAG_KEYS_POLICY,
     },
 ]
+
+HEADER_FIELDS = (
+    "description", "role_name", "role_description", "mfa_default", "session_default",
+    "extra_groups", "extra_parameters", "extra_conditions",
+)
 
 
 def main():
     for spec in TEMPLATES:
-        body = HEADER.format(**{k: v for k, v in spec.items() if k not in ("file", "policies")})
-        for name, source in spec["policies"]:
-            body += f"        - PolicyName: {name}\n          PolicyDocument:\n"
-            body += policy_yaml(load(source), 12) + "\n"
+        body = HEADER.format(**{k: spec[k] for k in HEADER_FIELDS})
+        for name, source, condition in spec["policies"]:
+            body += policy_entry(name, source, condition)
+        body += spec["extra_policies"]
         body += FOOTER
         (ROOT / spec["file"]).write_text(body)
         print(f"wrote permissions/aws/{spec['file']}")

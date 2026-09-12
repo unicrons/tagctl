@@ -136,7 +136,7 @@ Two IAM roles, shipped as CloudFormation templates in [`permissions/aws/`](permi
 | | |
 |---|---|
 | `TagctlScan` | Read-only. Runs `scan`, `plan`, `diff`, `normalize`, `terraform` and `cost`. The one for CI and schedules. |
-| `TagctlApply` | The scan policy plus the tag write actions. Only `apply` needs it; trust it to people, behind MFA or an external id. |
+| `TagctlApply` | The scan policy plus the tag write actions, each scoped to the resource types tagctl tags (CodeBuild is opt-in). Only `apply` needs it; trust it to people, behind MFA or an external id. |
 
 ```bash
 aws cloudformation deploy \
