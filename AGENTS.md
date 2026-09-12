@@ -80,8 +80,10 @@ internal/
 │   │                     # Shield, WAF global, Global Accelerator); tags.go is
 │   │                     # the bulk tag layer, resource.go the resource/tag
 │   │                     # helpers, concurrent.go the fan-out/client cache,
-│   │                     # auth.go the AssumeRole provider, cost.go the Cost
-│   │                     # Explorer client for tagctl cost
+│   │                     # pagination.go the page-token loop for operations
+│   │                     # without an SDK paginator, auth.go the AssumeRole
+│   │                     # provider, cost.go the Cost Explorer client for
+│   │                     # tagctl cost
 │   └── k8s/              # Kubernetes resources
 └── types/
     ├── resource.go       # Cloud-agnostic Resource type
@@ -319,7 +321,9 @@ same ids SARIF uses, keep them aligned. The full mapping is the contract in
    resolves the regional client and delegates to `list<Service>From`, which
    takes a narrow API interface so tests can inject a mock. Build resources
    with `p.resource(...)` (tags known) or `p.bulkResource(...)` (bulk source);
-   convert SDK tag slices with `tagsToMap`. A "service not set up" answer
+   convert SDK tag slices with `tagsToMap`. Page with the SDK paginator, or
+   with `paginate` when the operation has none: it follows a token past an
+   empty page and fails on a repeated token. A "service not set up" answer
    (`notSubscribed(err)`) is zero resources at debug level, not an error
 3. Pick the tag source: inline tags from the Describe call when the API returns
    them; otherwise `p.resourceTags(region, arn, fallback)` when the service has

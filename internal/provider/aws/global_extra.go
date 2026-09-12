@@ -78,11 +78,10 @@ func (p *Provider) listGlobalWebACLsFrom(ctx context.Context, client wafGlobalAP
 		return nil, nil
 	}
 	var resources []types.Resource
-	var marker *string
-	for {
+	err := paginate(func(marker *string) (*string, error) {
 		output, err := client.ListWebACLs(ctx, &waf.ListWebACLsInput{NextMarker: marker})
 		if err != nil {
-			return nil, provider.NewProviderError(providerName, "list_waf_web_acls", "", err)
+			return nil, err
 		}
 		for _, acl := range output.WebACLs {
 			id := aws.ToString(acl.WebACLId)
@@ -91,10 +90,10 @@ func (p *Provider) listGlobalWebACLsFrom(ctx context.Context, client wafGlobalAP
 			r.Region = regionGlobal
 			resources = append(resources, r)
 		}
-		if output.NextMarker == nil || len(output.WebACLs) == 0 {
-			break
-		}
-		marker = output.NextMarker
+		return output.NextMarker, nil
+	})
+	if err != nil {
+		return nil, provider.NewProviderError(providerName, "list_waf_web_acls", "", err)
 	}
 	log.Debug("AWS WAF Classic: Found %d global web ACLs", len(resources))
 	return resources, nil

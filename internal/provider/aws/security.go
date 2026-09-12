@@ -378,21 +378,20 @@ func (p *Provider) listRegionalWebACLsFrom(ctx context.Context, client wafRegion
 		return nil, nil
 	}
 	var resources []types.Resource
-	var marker *string
-	for {
+	err := paginate(func(marker *string) (*string, error) {
 		output, err := client.ListWebACLs(ctx, &wafregional.ListWebACLsInput{NextMarker: marker})
 		if err != nil {
-			return nil, provider.NewProviderError(providerName, "list_waf_regional_web_acls", "", err)
+			return nil, err
 		}
 		for _, acl := range output.WebACLs {
 			id := aws.ToString(acl.WebACLId)
 			arn := fmt.Sprintf("arn:aws:waf-regional:%s:%s:webacl/%s", region, p.accountID, id)
 			resources = append(resources, p.bulkResource(region, "aws_wafregional_web_acl", id, aws.ToString(acl.Name), arn, nil))
 		}
-		if output.NextMarker == nil || len(output.WebACLs) == 0 {
-			break
-		}
-		marker = output.NextMarker
+		return output.NextMarker, nil
+	})
+	if err != nil {
+		return nil, provider.NewProviderError(providerName, "list_waf_regional_web_acls", "", err)
 	}
 	log.Debug("AWS WAF Classic: Found %d regional web ACLs in %s", len(resources), region)
 	return resources, nil
@@ -409,19 +408,18 @@ func (p *Provider) listWAFv2WebACLsFrom(ctx context.Context, client wafv2API, re
 		return nil, nil
 	}
 	var resources []types.Resource
-	var marker *string
-	for {
+	err := paginate(func(marker *string) (*string, error) {
 		output, err := client.ListWebACLs(ctx, &wafv2.ListWebACLsInput{Scope: scope, NextMarker: marker})
 		if err != nil {
-			return nil, provider.NewProviderError(providerName, "list_wafv2_web_acls", "", err)
+			return nil, err
 		}
 		for _, acl := range output.WebACLs {
 			resources = append(resources, p.bulkResource(region, "aws_wafv2_web_acl", aws.ToString(acl.Id), aws.ToString(acl.Name), aws.ToString(acl.ARN), nil))
 		}
-		if output.NextMarker == nil || len(output.WebACLs) == 0 {
-			break
-		}
-		marker = output.NextMarker
+		return output.NextMarker, nil
+	})
+	if err != nil {
+		return nil, provider.NewProviderError(providerName, "list_wafv2_web_acls", "", err)
 	}
 	log.Debug("AWS WAFv2: Found %d %s web ACLs in %s", len(resources), scope, region)
 	return resources, nil

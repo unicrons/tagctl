@@ -60,19 +60,18 @@ func (p *Provider) listAmplifyApps(ctx context.Context, region string) ([]types.
 
 func (p *Provider) listAmplifyAppsFrom(ctx context.Context, client amplifyAPI, region string) ([]types.Resource, error) {
 	var resources []types.Resource
-	var next *string
-	for {
-		output, err := client.ListApps(ctx, &amplify.ListAppsInput{NextToken: next})
+	err := paginate(func(token *string) (*string, error) {
+		output, err := client.ListApps(ctx, &amplify.ListAppsInput{NextToken: token})
 		if err != nil {
-			return nil, provider.NewProviderError(providerName, "list_amplify_apps", "", err)
+			return nil, err
 		}
 		for _, app := range output.Apps {
 			resources = append(resources, p.resource(region, "aws_amplify_app", aws.ToString(app.AppId), aws.ToString(app.Name), aws.ToString(app.AppArn), app.Tags, app.CreateTime))
 		}
-		if output.NextToken == nil || len(output.Apps) == 0 {
-			break
-		}
-		next = output.NextToken
+		return output.NextToken, nil
+	})
+	if err != nil {
+		return nil, provider.NewProviderError(providerName, "list_amplify_apps", "", err)
 	}
 	log.Debug("AWS Amplify: Found %d apps in %s", len(resources), region)
 	return resources, nil
