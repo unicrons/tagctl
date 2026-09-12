@@ -267,6 +267,13 @@ The `--output` flag controls what's printed to stdout. Output files are **always
 ```
 </Accordion>
 
+`violations` and `violation_count` repeat the `FAILED` findings for tools that
+read the older key. `by_tag` counts, per policy tag, the resources where the tag
+is `present` or `missing`, and how many of the present ones are `invalid`. An optional tag only counts the resources
+that carry it: its `missing` is always 0, its `compliance_percent` is the share
+of those with a valid value, and it reports 100 when no resource carries it (the
+HTML report shows that tag as not used).
+
 ### Partial scans
 
 A scan is partial when discovery fails for part of the estate: a region or a
@@ -680,6 +687,10 @@ A resource with the same ID in a different account is a different resource.
 When either file is a [partial scan](#partial-scans), `diff` prints a warning to
 stderr: resources discovery missed look new or removed, and their findings look
 regressed or resolved.
+
+Older versions counted every resource without an optional tag as `missing`.
+Comparing a scan written by one of them with a newer scan shows a one-off jump
+in that tag's row under **By tag**; findings and required tags compare as before.
 
 ### Example output
 

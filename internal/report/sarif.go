@@ -135,7 +135,7 @@ func WriteSARIF(w io.Writer, scan *types.ScanResult, opts SARIFOptions) error {
 		policyFile = "tagctl.yaml"
 	}
 
-	failures := failedFindings(scan)
+	failures := scan.FailedFindings()
 
 	log := SARIFLog{
 		Schema:  sarifSchema,

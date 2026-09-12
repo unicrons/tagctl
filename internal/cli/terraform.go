@@ -175,7 +175,7 @@ func printTerraformResult(result *types.ScanResult, source string, changedOnly b
 	fmt.Printf("Source: %s (%s)\n", source, scope)
 	fmt.Printf("Checked %d resources against the tag policy\n\n", result.TotalResources)
 
-	failures := failedFindings(result)
+	failures := result.FailedFindings()
 
 	if len(failures) == 0 {
 		fmt.Printf("All %d resources satisfy the policy.\n", result.TotalResources)
@@ -205,15 +205,4 @@ func printTerraformResult(result *types.ScanResult, source string, changedOnly b
 
 	fmt.Println()
 	fmt.Println("Fix the tags in your Terraform, or set them with the provider's default_tags.")
-}
-
-// failedFindings returns only the failures of an evaluation.
-func failedFindings(result *types.ScanResult) []types.Finding {
-	failures := make([]types.Finding, 0, len(result.Findings))
-	for _, finding := range result.Findings {
-		if finding.Status == types.StatusFailed {
-			failures = append(failures, finding)
-		}
-	}
-	return failures
 }

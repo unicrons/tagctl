@@ -103,7 +103,7 @@ footer code{font:12px var(--mono)}
 {{if .Tags}}
   <div class="policy">
   {{range .Tags}}
-    <div class="tag{{if eq .Compliant 0}} zero{{end}}"><span>{{.Name}}</span><b>{{printf "%.1f" .Pct}}%</b><small>{{.Compliant}} of {{.Total}} tagged{{if not .Required}} · optional{{end}}</small></div>
+    <div class="tag{{if eq .Pct 0.0}} zero{{end}}"><span>{{.Name}}</span>{{if and (not .Required) (eq .Total 0)}}<b>not used</b><small>no resource carries it · optional</small>{{else}}<b>{{printf "%.1f" .Pct}}%</b><small>{{.Compliant}} of {{.Total}} tagged{{if not .Required}} · optional{{end}}</small>{{end}}</div>
   {{end}}
   </div>
 {{end}}

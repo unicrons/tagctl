@@ -1,0 +1,512 @@
+{
+  "compliance_percent": 10,
+  "compliant_count": 1,
+  "required_by_tag": {
+    "cost-center": {
+      "tag": "cost-center",
+      "required": true,
+      "present": 2,
+      "missing": 8,
+      "invalid": 1,
+      "compliance_percent": 10
+    },
+    "environment": {
+      "tag": "environment",
+      "required": true,
+      "present": 4,
+      "missing": 6,
+      "invalid": 1,
+      "compliance_percent": 30
+    },
+    "owner": {
+      "tag": "owner",
+      "required": true,
+      "present": 2,
+      "missing": 8,
+      "invalid": 1,
+      "compliance_percent": 10
+    }
+  },
+  "total_resources": 10,
+  "violation_count": 27,
+  "violations": [
+    {
+      "resource": {
+        "id": "i-0abc123def456789",
+        "arn": "arn:aws:ec2:us-east-1:123456789012:instance/i-0abc123def456789",
+        "type": "aws_instance",
+        "name": "web-prod-api-1",
+        "region": "us-east-1",
+        "account": "production",
+        "provider": "aws",
+        "tags": {
+          "Name": "web-prod-api-1"
+        },
+        "created_at": "2025-06-15T10:30:00Z"
+      },
+      "tag": "environment",
+      "status": "FAILED",
+      "reason": "missing"
+    },
+    {
+      "resource": {
+        "id": "i-0abc123def456789",
+        "arn": "arn:aws:ec2:us-east-1:123456789012:instance/i-0abc123def456789",
+        "type": "aws_instance",
+        "name": "web-prod-api-1",
+        "region": "us-east-1",
+        "account": "production",
+        "provider": "aws",
+        "tags": {
+          "Name": "web-prod-api-1"
+        },
+        "created_at": "2025-06-15T10:30:00Z"
+      },
+      "tag": "owner",
+      "status": "FAILED",
+      "reason": "missing"
+    },
+    {
+      "resource": {
+        "id": "i-0abc123def456789",
+        "arn": "arn:aws:ec2:us-east-1:123456789012:instance/i-0abc123def456789",
+        "type": "aws_instance",
+        "name": "web-prod-api-1",
+        "region": "us-east-1",
+        "account": "production",
+        "provider": "aws",
+        "tags": {
+          "Name": "web-prod-api-1"
+        },
+        "created_at": "2025-06-15T10:30:00Z"
+      },
+      "tag": "cost-center",
+      "status": "FAILED",
+      "reason": "missing"
+    },
+    {
+      "resource": {
+        "id": "i-0def456789abc123",
+        "arn": "arn:aws:ec2:us-east-1:123456789012:instance/i-0def456789abc123",
+        "type": "aws_instance",
+        "name": "api-staging-worker-2",
+        "region": "us-east-1",
+        "account": "staging",
+        "provider": "aws",
+        "tags": {
+          "Name": "api-staging-worker-2",
+          "environment": "staging"
+        },
+        "created_at": "2025-08-20T14:15:00Z"
+      },
+      "tag": "owner",
+      "status": "FAILED",
+      "reason": "missing"
+    },
+    {
+      "resource": {
+        "id": "i-0def456789abc123",
+        "arn": "arn:aws:ec2:us-east-1:123456789012:instance/i-0def456789abc123",
+        "type": "aws_instance",
+        "name": "api-staging-worker-2",
+        "region": "us-east-1",
+        "account": "staging",
+        "provider": "aws",
+        "tags": {
+          "Name": "api-staging-worker-2",
+          "environment": "staging"
+        },
+        "created_at": "2025-08-20T14:15:00Z"
+      },
+      "tag": "cost-center",
+      "status": "FAILED",
+      "reason": "missing"
+    },
+    {
+      "resource": {
+        "id": "vol-0xyz789abc123456",
+        "arn": "arn:aws:ec2:us-east-1:123456789012:volume/vol-0xyz789abc123456",
+        "type": "aws_ebs_volume",
+        "name": "",
+        "region": "us-east-1",
+        "account": "production",
+        "provider": "aws",
+        "tags": {},
+        "created_at": "2025-06-15T10:30:00Z"
+      },
+      "tag": "environment",
+      "status": "FAILED",
+      "reason": "missing"
+    },
+    {
+      "resource": {
+        "id": "vol-0xyz789abc123456",
+        "arn": "arn:aws:ec2:us-east-1:123456789012:volume/vol-0xyz789abc123456",
+        "type": "aws_ebs_volume",
+        "name": "",
+        "region": "us-east-1",
+        "account": "production",
+        "provider": "aws",
+        "tags": {},
+        "created_at": "2025-06-15T10:30:00Z"
+      },
+      "tag": "owner",
+      "status": "FAILED",
+      "reason": "missing"
+    },
+    {
+      "resource": {
+        "id": "vol-0xyz789abc123456",
+        "arn": "arn:aws:ec2:us-east-1:123456789012:volume/vol-0xyz789abc123456",
+        "type": "aws_ebs_volume",
+        "name": "",
+        "region": "us-east-1",
+        "account": "production",
+        "provider": "aws",
+        "tags": {},
+        "created_at": "2025-06-15T10:30:00Z"
+      },
+      "tag": "cost-center",
+      "status": "FAILED",
+      "reason": "missing"
+    },
+    {
+      "resource": {
+        "id": "legacy-data-bucket",
+        "arn": "arn:aws:s3:::legacy-data-bucket",
+        "type": "aws_s3_bucket",
+        "name": "legacy-data-bucket",
+        "region": "us-east-1",
+        "account": "production",
+        "provider": "aws",
+        "tags": {},
+        "created_at": "2023-03-10T08:00:00Z"
+      },
+      "tag": "environment",
+      "status": "FAILED",
+      "reason": "missing"
+    },
+    {
+      "resource": {
+        "id": "legacy-data-bucket",
+        "arn": "arn:aws:s3:::legacy-data-bucket",
+        "type": "aws_s3_bucket",
+        "name": "legacy-data-bucket",
+        "region": "us-east-1",
+        "account": "production",
+        "provider": "aws",
+        "tags": {},
+        "created_at": "2023-03-10T08:00:00Z"
+      },
+      "tag": "owner",
+      "status": "FAILED",
+      "reason": "missing"
+    },
+    {
+      "resource": {
+        "id": "legacy-data-bucket",
+        "arn": "arn:aws:s3:::legacy-data-bucket",
+        "type": "aws_s3_bucket",
+        "name": "legacy-data-bucket",
+        "region": "us-east-1",
+        "account": "production",
+        "provider": "aws",
+        "tags": {},
+        "created_at": "2023-03-10T08:00:00Z"
+      },
+      "tag": "cost-center",
+      "status": "FAILED",
+      "reason": "missing"
+    },
+    {
+      "resource": {
+        "id": "db-prod-main",
+        "arn": "arn:aws:rds:us-east-1:123456789012:db:db-prod-main",
+        "type": "aws_db_instance",
+        "name": "db-prod-main",
+        "region": "us-east-1",
+        "account": "production",
+        "provider": "aws",
+        "tags": {
+          "environment": "prod"
+        },
+        "created_at": "2024-06-01T09:00:00Z"
+      },
+      "tag": "owner",
+      "status": "FAILED",
+      "reason": "missing"
+    },
+    {
+      "resource": {
+        "id": "db-prod-main",
+        "arn": "arn:aws:rds:us-east-1:123456789012:db:db-prod-main",
+        "type": "aws_db_instance",
+        "name": "db-prod-main",
+        "region": "us-east-1",
+        "account": "production",
+        "provider": "aws",
+        "tags": {
+          "environment": "prod"
+        },
+        "created_at": "2024-06-01T09:00:00Z"
+      },
+      "tag": "cost-center",
+      "status": "FAILED",
+      "reason": "missing"
+    },
+    {
+      "resource": {
+        "id": "api-handler",
+        "arn": "arn:aws:lambda:us-east-1:123456789012:function:api-handler",
+        "type": "aws_lambda_function",
+        "name": "api-handler",
+        "region": "us-east-1",
+        "account": "production",
+        "provider": "aws",
+        "tags": {
+          "team": "backend"
+        },
+        "created_at": "2025-01-10T16:00:00Z"
+      },
+      "tag": "environment",
+      "status": "FAILED",
+      "reason": "missing"
+    },
+    {
+      "resource": {
+        "id": "api-handler",
+        "arn": "arn:aws:lambda:us-east-1:123456789012:function:api-handler",
+        "type": "aws_lambda_function",
+        "name": "api-handler",
+        "region": "us-east-1",
+        "account": "production",
+        "provider": "aws",
+        "tags": {
+          "team": "backend"
+        },
+        "created_at": "2025-01-10T16:00:00Z"
+      },
+      "tag": "owner",
+      "status": "FAILED",
+      "reason": "missing"
+    },
+    {
+      "resource": {
+        "id": "api-handler",
+        "arn": "arn:aws:lambda:us-east-1:123456789012:function:api-handler",
+        "type": "aws_lambda_function",
+        "name": "api-handler",
+        "region": "us-east-1",
+        "account": "production",
+        "provider": "aws",
+        "tags": {
+          "team": "backend"
+        },
+        "created_at": "2025-01-10T16:00:00Z"
+      },
+      "tag": "cost-center",
+      "status": "FAILED",
+      "reason": "missing"
+    },
+    {
+      "resource": {
+        "id": "i-bad",
+        "type": "aws_instance",
+        "name": "",
+        "region": "eu-west-1",
+        "account": "production",
+        "provider": "aws",
+        "tags": {
+          "cost-center": "ops-1",
+          "environment": "production",
+          "owner": "john",
+          "project": "Tagctl",
+          "team": "Backend"
+        }
+      },
+      "tag": "environment",
+      "status": "FAILED",
+      "reason": "invalid_value",
+      "expected": "[dev, staging, prod]",
+      "actual": "production"
+    },
+    {
+      "resource": {
+        "id": "i-bad",
+        "type": "aws_instance",
+        "name": "",
+        "region": "eu-west-1",
+        "account": "production",
+        "provider": "aws",
+        "tags": {
+          "cost-center": "ops-1",
+          "environment": "production",
+          "owner": "john",
+          "project": "Tagctl",
+          "team": "Backend"
+        }
+      },
+      "tag": "owner",
+      "status": "FAILED",
+      "reason": "invalid_format",
+      "expected": "^.+@.+$",
+      "actual": "john"
+    },
+    {
+      "resource": {
+        "id": "i-bad",
+        "type": "aws_instance",
+        "name": "",
+        "region": "eu-west-1",
+        "account": "production",
+        "provider": "aws",
+        "tags": {
+          "cost-center": "ops-1",
+          "environment": "production",
+          "owner": "john",
+          "project": "Tagctl",
+          "team": "Backend"
+        }
+      },
+      "tag": "cost-center",
+      "status": "FAILED",
+      "reason": "invalid_format",
+      "expected": "^[A-Z]{2,4}-\\d{3,6}$",
+      "actual": "ops-1"
+    },
+    {
+      "resource": {
+        "id": "i-bad",
+        "type": "aws_instance",
+        "name": "",
+        "region": "eu-west-1",
+        "account": "production",
+        "provider": "aws",
+        "tags": {
+          "cost-center": "ops-1",
+          "environment": "production",
+          "owner": "john",
+          "project": "Tagctl",
+          "team": "Backend"
+        }
+      },
+      "tag": "team",
+      "status": "FAILED",
+      "reason": "invalid_value",
+      "expected": "[backend, platform]",
+      "actual": "Backend"
+    },
+    {
+      "resource": {
+        "id": "i-bad",
+        "type": "aws_instance",
+        "name": "",
+        "region": "eu-west-1",
+        "account": "production",
+        "provider": "aws",
+        "tags": {
+          "cost-center": "ops-1",
+          "environment": "production",
+          "owner": "john",
+          "project": "Tagctl",
+          "team": "Backend"
+        }
+      },
+      "tag": "project",
+      "status": "FAILED",
+      "reason": "invalid_format",
+      "expected": "^[a-z-]+$",
+      "actual": "Tagctl"
+    },
+    {
+      "resource": {
+        "id": "/aws/lambda/fn",
+        "type": "aws_cloudwatch_log_group",
+        "name": "",
+        "region": "eu-west-1",
+        "account": "staging",
+        "provider": "aws",
+        "tags": {
+          "project": "billing"
+        }
+      },
+      "tag": "environment",
+      "status": "FAILED",
+      "reason": "missing"
+    },
+    {
+      "resource": {
+        "id": "/aws/lambda/fn",
+        "type": "aws_cloudwatch_log_group",
+        "name": "",
+        "region": "eu-west-1",
+        "account": "staging",
+        "provider": "aws",
+        "tags": {
+          "project": "billing"
+        }
+      },
+      "tag": "owner",
+      "status": "FAILED",
+      "reason": "missing"
+    },
+    {
+      "resource": {
+        "id": "/aws/lambda/fn",
+        "type": "aws_cloudwatch_log_group",
+        "name": "",
+        "region": "eu-west-1",
+        "account": "staging",
+        "provider": "aws",
+        "tags": {
+          "project": "billing"
+        }
+      },
+      "tag": "cost-center",
+      "status": "FAILED",
+      "reason": "missing"
+    },
+    {
+      "resource": {
+        "id": "/aws/lambda/fn",
+        "type": "aws_cloudwatch_log_group",
+        "name": "",
+        "region": "us-east-1",
+        "account": "staging",
+        "provider": "aws",
+        "tags": {}
+      },
+      "tag": "environment",
+      "status": "FAILED",
+      "reason": "missing"
+    },
+    {
+      "resource": {
+        "id": "/aws/lambda/fn",
+        "type": "aws_cloudwatch_log_group",
+        "name": "",
+        "region": "us-east-1",
+        "account": "staging",
+        "provider": "aws",
+        "tags": {}
+      },
+      "tag": "owner",
+      "status": "FAILED",
+      "reason": "missing"
+    },
+    {
+      "resource": {
+        "id": "/aws/lambda/fn",
+        "type": "aws_cloudwatch_log_group",
+        "name": "",
+        "region": "us-east-1",
+        "account": "staging",
+        "provider": "aws",
+        "tags": {}
+      },
+      "tag": "cost-center",
+      "status": "FAILED",
+      "reason": "missing"
+    }
+  ]
+}

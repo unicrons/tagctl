@@ -80,7 +80,7 @@ func runPlan(cmd *cobra.Command, args []string) error {
 	warnPartialScan(os.Stderr, scanPath, scanResult, "resources it missed get no changes in this plan")
 
 	log.Info("Using scan results from: %s", scanPath)
-	log.Info("Found %d violations to analyze", len(scanResult.Violations))
+	log.Info("Found %d failed findings to analyze", len(scanResult.FailedFindings()))
 
 	// Create planner and generate plan with spinner
 	spinner = NewSpinner("Analyzing resources for auto-fix opportunities...")

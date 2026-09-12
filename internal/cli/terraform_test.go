@@ -135,36 +135,3 @@ func TestLogUncheckedTags_NamesSkippedResourcesAndUncheckedKeys(t *testing.T) {
 		t.Errorf("second line = %q, want the address and its unchecked keys", lines[1])
 	}
 }
-
-func TestFailedFindings(t *testing.T) {
-	result := &types.ScanResult{
-		Findings: []types.Finding{
-			{Resource: types.Resource{ID: "i-1"}, Tag: "owner", Status: types.StatusFailed},
-			{Resource: types.Resource{ID: "i-2"}, Tag: "owner", Status: types.StatusPass},
-			{Resource: types.Resource{ID: "i-3"}, Tag: "env", Status: types.StatusFailed},
-		},
-	}
-
-	failures := failedFindings(result)
-
-	if len(failures) != 2 {
-		t.Fatalf("got %d failures, want 2", len(failures))
-	}
-	for _, finding := range failures {
-		if finding.Status != types.StatusFailed {
-			t.Errorf("finding for %s has status %q, want FAILED", finding.Resource.ID, finding.Status)
-		}
-	}
-}
-
-func TestFailedFindings_AllPassing(t *testing.T) {
-	result := &types.ScanResult{
-		Findings: []types.Finding{
-			{Resource: types.Resource{ID: "i-1"}, Tag: "owner", Status: types.StatusPass},
-		},
-	}
-
-	if failures := failedFindings(result); len(failures) != 0 {
-		t.Errorf("got %d failures for an all-passing scan, want 0", len(failures))
-	}
-}

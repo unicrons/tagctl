@@ -97,6 +97,31 @@ func TestWriteHTML_MarksPartialScan(t *testing.T) {
 	}
 }
 
+func TestWriteHTML_OptionalTagNoResourceCarriesReadsNotUsed(t *testing.T) {
+	scan := scanOf(failed("i-1", "aws_instance", "123", tagOwner, types.ReasonMissing))
+	scan.TotalResources = 1
+	scan.ByTag = map[string]*types.TagStats{
+		tagOwner:  {Tag: tagOwner, Required: true, Missing: 1},
+		"project": {Tag: "project", CompliancePct: 100},
+	}
+
+	var buf bytes.Buffer
+	if err := WriteHTML(&buf, scan, HTMLOptions{}); err != nil {
+		t.Fatalf("WriteHTML: %v", err)
+	}
+	out := buf.String()
+
+	if got := strings.Count(out, `<div class="tag zero">`); got != 1 {
+		t.Errorf("rendered %d zero-coverage tag chips, want 1 (the required tag only)", got)
+	}
+	if !strings.Contains(out, `<span>project</span><b>not used</b>`) {
+		t.Error("optional tag no resource carries does not read as not used")
+	}
+	if strings.Contains(out, "0 of 0 tagged") {
+		t.Error("optional tag no resource carries still renders a 0 of 0 count")
+	}
+}
+
 func TestBuildHTMLReport_Matrix(t *testing.T) {
 	scan := scanOf(
 		passed("i-1", "aws_instance", "123", tagEnv),

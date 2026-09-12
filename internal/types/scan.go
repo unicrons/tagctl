@@ -20,13 +20,13 @@ type ScanResult struct {
 	// CompliantCount is the number of fully compliant resources.
 	CompliantCount int `json:"compliant_count"`
 
-	// ViolationCount is the total number of violations found.
+	// ViolationCount is the number of FAILED findings.
 	ViolationCount int `json:"violation_count"`
 
 	// CompliancePct is the percentage of compliant resources.
 	CompliancePct float64 `json:"compliance_percent"`
 
-	// Violations is the list of all violations found (DEPRECATED: use Findings).
+	// Violations repeats the FAILED findings, in order (DEPRECATED: use Findings).
 	Violations []Violation `json:"violations"`
 
 	// Findings is the list of all compliance findings (PASS and FAILED).
@@ -48,6 +48,23 @@ func NewScanResult() *ScanResult {
 	}
 }
 
+// FailedFindings returns the FAILED findings, reading the deprecated
+// Violations field when the scan was written by an older version.
+func (s *ScanResult) FailedFindings() []Finding {
+	failures := make([]Finding, 0, len(s.Findings))
+	for _, finding := range s.Findings {
+		if finding.Status == StatusFailed {
+			failures = append(failures, finding)
+		}
+	}
+
+	if len(failures) == 0 && len(s.Violations) > 0 {
+		failures = ViolationsToFindings(s.Violations)
+	}
+
+	return failures
+}
+
 // AccountStats contains per-account statistics.
 type AccountStats struct {
 	// Account is the account identifier.
@@ -66,7 +83,8 @@ type AccountStats struct {
 	CompliancePct float64 `json:"compliance_percent"`
 }
 
-// TagStats contains per-tag statistics.
+// TagStats contains per-tag statistics. An optional tag only counts the
+// resources that carry it.
 type TagStats struct {
 	// Tag is the tag name.
 	Tag string `json:"tag"`
@@ -77,7 +95,7 @@ type TagStats struct {
 	// Present is the count of resources with this tag.
 	Present int `json:"present"`
 
-	// Missing is the count of resources missing this tag.
+	// Missing is the count of resources missing this tag; always 0 for an optional tag.
 	Missing int `json:"missing"`
 
 	// Invalid is the count of resources with invalid values.
@@ -100,9 +118,11 @@ func (s *ScanResult) CalculateCompliance() {
 	}
 
 	for _, tag := range s.ByTag {
-		total := tag.Present + tag.Missing
-		if total > 0 {
+		switch total := tag.Present + tag.Missing; {
+		case total > 0:
 			tag.CompliancePct = float64(tag.Present-tag.Invalid) / float64(total) * 100
+		case !tag.Required:
+			tag.CompliancePct = 100
 		}
 	}
 }

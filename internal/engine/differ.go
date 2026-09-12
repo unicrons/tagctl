@@ -63,23 +63,12 @@ type findingKey struct {
 
 // failedFindingsByKey indexes only the FAILED findings of a scan.
 func failedFindingsByKey(scan *types.ScanResult) map[findingKey]types.Finding {
-	failures := make(map[findingKey]types.Finding, len(scan.Findings))
-
-	for _, finding := range scan.Findings {
-		if finding.Status != types.StatusFailed {
-			continue
-		}
-		failures[keyOf(finding)] = finding
+	failures := scan.FailedFindings()
+	byKey := make(map[findingKey]types.Finding, len(failures))
+	for _, finding := range failures {
+		byKey[keyOf(finding)] = finding
 	}
-
-	// Older scan files carry findings under the deprecated Violations field.
-	if len(failures) == 0 {
-		for _, finding := range types.ViolationsToFindings(scan.Violations) {
-			failures[keyOf(finding)] = finding
-		}
-	}
-
-	return failures
+	return byKey
 }
 
 func keyOf(finding types.Finding) findingKey {
