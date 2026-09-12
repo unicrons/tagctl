@@ -40,7 +40,7 @@ type Applier interface {
 	Apply(ctx context.Context, plan *types.Plan) (*ApplyResult, error)
 }
 
-// ApplyCallback is called for each change applied.
+// ApplyCallback is called once per change; calls never run concurrently.
 type ApplyCallback func(change types.TagChange, success bool, err error)
 
 // RealApplier is the production implementation of Applier.
@@ -94,8 +94,25 @@ func (a *RealApplier) SetCallback(cb ApplyCallback) {
 	a.callback = cb
 }
 
-// Apply executes the changes in a plan.
+// ValidatePlan returns an error for the first change that is not an add or an
+// update, the only actions the applier performs.
+func ValidatePlan(plan *types.Plan) error {
+	for _, c := range plan.Changes {
+		if c.Action != types.ActionAdd && c.Action != types.ActionUpdate {
+			return fmt.Errorf("unsupported action %q for tag %q on %s: apply only adds and updates tags",
+				c.Action, c.Tag, c.Resource.Identity())
+		}
+	}
+	return nil
+}
+
+// Apply executes the changes in a plan. It rejects the whole plan before any
+// provider call when ValidatePlan fails.
 func (a *RealApplier) Apply(ctx context.Context, plan *types.Plan) (*ApplyResult, error) {
+	if err := ValidatePlan(plan); err != nil {
+		return nil, err
+	}
+
 	start := time.Now()
 
 	result := &ApplyResult{
@@ -113,18 +130,30 @@ func (a *RealApplier) Apply(ctx context.Context, plan *types.Plan) (*ApplyResult
 	sem := make(chan struct{}, a.concurrency)
 	var wg sync.WaitGroup
 	var mu sync.Mutex
+	record := func(changes []types.TagChange, err error) {
+		mu.Lock()
+		defer mu.Unlock()
+		for _, change := range changes {
+			if err != nil {
+				result.Errors = append(result.Errors, ApplyError{Change: change, Error: err.Error()})
+			}
+			if a.callback != nil {
+				a.callback(change, err == nil, err)
+			}
+		}
+	}
 
 	for _, changes := range changesByResource {
-		wg.Add(1)
-		sem <- struct{}{}
-		go func(changes []types.TagChange) {
-			defer wg.Done()
+		select {
+		case sem <- struct{}{}:
+		case <-ctx.Done():
+			record(changes, ctx.Err())
+			continue
+		}
+		wg.Go(func() {
 			defer func() { <-sem }()
-			errs := a.applyResourceChanges(ctx, changes)
-			mu.Lock()
-			result.Errors = append(result.Errors, errs...)
-			mu.Unlock()
-		}(changes)
+			record(changes, a.applyResourceChanges(ctx, changes))
+		})
 	}
 	wg.Wait()
 
@@ -135,45 +164,24 @@ func (a *RealApplier) Apply(ctx context.Context, plan *types.Plan) (*ApplyResult
 }
 
 // applyResourceChanges applies every tag change for a single resource in one
-// provider call and returns one error per change when that call fails.
-func (a *RealApplier) applyResourceChanges(ctx context.Context, changes []types.TagChange) []ApplyError {
+// provider call.
+func (a *RealApplier) applyResourceChanges(ctx context.Context, changes []types.TagChange) error {
+	// select picks at random, so a slot can still be handed out after cancel.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	resource := changes[0].Resource
 	p, ok := a.providers[providerKey(resource.Provider, resource.Account)]
 	if !ok {
-		return a.reportFailure(changes, fmt.Errorf("no %s provider configured for account %q", resource.Provider, resource.Account))
+		return fmt.Errorf("no %s provider configured for account %q", resource.Provider, resource.Account)
 	}
 
-	// Removals are handled by omitting the tag, so only set values are sent.
 	tags := make(map[string]string, len(changes))
 	for _, change := range changes {
-		if change.Action != types.ActionRemove {
-			tags[change.Tag] = change.NewValue
-		}
+		tags[change.Tag] = change.NewValue
 	}
-
-	if err := p.ApplyTags(ctx, taggingIdentifier(changes[0].Resource), tags); err != nil {
-		return a.reportFailure(changes, err)
-	}
-
-	for _, change := range changes {
-		if a.callback != nil {
-			a.callback(change, true, nil)
-		}
-	}
-	return nil
-}
-
-// reportFailure records the same error against every change on a resource,
-// since they were attempted as a single provider call.
-func (a *RealApplier) reportFailure(changes []types.TagChange, err error) []ApplyError {
-	errs := make([]ApplyError, 0, len(changes))
-	for _, change := range changes {
-		errs = append(errs, ApplyError{Change: change, Error: err.Error()})
-		if a.callback != nil {
-			a.callback(change, false, err)
-		}
-	}
-	return errs
+	return p.ApplyTags(ctx, taggingIdentifier(resource), tags)
 }
 
 // idAddressedTypes lists the AWS resource types whose tagging API takes the

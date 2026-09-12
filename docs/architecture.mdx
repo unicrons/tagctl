@@ -315,7 +315,9 @@ func (p *Provider) ApplyTags(ctx context.Context, id string, tags map[string]str
   with a semaphore of 16 concurrent calls; services without one are skipped
 - The SDK HTTP client uses a 5s connect timeout, so an unreachable regional
   endpoint costs seconds, not minutes
-- Applier processes changes with configurable concurrency
+- Applier processes resources with configurable concurrency, runs its progress
+  callback one change at a time and stops dispatching once the context is
+  cancelled
 - All operations respect context cancellation
 
 ```go
