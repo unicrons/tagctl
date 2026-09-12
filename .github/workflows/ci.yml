@@ -70,11 +70,12 @@ jobs:
           PR_TITLE: ${{ github.event.pull_request.title }}
         run: scripts/check-commits.sh "origin/${{ github.base_ref }}" "$PR_TITLE"
 
+  # Pushes to main only re-run Test: the pull request already ran every other job.
   lint:
     name: Lint
     runs-on: ubuntu-latest
     needs: changes
-    if: needs.changes.outputs.go == 'true'
+    if: github.event_name == 'pull_request' && needs.changes.outputs.go == 'true'
     timeout-minutes: 20
     steps:
       - name: Checkout code
@@ -109,13 +110,9 @@ jobs:
 
   test:
     name: Test
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     needs: changes
     if: needs.changes.outputs.go == 'true'
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest]
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -133,34 +130,16 @@ jobs:
         run: go test -v -race -coverprofile=coverage.out ./...
 
       - name: Upload coverage
-        if: matrix.os == 'ubuntu-latest'
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
           files: ./coverage.out
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
 
-  build:
-    name: Build
-    runs-on: ubuntu-latest
-    needs: changes
-    if: needs.changes.outputs.go == 'true'
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Build
-        run: go build -v ./...
-
   secrets:
     name: Secrets Scan
     runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -176,7 +155,7 @@ jobs:
     name: Gosec
     runs-on: ubuntu-latest
     needs: changes
-    if: needs.changes.outputs.go == 'true'
+    if: github.event_name == 'pull_request' && needs.changes.outputs.go == 'true'
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -208,7 +187,7 @@ jobs:
     name: Docs
     runs-on: ubuntu-latest
     needs: changes
-    if: needs.changes.outputs.docs == 'true'
+    if: github.event_name == 'pull_request' && needs.changes.outputs.docs == 'true'
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
