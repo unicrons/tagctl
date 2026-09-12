@@ -3,6 +3,7 @@ package aws
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/credentials/stscreds"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
+	"golang.org/x/term"
 
 	cfgpkg "github.com/unicrons/tagctl/internal/config"
 	"github.com/unicrons/tagctl/internal/log"
@@ -54,8 +56,26 @@ func assumeRoleWith(cfg aws.Config, client stscreds.AssumeRoleAPIClient, account
 // mfaTokenFromStdin prompts on stderr so the code never lands in a report
 // redirected from stdout.
 func mfaTokenFromStdin() (string, error) {
-	fmt.Fprint(os.Stderr, "MFA token code: ")
-	code, err := bufio.NewReader(os.Stdin).ReadString('\n')
+	fd := int(os.Stdin.Fd())
+	return readMFAToken(os.Stderr, os.Stdin, term.IsTerminal(fd), func() ([]byte, error) {
+		return term.ReadPassword(fd)
+	})
+}
+
+// readMFAToken reads the code without echo from a terminal and as a plain
+// line from a pipe, where there is nothing to hide and no terminal to configure.
+func readMFAToken(prompt io.Writer, in io.Reader, isTerminal bool, readPassword func() ([]byte, error)) (string, error) {
+	fmt.Fprint(prompt, "MFA token code: ")
+	if isTerminal {
+		code, err := readPassword()
+		// The typed Enter is not echoed either, so the next line would join the prompt.
+		fmt.Fprintln(prompt)
+		if err != nil {
+			return "", fmt.Errorf("reading MFA token: %w", err)
+		}
+		return strings.TrimSpace(string(code)), nil
+	}
+	code, err := bufio.NewReader(in).ReadString('\n')
 	if err != nil {
 		return "", fmt.Errorf("reading MFA token: %w", err)
 	}
