@@ -8,7 +8,8 @@ This file provides guidance for Claude Code when working on this project.
 
 ## Tech Stack
 
-- **Language**: Go 1.26+ (see `go.mod`)
+- **Language**: Go 1.26.6+ (see `go.mod`); `.devcontainer/` pins the Go 1.26
+  image (`GOTOOLCHAIN=local`), bump its tag with a new Go minor in `go.mod`
 - **CLI Framework**: Cobra + Viper
 - **Cloud SDK**: aws-sdk-go-v2 (AWS), client-go (Kubernetes)
 - **Config**: YAML via Viper
