@@ -73,7 +73,6 @@
         "cloudwatch:DescribeAlarms",
         "cloudformation:DescribeStacks",
         "codebuild:ListProjects",
-        "codebuild:BatchGetProjects",
         "secretsmanager:ListSecrets",
         "acm:ListCertificates",
         "kms:ListKeys",

@@ -108,7 +108,7 @@ func TestBulkTagFilterGroups_CoverBulkReadTypes(t *testing.T) {
 			seen[f] = true
 		}
 	}
-	for _, want := range []string{"s3", "logs:log-group", "elasticloadbalancing:targetgroup", "route53:hostedzone", "iam:role", "states:stateMachine", "cloudwatch:alarm"} {
+	for _, want := range []string{"s3", "logs:log-group", "elasticloadbalancing:targetgroup", "route53:hostedzone", "iam:role", "states:stateMachine", "cloudwatch:alarm", "codebuild:project"} {
 		if !seen[want] {
 			t.Errorf("filter %q missing", want)
 		}

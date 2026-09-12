@@ -32,7 +32,7 @@ var bulkTagFilterGroups = [][]string{
 	{"codeartifact:domain", "codeartifact:repository", "codecommit:repository", "codepipeline", "catalog:portfolio", "wellarchitected:workload"},
 	{"athena:workgroup", "dms:rep", "datasync:task", "elasticmapreduce:cluster", "glacier:vaults", "memorydb:cluster"},
 	{"mq:broker", "ses:identity", "ses:configuration-set", "storagegateway:gateway", "transfer:server", "appstream:fleet"},
-	{"appstream:stack", "ssm:parameter", "ssm-incidents:response-plan", "workspaces:workspace"},
+	{"appstream:stack", "ssm:parameter", "ssm-incidents:response-plan", "workspaces:workspace", "codebuild:project"},
 }
 
 // taggingAPI is the subset of the Resource Groups Tagging API used to read

@@ -1,6 +1,6 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >-
-  tagctl remediation role. Everything the scan role can do, plus writing tags on the 106 supported resource types. Assume it only to run tagctl apply.
+  tagctl remediation role. Everything the scan role can do, plus writing tags on the supported resource types, each action scoped to the ARNs tagctl tags. Assume it only to run tagctl apply.
 
 Metadata:
   AWS::CloudFormation::Interface:
@@ -11,12 +11,18 @@ Metadata:
           - TrustedPrincipalArn
           - ExternalId
           - RequireMFA
+          - OrgId
       - Label:
           default: Role settings
         Parameters:
           - RoleName
           - MaxSessionDuration
           - PermissionsBoundaryArn
+      - Label:
+          default: What the role may tag
+        Parameters:
+          - AllowCodeBuildTagging
+          - ProtectedTagKeys
 
 Parameters:
   TrustedPrincipalArn:
@@ -43,6 +49,15 @@ Parameters:
       roles assumed by people; keep false for CI, where no MFA context exists.
     Default: "true"
     AllowedValues: ["true", "false"]
+  OrgId:
+    Type: String
+    Description: >-
+      Optional. AWS Organizations id. When set, the caller must also belong to
+      this organization (aws:PrincipalOrgID), on top of matching
+      TrustedPrincipalArn.
+    Default: ""
+    AllowedPattern: "^(o-[a-z0-9]{10,32})?$"
+    ConstraintDescription: must be empty or an organization id such as o-a1b2c3d4e5
   RoleName:
     Type: String
     Description: Name of the role. Referenced from tagctl.yaml as role_arn.
@@ -60,6 +75,21 @@ Parameters:
     Type: String
     Description: Optional permissions boundary to attach to the role.
     Default: ""
+  AllowCodeBuildTagging:
+    Type: String
+    Description: >-
+      Grant codebuild:UpdateProject. CodeBuild has no tag-only action, and this
+      one can also replace a project's buildspec and service role, so it is off
+      by default and tagctl apply reports CodeBuild changes as failed.
+    Default: "false"
+    AllowedValues: ["true", "false"]
+  ProtectedTagKeys:
+    Type: String
+    Description: >-
+      Optional. Comma-separated tag keys, wildcards allowed and no spaces
+      around the commas, that the role may never add, change or remove, such as
+      the keys your ABAC policies check. Adds a Deny on aws:TagKeys.
+    Default: ""
 
 Conditions:
   HasExternalId:
@@ -67,11 +97,19 @@ Conditions:
       - Fn::Equals: [{Ref: ExternalId}, ""]
   MFARequired:
     Fn::Equals: [{Ref: RequireMFA}, "true"]
+  HasOrgId:
+    Fn::Not:
+      - Fn::Equals: [{Ref: OrgId}, ""]
   HasTrustConditions:
-    Fn::Or: [{Condition: HasExternalId}, {Condition: MFARequired}]
+    Fn::Or: [{Condition: HasExternalId}, {Condition: MFARequired}, {Condition: HasOrgId}]
   HasPermissionsBoundary:
     Fn::Not:
       - Fn::Equals: [{Ref: PermissionsBoundaryArn}, ""]
+  CodeBuildTagging:
+    Fn::Equals: [{Ref: AllowCodeBuildTagging}, "true"]
+  HasProtectedTagKeys:
+    Fn::Not:
+      - Fn::Equals: [{Ref: ProtectedTagKeys}, ""]
 
 Resources:
   Role:
@@ -99,8 +137,15 @@ Resources:
                 - StringEquals:
                     Fn::If:
                       - HasExternalId
-                      - sts:ExternalId: {Ref: ExternalId}
-                      - {Ref: AWS::NoValue}
+                      - Fn::If:
+                          - HasOrgId
+                          - sts:ExternalId: {Ref: ExternalId}
+                            aws:PrincipalOrgID: {Ref: OrgId}
+                          - sts:ExternalId: {Ref: ExternalId}
+                      - Fn::If:
+                          - HasOrgId
+                          - aws:PrincipalOrgID: {Ref: OrgId}
+                          - {Ref: AWS::NoValue}
                   Bool:
                     Fn::If:
                       - MFARequired
@@ -183,7 +228,6 @@ Resources:
                   - cloudwatch:DescribeAlarms
                   - cloudformation:DescribeStacks
                   - codebuild:ListProjects
-                  - codebuild:BatchGetProjects
                   - secretsmanager:ListSecrets
                   - acm:ListCertificates
                   - kms:ListKeys
@@ -282,13 +326,53 @@ Resources:
                   - logs:TagResource
                   - lightsail:TagResource
                   - globalaccelerator:TagResource
-                Resource: "*"
+                Resource:
+                  - "arn:aws:ec2:*:*:instance/*"
+                  - "arn:aws:ec2:*::image/*"
+                  - "arn:aws:ec2:*:*:volume/*"
+                  - "arn:aws:ec2:*::snapshot/*"
+                  - "arn:aws:ec2:*:*:launch-template/*"
+                  - "arn:aws:ec2:*:*:security-group/*"
+                  - "arn:aws:ec2:*:*:vpc/*"
+                  - "arn:aws:ec2:*:*:subnet/*"
+                  - "arn:aws:ec2:*:*:internet-gateway/*"
+                  - "arn:aws:ec2:*:*:natgateway/*"
+                  - "arn:aws:ec2:*:*:vpc-endpoint/*"
+                  - "arn:aws:ec2:*:*:elastic-ip/*"
+                  - "arn:aws:s3:::*"
+                  - "arn:aws:rds:*:*:db:*"
+                  - "arn:aws:rds:*:*:cluster:*"
+                  - "arn:aws:rds:*:*:snapshot:*"
+                  - "arn:aws:lambda:*:*:function:*"
+                  - "arn:aws:sns:*:*:*"
+                  - "arn:aws:sqs:*:*:*"
+                  - "arn:aws:elasticloadbalancing:*:*:loadbalancer/*"
+                  - "arn:aws:elasticloadbalancing:*:*:targetgroup/*"
+                  - "arn:aws:autoscaling:*:*:autoScalingGroup:*:autoScalingGroupName/*"
+                  - "arn:aws:dynamodb:*:*:table/*"
+                  - "arn:aws:ecs:*:*:cluster/*"
+                  - "arn:aws:ecs:*:*:service/*"
+                  - "arn:aws:eks:*:*:cluster/*"
+                  - "arn:aws:elasticache:*:*:cluster:*"
+                  - "arn:aws:elasticfilesystem:*:*:file-system/*"
+                  - "arn:aws:ecr:*:*:repository/*"
+                  - "arn:aws:kms:*:*:key/*"
+                  - "arn:aws:kinesis:*:*:stream/*"
+                  - "arn:aws:logs:*:*:log-group:*"
+                  - "arn:aws:lightsail:*:*:Instance/*"
+                  - "arn:aws:globalaccelerator::*:accelerator/*"
               - Sid: TaggingAPI
                 Effect: Allow
                 Action:
                   - tag:TagResources
+                  - workspaces:CreateTags
+                Resource: "*"
+              - Sid: TaggingAPIServices
+                Effect: Allow
+                Action:
                   - elasticbeanstalk:AddTags
                   - apigateway:PUT
+                  - apigateway:POST
                   - route53:ChangeTagsForResource
                   - cloudfront:TagResource
                   - fsx:TagResource
@@ -304,7 +388,6 @@ Resources:
                   - cognito-idp:TagResource
                   - cloudwatch:TagResource
                   - cloudformation:TagResource
-                  - codebuild:UpdateProject
                   - secretsmanager:TagResource
                   - acm:AddTagsToCertificate
                   - iam:TagRole
@@ -327,7 +410,6 @@ Resources:
                   - codeartifact:TagResource
                   - codecommit:TagResource
                   - codepipeline:TagResource
-                  - servicecatalog:TagResource
                   - wellarchitected:TagResource
                   - athena:TagResource
                   - dms:AddTagsToResource
@@ -347,8 +429,99 @@ Resources:
                   - drs:TagResource
                   - ssm:AddTagsToResource
                   - ssm-incidents:TagResource
-                  - workspaces:CreateTags
-                Resource: "*"
+                Resource:
+                  - "arn:aws:elasticbeanstalk:*:*:environment/*"
+                  - "arn:aws:apigateway:*::/tags/*"
+                  - "arn:aws:route53:::hostedzone/*"
+                  - "arn:aws:cloudfront::*:distribution/*"
+                  - "arn:aws:fsx:*:*:file-system/*"
+                  - "arn:aws:backup:*:*:backup-vault:*"
+                  - "arn:aws:redshift:*:*:cluster:*"
+                  - "arn:aws:es:*:*:domain/*"
+                  - "arn:aws:firehose:*:*:deliverystream/*"
+                  - "arn:aws:kafka:*:*:cluster/*"
+                  - "arn:aws:glue:*:*:job/*"
+                  - "arn:aws:sagemaker:*:*:endpoint/*"
+                  - "arn:aws:sagemaker:*:*:notebook-instance/*"
+                  - "arn:aws:events:*:*:rule/*"
+                  - "arn:aws:states:*:*:stateMachine:*"
+                  - "arn:aws:cognito-idp:*:*:userpool/*"
+                  - "arn:aws:cloudwatch:*:*:alarm:*"
+                  - "arn:aws:cloudformation:*:*:stack/*"
+                  - "arn:aws:secretsmanager:*:*:secret:*"
+                  - "arn:aws:acm:*:*:certificate/*"
+                  - "arn:aws:iam::*:role/*"
+                  - "arn:aws:access-analyzer:*:*:analyzer/*"
+                  - "arn:aws:acm-pca:*:*:certificate-authority/*"
+                  - "arn:aws:cloudtrail:*:*:trail/*"
+                  - "arn:aws:config:*:*:config-rule/*"
+                  - "arn:aws:ds:*:*:directory/*"
+                  - "arn:aws:fms:*:*:policy/*"
+                  - "arn:aws:guardduty:*:*:detector/*"
+                  - "arn:aws:network-firewall:*:*:firewall/*"
+                  - "arn:aws:rolesanywhere:*:*:trust-anchor/*"
+                  - "arn:aws:waf-regional:*:*:webacl/*"
+                  - "arn:aws:waf::*:webacl/*"
+                  - "arn:aws:wafv2:*:*:*/webacl/*"
+                  - "arn:aws:shield::*:protection/*"
+                  - "arn:aws:amplify:*:*:apps/*"
+                  - "arn:aws:appsync:*:*:apis/*"
+                  - "arn:aws:bedrock:*:*:guardrail/*"
+                  - "arn:aws:codeartifact:*:*:domain/*"
+                  - "arn:aws:codeartifact:*:*:repository/*"
+                  - "arn:aws:codecommit:*:*:*"
+                  - "arn:aws:codepipeline:*:*:*"
+                  - "arn:aws:wellarchitected:*:*:workload/*"
+                  - "arn:aws:athena:*:*:workgroup/*"
+                  - "arn:aws:dms:*:*:rep:*"
+                  - "arn:aws:datapipeline:*:*:pipeline/*"
+                  - "arn:aws:datasync:*:*:task/*"
+                  - "arn:aws:elasticmapreduce:*:*:cluster/*"
+                  - "arn:aws:glacier:*:*:vaults/*"
+                  - "arn:aws:memorydb:*:*:cluster/*"
+                  - "arn:aws:mq:*:*:broker:*"
+                  - "arn:aws:ses:*:*:identity/*"
+                  - "arn:aws:ses:*:*:configuration-set/*"
+                  - "arn:aws:storagegateway:*:*:gateway/*"
+                  - "arn:aws:transfer:*:*:server/*"
+                  - "arn:aws:appstream:*:*:fleet/*"
+                  - "arn:aws:appstream:*:*:stack/*"
+                  - "arn:aws:batch:*:*:compute-environment/*"
+                  - "arn:aws:batch:*:*:job-queue/*"
+                  - "arn:aws:directconnect:*:*:dxcon/*"
+                  - "arn:aws:dlm:*:*:policy/*"
+                  - "arn:aws:drs:*:*:source-server/*"
+                  - "arn:aws:ssm:*:*:parameter/*"
+                  - "arn:aws:ssm:*:*:document/*"
+                  - "arn:aws:ssm-incidents::*:response-plan/*"
+        - Fn::If:
+            - CodeBuildTagging
+            - PolicyName: TagctlApplyCodeBuild
+              PolicyDocument:
+                Version: "2012-10-17"
+                Statement:
+                  - Sid: CodeBuildTagging
+                    Effect: Allow
+                    Action:
+                      - codebuild:UpdateProject
+                    Resource:
+                      - "arn:aws:codebuild:*:*:project/*"
+            - {Ref: AWS::NoValue}
+        - Fn::If:
+            - HasProtectedTagKeys
+            - PolicyName: TagctlProtectedTagKeys
+              PolicyDocument:
+                Version: "2012-10-17"
+                Statement:
+                  - Sid: DenyProtectedTagKeys
+                    Effect: Deny
+                    Action: "*"
+                    Resource: "*"
+                    Condition:
+                      ForAnyValue:StringLike:
+                        aws:TagKeys:
+                          Fn::Split: [",", {Ref: ProtectedTagKeys}]
+            - {Ref: AWS::NoValue}
 
 Outputs:
   RoleArn:
