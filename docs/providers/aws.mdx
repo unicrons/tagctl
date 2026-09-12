@@ -916,9 +916,13 @@ tagctl scan --log-level debug
   </Accordion>
 
   <Accordion title="Rate limiting">
-    Every (region × service) lister runs in its own goroutine and per-resource
-    tag calls fan out with a fixed limit of 16 in flight; the SDK retries
-    throttled calls with exponential backoff (visible at `--log-level debug`).
-    The concurrency is not configurable.
+    At most 32 (region × service) listers run at once across all regions, and
+    per-resource calls fan out with a limit of 16 in flight per fan-out (ECS
+    nests two: clusters, then each cluster's services). Throttled calls from
+    tagctl's service clients are retried in the SDK's adaptive mode with up to
+    7 attempts: the client backs off and also slows its own request rate
+    (retries are visible at `--log-level debug`). Set `AWS_RETRY_MODE` and
+    `AWS_MAX_ATTEMPTS`, or `retry_mode` and `max_attempts` in the profile, to
+    change the retries. The concurrency is not configurable.
   </Accordion>
 </AccordionGroup>

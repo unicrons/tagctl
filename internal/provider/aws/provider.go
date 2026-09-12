@@ -64,8 +64,18 @@ import (
 	"github.com/unicrons/tagctl/internal/types"
 )
 
-// maxConcurrentAPICalls limits concurrent API calls to avoid rate limiting.
+// maxConcurrentAPICalls bounds each per-resource fan-out (forEachConcurrently,
+// S3 bucket tags).
 const maxConcurrentAPICalls = 16
+
+// maxConcurrentListers bounds the listers running at once across all regions.
+// It is a separate pool from maxConcurrentAPICalls, so a lister never waits
+// for a slot its own fan-out holds.
+const maxConcurrentListers = 32
+
+// maxRetryAttempts lets 16 in-flight calls on one client all retry to the limit
+// inside its 500-token retry quota: 16 calls x 6 retries x 5 tokens = 480.
+const maxRetryAttempts = 7
 
 // dialTimeout bounds the TCP connect to an AWS endpoint. The SDK default is
 // 30s, which turns one unreachable regional endpoint into a 90s stall after
@@ -178,6 +188,7 @@ func New(ctx context.Context, account cfgpkg.AWSAccount) (*Provider, error) {
 		log.Error("AWS: Failed to load config: %v", err)
 		return nil, provider.NewProviderError(providerName, "load_config", "", err)
 	}
+	cfg = withRetryDefaults(cfg)
 	cfg.Region = initialRegion(cfg.Region, account.Regions)
 	log.Debug("AWS: Config loaded, default region=%s", cfg.Region)
 
@@ -296,6 +307,18 @@ func (p *Provider) Name() string {
 // AccountID returns the AWS account ID.
 func (p *Provider) AccountID() string {
 	return p.accountID
+}
+
+// withRetryDefaults makes throttled calls back off in adaptive mode unless
+// AWS_RETRY_MODE, AWS_MAX_ATTEMPTS or the profile already chose otherwise.
+func withRetryDefaults(cfg aws.Config) aws.Config {
+	if cfg.RetryMode == "" {
+		cfg.RetryMode = aws.RetryModeAdaptive
+	}
+	if cfg.RetryMaxAttempts == 0 {
+		cfg.RetryMaxAttempts = maxRetryAttempts
+	}
+	return cfg
 }
 
 // initialRegion picks the region for the STS and region-discovery calls: the
@@ -439,7 +462,8 @@ func (p *Provider) ListResources(ctx context.Context) ([]types.Resource, error) 
 
 // discover runs every global lister once and every regional lister per
 // region. It returns what was found together with every lister error and a
-// summary of the resources and services skipped for unreadable tags.
+// summary of the resources and services skipped for unreadable tags. Once ctx
+// is cancelled no queued lister starts.
 func (p *Provider) discover(ctx context.Context, globals []globalLister, listers []regionalLister) ([]types.Resource, error) {
 	p.skipped.reset()
 
@@ -447,54 +471,48 @@ func (p *Provider) discover(ctx context.Context, globals []globalLister, listers
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 	errChan := make(chan error, len(p.regions)*len(listers)+len(globals))
+	slots := make(chan struct{}, maxConcurrentListers)
+	notStarted := 0
 
-	for _, g := range globals {
-		g := g
+	run := func(region, label string, list func(context.Context) ([]types.Resource, error)) {
+		if !acquireSlot(ctx, slots) {
+			notStarted++
+			return
+		}
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			defer func() { <-slots }()
+			log.Debug("AWS: Listing %s in %s...", label, region)
 			start := time.Now()
-			resources, err := g.list(ctx)
+			resources, err := list(ctx)
 			if err != nil {
-				errChan <- p.listerError(regionGlobal, g.label, err)
+				errChan <- p.listerError(region, label, err)
 				return
 			}
-			log.Debug("AWS: %s: %d found in %s", g.label, len(resources), time.Since(start).Round(time.Millisecond))
+			log.Debug("AWS: %s in %s: %d found in %s", label, region, len(resources), time.Since(start).Round(time.Millisecond))
 			mu.Lock()
 			allResources = append(allResources, resources...)
 			mu.Unlock()
 		}()
 	}
 
-	// List regional resources
+	for _, g := range globals {
+		run(regionGlobal, g.label, g.list)
+	}
 	for _, region := range p.regions {
 		for _, lister := range listers {
-			region, lister := region, lister // capture loop variables
-
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				log.Debug("AWS: Listing %s in %s...", lister.label, region)
-				start := time.Now()
-				resources, err := lister.list(ctx, region)
-				if err != nil {
-					errChan <- p.listerError(region, lister.label, err)
-					return
-				}
-				log.Debug("AWS: %s in %s: %d found in %s", lister.label, region, len(resources), time.Since(start).Round(time.Millisecond))
-				mu.Lock()
-				allResources = append(allResources, resources...)
-				mu.Unlock()
-			}()
+			run(region, lister.label, func(ctx context.Context) ([]types.Resource, error) {
+				return lister.list(ctx, region)
+			})
 		}
 	}
 
 	wg.Wait()
 	close(errChan)
 
-	// Collect errors
 	// errChan is closed after every writer finished, so len is the exact count.
-	errs := make([]error, 0, len(errChan)+2)
+	errs := make([]error, 0, len(errChan)+3)
 	for err := range errChan {
 		errs = append(errs, err)
 	}
@@ -504,7 +522,11 @@ func (p *Provider) discover(ctx context.Context, globals []globalLister, listers
 	// Cancelled tag reads return nothing and record nothing: without this the
 	// interrupted discovery would look complete.
 	if err := ctx.Err(); err != nil {
-		errs = append(errs, fmt.Errorf("account %s: discovery interrupted: %w", p.accountID, err))
+		interrupted := "discovery interrupted"
+		if notStarted > 0 {
+			interrupted += fmt.Sprintf(", %d lister(s) not started", notStarted)
+		}
+		errs = append(errs, fmt.Errorf("account %s: %s: %w", p.accountID, interrupted, err))
 	}
 	for _, err := range p.skipped.errs() {
 		errs = append(errs, fmt.Errorf("account %s: %w", p.accountID, err))
@@ -518,6 +540,21 @@ func (p *Provider) listerError(region, label string, err error) error {
 	err = fmt.Errorf("account %s, region %s: list %s: %w", p.accountID, region, label, err)
 	log.Error("AWS: %v", err)
 	return err
+}
+
+// acquireSlot waits for a free lister slot. It reports false, holding none,
+// once ctx is cancelled, even when a slot and the cancel arrive together.
+func acquireSlot(ctx context.Context, slots chan struct{}) bool {
+	select {
+	case slots <- struct{}{}:
+		if ctx.Err() != nil {
+			<-slots
+			return false
+		}
+		return true
+	case <-ctx.Done():
+		return false
+	}
 }
 
 // tagApplier writes tags to one resource through its service API.

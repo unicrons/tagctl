@@ -306,15 +306,27 @@ func (p *Provider) ApplyTags(ctx context.Context, id string, tags map[string]str
 ## Concurrency
 
 - Providers list resources concurrently per region/namespace
-- The AWS provider runs every (region × service) lister in its own goroutine,
-  plus one for S3 and one per global lister (Route 53, CloudFront, IAM,
-  Shield, WAF Classic global, WAFv2 CloudFront, Global Accelerator)
+- The AWS provider runs every (region × service) lister, plus S3 and every
+  global lister (Route 53, CloudFront, IAM, Shield, WAF Classic global, WAFv2
+  CloudFront, Global Accelerator), with at most 32 listers in flight across all
+  regions. A 17-region scan queues 1,521 listers instead of starting them all
+  at once; once the context is cancelled, no queued lister starts
 - Before any lister starts, one `tag:GetResources` sweep per region is launched
   in the background (`internal/provider/aws/tags.go`). Listers block on their
   region's sweep only when they need a tag lookup, so discovery and the bulk
   tag read overlap. Services whose Describe call returns tags inline never wait
 - When the sweep fails, services with a per-resource tag API fall back to it
   with a semaphore of 16 concurrent calls; services without one are skipped
+- The limit of 16 applies to each per-resource fan-out and is separate from
+  the 32 lister slots; the sweeps run outside both, so a lister holding a slot
+  never waits for another one. ECS nests two fan-outs (clusters, then each
+  cluster's services), so one ECS lister can have 16 × 16 = 256 calls in flight
+- The service clients tagctl builds retry in adaptive mode with up to 7
+  attempts: after a throttling error a client also slows its own request rate.
+  `AWS_RETRY_MODE` and `AWS_MAX_ATTEMPTS` (or `retry_mode` and `max_attempts`
+  in the profile) override either value. Credential providers the SDK builds
+  while loading a profile chain (`source_profile`, SSO) keep the SDK defaults
+  unless those settings are present
 - The SDK HTTP client uses a 5s connect timeout, so an unreachable regional
   endpoint costs seconds, not minutes
 - Applier processes resources with configurable concurrency, runs its progress
