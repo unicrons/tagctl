@@ -812,10 +812,14 @@ request and annotate it with SARIF.
 | Data sources | No — read-only lookups cannot be tagged |
 | Types with no tag attribute (an IAM policy, say) | No — flagging them would be noise |
 | A resource whose tags are unset (`"tags": null`) | Yes, reported as untagged |
+| A tag whose value is only known after apply | Yes, the key counts as present and passes without checking `values` or `pattern`; it is listed in the resource's `unknown_tags` and named on stderr |
+| A resource whose whole tag map is only known after apply | No — skipped with an error on stderr naming it, since its tags cannot be read yet |
 | With `--changed-only`: create and update | Yes |
 | With `--changed-only`: delete and no-op | No — a resource being destroyed needs no tags, and a no-op is already live |
 
-Child modules are walked recursively, at any depth.
+Child modules are walked recursively, up to 100 levels deep. Only
+`format_version` 1.x of the `terraform show -json` output is read; a document
+in another major version is rejected rather than misread.
 
 ### default_tags are respected
 
@@ -833,6 +837,11 @@ provider "aws" {
   }
 }
 ```
+
+When `tags_all` is null (a state written before the provider had the
+attribute) or only known after apply (a tag value that references a resource
+not created yet), `tags` is read instead. For that resource `default_tags` are
+not counted, so a tag the provider would add can show as missing.
 
 The Google and Kubernetes providers use `labels`, which is read the same way.
 

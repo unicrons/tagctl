@@ -32,6 +32,10 @@ type Resource struct {
 	// Tags contains the current tags/labels on the resource.
 	Tags map[string]string `json:"tags"`
 
+	// UnknownTags lists the tag keys whose values are only known once the
+	// resource exists, as in a Terraform plan; their values cannot be checked.
+	UnknownTags []string `json:"unknown_tags,omitempty"`
+
 	// CreatedAt is when the resource was created (if available).
 	CreatedAt *time.Time `json:"created_at,omitempty"`
 }

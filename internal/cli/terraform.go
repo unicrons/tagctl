@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/unicrons/tagctl/internal/engine"
+	"github.com/unicrons/tagctl/internal/log"
 	"github.com/unicrons/tagctl/internal/terraform"
 	"github.com/unicrons/tagctl/internal/types"
 )
@@ -27,8 +28,12 @@ missing tag in a pull request costs nothing; catching it after a quarter of
 unattributable spend costs a quarter.
 
 Tags are read from tags_all when Terraform provides it, so the provider's
-default_tags count. Data sources and resource types that carry no tag attribute
-are skipped, since neither can be tagged.
+default_tags count; when tags_all is null or only known after apply, tags is
+read instead. A tag whose value is only known after apply counts as present
+and its value is not checked; a resource whose tags are only known after apply
+is skipped. Both are reported on stderr. Data sources and resource types that
+carry no tag attribute are skipped, since neither can be tagged. Only
+format_version 1.x is read.
 
 Examples:
   # Check a plan
@@ -76,13 +81,18 @@ func runTerraform(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	resources, err := readTerraformResources(source, terraform.Options{ChangedOnly: changedOnly})
+	parsed, err := readTerraformResources(source, terraform.Options{ChangedOnly: changedOnly})
 	if err != nil {
 		return err
 	}
+	logUncheckedTags(parsed)
+	resources := parsed.Resources
 
 	if len(resources) == 0 {
 		fmt.Println("No taggable resources found in the Terraform input.")
+		if len(parsed.Unreadable) > 0 {
+			fmt.Fprintf(os.Stderr, "%d resources were skipped because their tags are only known after apply.\n", len(parsed.Unreadable))
+		}
 		if changedOnly {
 			fmt.Println("With --changed-only, only resources being created or updated are checked.")
 		}
@@ -125,29 +135,43 @@ func runTerraform(cmd *cobra.Command, args []string) error {
 }
 
 // readTerraformResources reads terraform JSON from a path or stdin.
-func readTerraformResources(path string, opts terraform.Options) ([]types.Resource, error) {
+func readTerraformResources(path string, opts terraform.Options) (terraform.Result, error) {
 	var reader io.Reader
 
 	if path == "-" || path == "" {
 		stat, err := os.Stdin.Stat()
 		if err != nil {
-			return nil, fmt.Errorf("failed to read stdin: %w", err)
+			return terraform.Result{}, fmt.Errorf("failed to read stdin: %w", err)
 		}
 		if stat.Mode()&os.ModeCharDevice != 0 {
-			return nil, fmt.Errorf("no input on stdin. Pipe 'terraform show -json <plan>' in, or pass --plan/--state")
+			return terraform.Result{}, fmt.Errorf("no input on stdin. Pipe 'terraform show -json <plan>' in, or pass --plan/--state")
 		}
 		reader = os.Stdin
 	} else {
 		// #nosec G304 -- the terraform file is supplied by the user running the CLI.
 		file, err := os.Open(filepath.Clean(path))
 		if err != nil {
-			return nil, fmt.Errorf("failed to open %s: %w", path, err)
+			return terraform.Result{}, fmt.Errorf("failed to open %s: %w", path, err)
 		}
 		defer func() { _ = file.Close() }()
 		reader = file
 	}
 
 	return terraform.Parse(reader, opts)
+}
+
+// logUncheckedTags names the resources and tag values the policy cannot check
+// until apply.
+func logUncheckedTags(parsed terraform.Result) {
+	for _, address := range parsed.Unreadable {
+		log.Error("%s: tags are only known after apply, skipping it", address)
+	}
+	for _, resource := range parsed.Resources {
+		if len(resource.UnknownTags) > 0 {
+			log.Error("%s: values of %s are only known after apply, not checked",
+				resource.ID, strings.Join(resource.UnknownTags, ", "))
+		}
+	}
 }
 
 func printTerraformResult(result *types.ScanResult, source string, changedOnly bool) {

@@ -1,10 +1,13 @@
 package cli
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/unicrons/tagctl/internal/log"
 	"github.com/unicrons/tagctl/internal/terraform"
 	"github.com/unicrons/tagctl/internal/types"
 )
@@ -43,10 +46,11 @@ func writeFixture(t *testing.T, dir, name, content string) string {
 func TestReadTerraformResources_FromFile(t *testing.T) {
 	path := writeFixture(t, t.TempDir(), "plan.json", terraformPlanFixture)
 
-	resources, err := readTerraformResources(path, terraform.Options{})
+	parsed, err := readTerraformResources(path, terraform.Options{})
 	if err != nil {
 		t.Fatalf("readTerraformResources() error = %v", err)
 	}
+	resources := parsed.Resources
 	if len(resources) != 1 {
 		t.Fatalf("got %d resources, want 1", len(resources))
 	}
@@ -76,6 +80,7 @@ func TestReadTerraformResources_MalformedFile(t *testing.T) {
 
 func TestReadTerraformResources_ChangedOnly(t *testing.T) {
 	const twoResources = `{
+      "format_version": "1.2",
       "planned_values": {"root_module": {"resources": [
         {"address":"aws_instance.web","mode":"managed","type":"aws_instance","name":"web",
          "values":{"tags":{}}},
@@ -93,16 +98,41 @@ func TestReadTerraformResources_ChangedOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("readTerraformResources() error = %v", err)
 	}
-	if len(all) != 2 {
-		t.Errorf("got %d resources without --changed-only, want 2", len(all))
+	if len(all.Resources) != 2 {
+		t.Errorf("got %d resources without --changed-only, want 2", len(all.Resources))
 	}
 
 	changed, err := readTerraformResources(path, terraform.Options{ChangedOnly: true})
 	if err != nil {
 		t.Fatalf("readTerraformResources() error = %v", err)
 	}
-	if len(changed) != 1 || changed[0].ID != "aws_instance.web" {
-		t.Errorf("changed-only returned %+v, want just the created resource", changed)
+	if len(changed.Resources) != 1 || changed.Resources[0].ID != "aws_instance.web" {
+		t.Errorf("changed-only returned %+v, want just the created resource", changed.Resources)
+	}
+}
+
+func TestLogUncheckedTags_NamesSkippedResourcesAndUncheckedKeys(t *testing.T) {
+	var buf bytes.Buffer
+	log.SetOutput(&buf)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+
+	logUncheckedTags(terraform.Result{
+		Unreadable: []string{"aws_sqs_queue.jobs"},
+		Resources: []types.Resource{
+			{ID: "aws_instance.web", UnknownTags: []string{"Name", "ref"}},
+			{ID: "aws_instance.known", Tags: map[string]string{"Name": "known"}},
+		},
+	})
+
+	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("logged %d lines, want one per resource with unchecked tags:\n%s", len(lines), buf.String())
+	}
+	if !strings.Contains(lines[0], "aws_sqs_queue.jobs") {
+		t.Errorf("first line = %q, want the skipped address", lines[0])
+	}
+	if !strings.Contains(lines[1], "aws_instance.web") || !strings.Contains(lines[1], "Name, ref") {
+		t.Errorf("second line = %q, want the address and its unchecked keys", lines[1])
 	}
 }
 
