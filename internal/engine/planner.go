@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/unicrons/tagctl/internal/config"
@@ -174,23 +175,20 @@ func (p *RealPlanner) tryDefault(violation types.Violation) *types.TagChange {
 	return nil
 }
 
-// checkConditions checks if the rule conditions are met.
+// checkConditions reports whether every condition holds. A condition it does
+// not understand fails, so a malformed rule never sets a tag.
 func (p *RealPlanner) checkConditions(when map[string]string, violation types.Violation) bool {
 	for condition, value := range when {
-		// Parse condition like "tag:owner" with value "absent"
-		if len(condition) > 4 && condition[:4] == "tag:" {
-			tagName := condition[4:]
-			if value == "absent" {
-				// Tag must be absent
-				if violation.Resource.HasTag(tagName) {
-					return false
-				}
-			} else {
-				// Tag must have specific value
-				if violation.Resource.GetTag(tagName) != value {
-					return false
-				}
+		tagName, ok := strings.CutPrefix(condition, config.ConditionTagPrefix)
+		if !ok || tagName == "" {
+			return false
+		}
+		if value == config.ConditionAbsent {
+			if violation.Resource.HasTag(tagName) {
+				return false
 			}
+		} else if violation.Resource.GetTag(tagName) != value {
+			return false
 		}
 	}
 	return true

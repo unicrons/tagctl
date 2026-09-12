@@ -14,6 +14,11 @@ tagctl looks for configuration in this order:
 2. `tagctl.yaml` in the current directory
 3. `~/.tagctl/tagctl.yaml`
 
+A file passed with `--config` must exist. When no file is found, `scan`, `plan`
+and the other commands that read the configuration run with an empty one
+(`scan` falls back to demo mode), `evaluate` needs `--policy` and `validate`
+fails.
+
 ## Complete Example
 
 ```yaml
@@ -221,6 +226,12 @@ rules:
         owner: platform-team@company.com
 ```
 
+`resource` (a glob, see [By Resource Type](#by-resource-type)) and at least one
+`set` entry are required. Every `when` condition must hold: a `tag:<name>` key
+with `absent` or the exact value the tag must have. Tag names keep their case
+(`tag:CostCenter` and `tag:costcenter` are different tags). See
+[Conditions](/rules#conditions).
+
 ## Section: `ignore`
 
 Exclude resources from scanning.
@@ -234,9 +245,10 @@ ignore:
     - "aws_cloudwatch_*"
 ```
 
-Patterns match the resource **type** and support exactly four shapes: `*`
-(everything), an exact type, `prefix*` and `*suffix`. A wildcard in the middle
-(`aws_*_group`) is compared literally and matches nothing.
+Patterns match the resource **type** with Go `path.Match` syntax: `*` matches
+any run of characters, `?` a single character and `[...]` a character class,
+anywhere in the pattern (`aws_iam_*`, `*_group`, `aws_*_group`). A malformed
+pattern such as `aws_[` is rejected when the config loads.
 
 ### By Tag Value
 
@@ -246,6 +258,9 @@ ignore:
     managed-by: [terraform, pulumi, cloudformation]
     status: [deprecated, deleting]
 ```
+
+Tag keys and values are compared exactly, case included: `ManagedBy` does not
+match a `managedby` tag.
 
 ## Environment Variables
 
@@ -273,21 +288,26 @@ tagctl validate
 ```
 
 `validate` reports the configuration summary plus every problem the commands
-would hit. The structural checks below run at the start of every command that
-loads `tagctl.yaml` (`scan`, `plan`, `apply`, `evaluate` without `--policy`,
+would hit. The checks below run at the start of every command that loads a
+config file (`scan`, `plan`, `apply`, `evaluate` with or without `--policy`,
 ...), so a broken file is rejected before any cloud API is called:
 
-- YAML syntax and structure (`clouds.aws` must be a list of accounts)
-- Credentials shape: keys set together, not combined with `profile`, at most one
+- YAML syntax and structure: a key outside the schema (`polcy:`, `valuse:`) is
+  an error that names its line
+- Account shape: no static keys, role options only with `role_arn`, at most one
   entry relying on the SDK default chain
 - Region codes (`eu-west1`, `EU-WEST-1` and duplicates are rejected)
-- `policy.required[].name` present; regex patterns in
-  `policy.required[].pattern` and `rules.infer[].from_name[].pattern` compile
+- Tag requirements: `name` present in `policy.required` and `policy.optional`,
+  no tag defined twice across both, regex patterns in `pattern` and
+  `rules.infer[].from_name[].pattern` compile
+- Default rules: `resource` present, `set` not empty, `when` conditions written
+  as `tag:<name>` with `absent` or an exact value
+- Glob patterns in `rules.defaults[].resource` and `ignore.resources`
 - Kubernetes cluster names and `resource_types` (unknown or repeated types are
   rejected)
 
 `tagctl validate` is stricter than the commands: it also fails on a file with
 no cloud account or no tag policy, and warns about unknown providers, a
-provider key with no accounts and a policy with no required tags. `scan`
-itself runs in demo mode without a provider and `evaluate` works from a JSON
-file; `evaluate --policy <file>` loads that file without any of these checks.
+provider key with no accounts, a policy with no required tags and `clouds.aws`
+written as a mapping. `scan` itself runs in demo mode without a provider and
+`evaluate` works from a JSON file.

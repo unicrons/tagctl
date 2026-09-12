@@ -108,7 +108,7 @@ func runPartialScan(t *testing.T, flags map[string]string) (*types.ScanResult, e
 	t.Helper()
 
 	cfgYAML := "clouds:\n  aws:\n    - profile: default\n      regions: [us-east-1]\npolicy:\n  required:\n    - name: owner\n"
-	if err := loadConfigFrom(t, cfgYAML); err != nil {
+	if _, err := loadConfigFrom(t, cfgYAML); err != nil {
 		t.Fatal(err)
 	}
 

@@ -93,11 +93,11 @@ func initConfig() {
 		fmt.Fprintf(os.Stderr, "Warning: %v, using 'info'\n", err)
 	}
 
+	viper.SetConfigType("yaml")
 	if cfgFile != "" {
 		viper.SetConfigFile(cfgFile)
 	} else {
 		viper.SetConfigName("tagctl")
-		viper.SetConfigType("yaml")
 		viper.AddConfigPath(".")
 		viper.AddConfigPath("$HOME/.tagctl")
 	}
@@ -106,9 +106,7 @@ func initConfig() {
 	viper.AutomaticEnv()
 
 	if err := viper.ReadInConfig(); err != nil {
-		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
-			log.Error("reading config: %v", err)
-		}
+		log.Debug("reading config: %v", err)
 	}
 }
 

@@ -20,26 +20,20 @@ import (
 // providerAWS is the provider name AWS resources and config entries carry.
 const providerAWS = "aws"
 
-// loadConfig loads the configuration from viper.
+// loadConfig loads the config file viper located, or an empty config when none was found.
 func loadConfig() (*config.Config, error) {
-	log.Debug("Config: Loading configuration from viper")
-	var cfg config.Config
-
-	if err := viper.Unmarshal(&cfg); err != nil {
-		log.Error("Config: Failed to parse configuration: %v", err)
-		return nil, fmt.Errorf("failed to parse config: %w", err)
-	}
-	if err := cfg.Validate(); err != nil {
-		return nil, fmt.Errorf("invalid config: %w", err)
-	}
-
-	if viper.ConfigFileUsed() != "" {
-		log.Debug("Config: Loaded from file: %s", viper.ConfigFileUsed())
-	} else {
+	path := viper.ConfigFileUsed()
+	if path == "" {
 		log.Debug("Config: No config file found, using defaults")
+		return &config.Config{}, nil
 	}
 
-	return &cfg, nil
+	cfg, err := config.Load(path)
+	if err != nil {
+		return nil, err
+	}
+	log.Debug("Config: Loaded from file: %s", path)
+	return cfg, nil
 }
 
 // initProviders initializes cloud providers from configuration.

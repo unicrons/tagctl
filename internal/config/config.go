@@ -2,8 +2,13 @@
 package config
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
+	"io"
+	"maps"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -48,7 +53,7 @@ type NormalizeConfig struct {
 
 // CloudsConfig contains cloud provider configurations.
 type CloudsConfig struct {
-	AWS        []AWSAccount        `yaml:"aws" mapstructure:"aws"`
+	AWS        AWSAccounts         `yaml:"aws" mapstructure:"aws"`
 	GCP        []GCPAccount        `yaml:"gcp" mapstructure:"gcp"`
 	Azure      []AzureAccount      `yaml:"azure" mapstructure:"azure"`
 	Kubernetes []KubernetesCluster `yaml:"kubernetes" mapstructure:"kubernetes"`
@@ -117,6 +122,18 @@ func (k KubernetesCluster) validateResourceTypes(i int) error {
 	return nil
 }
 
+// AWSAccounts is the clouds.aws list of accounts.
+type AWSAccounts []AWSAccount
+
+// UnmarshalYAML also accepts a single account written as a mapping, which
+// tagctl validate warns about.
+func (a *AWSAccounts) UnmarshalYAML(node *yaml.Node) error {
+	if node.Kind == yaml.MappingNode {
+		node = &yaml.Node{Kind: yaml.SequenceNode, Content: []*yaml.Node{node}}
+	}
+	return node.Decode((*[]AWSAccount)(a))
+}
+
 // AWSAccount represents an AWS account configuration.
 //
 // Credentials come from the SDK default chain (environment, shared config,
@@ -181,10 +198,11 @@ type TagRequirement struct {
 	// Description explains what this tag is for.
 	Description string `yaml:"description" mapstructure:"description"`
 
-	// Values is a list of allowed values (mutually exclusive with Pattern).
+	// Values is a list of allowed values, checked before Pattern.
 	Values []string `yaml:"values" mapstructure:"values"`
 
-	// Pattern is a regex pattern for valid values (mutually exclusive with Values).
+	// Pattern is a regex the value must match; when Values is also set the
+	// value must satisfy both.
 	Pattern string `yaml:"pattern" mapstructure:"pattern"`
 }
 
@@ -235,7 +253,8 @@ type DefaultRule struct {
 	// Resource is a glob pattern for resource types.
 	Resource string `yaml:"resource" mapstructure:"resource"`
 
-	// When conditions must be true to apply.
+	// When conditions must all be true to apply: "tag:<name>" keys whose value
+	// is ConditionAbsent or the exact tag value.
 	When map[string]string `yaml:"when" mapstructure:"when"`
 
 	// Set are the tag values to set.
@@ -251,7 +270,15 @@ type IgnoreConfig struct {
 	Tags map[string][]string `yaml:"tags" mapstructure:"tags"`
 }
 
-// Load reads and parses a configuration file.
+// Condition keys and values understood in rules.defaults[].when.
+const (
+	ConditionTagPrefix = "tag:"
+	ConditionAbsent    = "absent"
+	ConditionPresent   = "present" // reserved: rejected until it is a condition
+)
+
+// Load reads a configuration file, rejects keys outside the schema and
+// validates the result. An empty file is an empty configuration.
 func Load(path string) (*Config, error) {
 	// #nosec G304 -- the config path is supplied by the user running the CLI.
 	data, err := os.ReadFile(filepath.Clean(path))
@@ -260,8 +287,13 @@ func Load(path string) (*Config, error) {
 	}
 
 	var cfg Config
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return nil, fmt.Errorf("failed to parse config file: %w", err)
+	decoder := yaml.NewDecoder(bytes.NewReader(data))
+	decoder.KnownFields(true)
+	if err := decoder.Decode(&cfg); err != nil && !errors.Is(err, io.EOF) {
+		return nil, fmt.Errorf("failed to parse config file %s: %w", path, err)
+	}
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid config file %s: %w", path, err)
 	}
 
 	return &cfg, nil
@@ -343,25 +375,97 @@ func (c *Config) Validate() error {
 		}
 	}
 
-	for i, req := range c.Policy.Required {
-		if req.Name == "" {
-			return fmt.Errorf("policy.required[%d]: name is required", i)
-		}
-		if req.Pattern != "" {
-			if _, err := regexp.Compile(req.Pattern); err != nil {
-				return fmt.Errorf("policy.required[%d]: invalid pattern %q: %w", i, req.Pattern, err)
+	if err := c.Policy.validate(); err != nil {
+		return err
+	}
+	if err := c.Rules.validate(); err != nil {
+		return err
+	}
+	return c.Ignore.validate()
+}
+
+// validate checks every tag requirement and rejects a tag defined twice.
+func (p PolicyConfig) validate() error {
+	sections := []struct {
+		field string
+		reqs  []TagRequirement
+	}{
+		{"policy.required", p.Required},
+		{"policy.optional", p.Optional},
+	}
+	definedAt := make(map[string]string, len(p.Required)+len(p.Optional))
+	for _, section := range sections {
+		for i, req := range section.reqs {
+			at := fmt.Sprintf("%s[%d]", section.field, i)
+			if req.Name == "" {
+				return fmt.Errorf("%s: name is required", at)
+			}
+			if first, ok := definedAt[req.Name]; ok {
+				return fmt.Errorf("%s: tag %q is already defined at %s", at, req.Name, first)
+			}
+			definedAt[req.Name] = at
+			if req.Pattern != "" {
+				if _, err := regexp.Compile(req.Pattern); err != nil {
+					return fmt.Errorf("%s: invalid pattern %q: %w", at, req.Pattern, err)
+				}
 			}
 		}
 	}
+	return nil
+}
 
-	for i, rule := range c.Rules.Infer {
+func (r RulesConfig) validate() error {
+	for i, rule := range r.Infer {
 		for j, pattern := range rule.FromName {
 			if _, err := regexp.Compile(pattern.Pattern); err != nil {
 				return fmt.Errorf("rules.infer[%d].from_name[%d]: invalid pattern %q: %w", i, j, pattern.Pattern, err)
 			}
 		}
 	}
+	for i, rule := range r.Defaults {
+		if err := rule.validate(); err != nil {
+			return fmt.Errorf("rules.defaults[%d]: %w", i, err)
+		}
+	}
+	return nil
+}
 
+func (d DefaultRule) validate() error {
+	if d.Resource == "" {
+		return errors.New("resource is required")
+	}
+	if err := validateGlob(d.Resource); err != nil {
+		return fmt.Errorf("resource: %w", err)
+	}
+	if len(d.Set) == 0 {
+		return errors.New("set must name at least one tag")
+	}
+	for _, key := range slices.Sorted(maps.Keys(d.When)) {
+		if tag, ok := strings.CutPrefix(key, ConditionTagPrefix); !ok || tag == "" {
+			return fmt.Errorf("when: unknown condition %q, expected %s<name>", key, ConditionTagPrefix)
+		}
+		if value := d.When[key]; value == "" || value == ConditionPresent {
+			return fmt.Errorf("when: %s must be %q or the exact tag value, got %q", key, ConditionAbsent, value)
+		}
+	}
+	return nil
+}
+
+func (ig IgnoreConfig) validate() error {
+	for i, pattern := range ig.Resources {
+		if err := validateGlob(pattern); err != nil {
+			return fmt.Errorf("ignore.resources[%d]: %w", i, err)
+		}
+	}
+	return nil
+}
+
+// validateGlob rejects resource type patterns that path.Match, which the
+// engine matches them with, cannot parse.
+func validateGlob(pattern string) error {
+	if _, err := path.Match(pattern, ""); err != nil {
+		return fmt.Errorf("invalid glob %q: %w", pattern, err)
+	}
 	return nil
 }
 
