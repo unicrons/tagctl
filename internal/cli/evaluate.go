@@ -153,26 +153,18 @@ func loadResourcesFromJSON(path string) ([]types.Resource, error) {
 	return resources, nil
 }
 
-// loadConfigFromPath loads configuration from a specific path or uses viper's auto-discovery.
+// loadConfigFromPath loads and validates the policy at path, or the
+// auto-discovered config file when path is empty.
 func loadConfigFromPath(path string) (*config.Config, error) {
-	var cfg *config.Config
-	var err error
-
-	if path != "" {
-		// Load from specific path
-		log.Debug("Evaluate: Loading policy from %s", path)
-		cfg, err = config.Load(path)
-	} else {
-		// Use viper's auto-discovered config
-		configFile := viper.ConfigFileUsed()
-		if configFile == "" {
-			return nil, fmt.Errorf("no policy file found. Specify --policy or run from a directory with tagctl.yaml")
-		}
-
-		log.Debug("Evaluate: Loading policy from auto-discovered %s", configFile)
-		cfg, err = loadConfig()
+	if path == "" {
+		path = viper.ConfigFileUsed()
+	}
+	if path == "" {
+		return nil, fmt.Errorf("no policy file found. Specify --policy or run from a directory with tagctl.yaml")
 	}
 
+	log.Debug("Evaluate: Loading policy from %s", path)
+	cfg, err := config.Load(path)
 	if err != nil {
 		return nil, err
 	}

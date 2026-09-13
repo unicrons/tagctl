@@ -79,7 +79,7 @@ Warnings:
   ⚠ clouds.aws should be a list of accounts: write '- regions:' (or '- profile:') instead of 'regions:'
 
 Errors:
-  ✗ aws[0]: invalid region "eu-west1"
+  ✗ invalid config file <path>: aws[0]: invalid region "eu-west1"
 Error: configuration has 1 error(s)
 ```
 </Accordion>
@@ -476,9 +476,8 @@ cat resources.json | tagctl evaluate
 tagctl evaluate --resources resources.json --policy custom.yaml
 ```
 
-The policy must define at least one required or optional tag; `--policy` files
-are loaded as-is, without the `tagctl validate` checks that the auto-discovered
-`tagctl.yaml` gets.
+The policy must define at least one required or optional tag. A `--policy` file
+is decoded and validated the same way as the auto-discovered `tagctl.yaml`.
 
 ```bash Filter failed findings with jq
 tagctl evaluate --resources resources.json | jq '.findings[] | select(.status == "FAILED")'

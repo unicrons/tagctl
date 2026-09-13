@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path"
 	"sync"
 
 	"github.com/unicrons/tagctl/internal/config"
@@ -156,28 +157,11 @@ func (s *RealScanner) shouldIgnore(r types.Resource) bool {
 	return false
 }
 
-// matchGlob performs simple glob matching (supports * wildcard).
+// matchGlob matches a resource type against a path.Match pattern. Patterns
+// are validated when the config loads, so a malformed one matches nothing.
 func matchGlob(pattern, value string) bool {
-	if pattern == "*" {
-		return true
-	}
-	if pattern == value {
-		return true
-	}
-
-	// Handle prefix wildcard (e.g., "aws_*")
-	if len(pattern) > 1 && pattern[len(pattern)-1] == '*' {
-		prefix := pattern[:len(pattern)-1]
-		return len(value) >= len(prefix) && value[:len(prefix)] == prefix
-	}
-
-	// Handle suffix wildcard (e.g., "*_instance")
-	if len(pattern) > 1 && pattern[0] == '*' {
-		suffix := pattern[1:]
-		return len(value) >= len(suffix) && value[len(value)-len(suffix):] == suffix
-	}
-
-	return false
+	matched, err := path.Match(pattern, value)
+	return err == nil && matched
 }
 
 // MockScanner is a Scanner implementation that returns mock data.

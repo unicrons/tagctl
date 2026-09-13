@@ -39,7 +39,7 @@ func runValidate(cmd *cobra.Command, args []string) error {
 	report.checkPolicy()
 	report.checkRules()
 	report.checkIgnore()
-	report.checkParsed()
+	report.checkParsed(configFile)
 
 	return report.print()
 }
@@ -95,15 +95,10 @@ func (r *validationReport) checkAWSShape() {
 	}
 }
 
-// checkParsed decodes the file into config.Config and runs its validation,
-// which is what every command does before using the configuration.
-func (r *validationReport) checkParsed() {
-	var cfg config.Config
-	if err := viper.Unmarshal(&cfg); err != nil {
-		r.addError("cannot parse config: %v", err)
-		return
-	}
-	if err := cfg.Validate(); err != nil {
+// checkParsed loads the file with config.Load, which is what every command
+// does before using the configuration.
+func (r *validationReport) checkParsed(path string) {
+	if _, err := config.Load(path); err != nil {
 		r.addError("%v", err)
 	}
 }

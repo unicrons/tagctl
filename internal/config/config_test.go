@@ -283,15 +283,126 @@ func TestValidate_AWSAccounts(t *testing.T) {
 	}
 }
 
-func TestValidate_BadRegex(t *testing.T) {
-	cfg, err := Load(testutil.ConfigPath("invalid-bad-regex.yaml"))
+func TestLoad_ValidatesConfig(t *testing.T) {
+	_, err := Load(testutil.ConfigPath("invalid-bad-regex.yaml"))
+	if err == nil || !strings.Contains(err.Error(), "policy.required[0]: invalid pattern") {
+		t.Fatalf("Load() = %v, want the invalid pattern rejection", err)
+	}
+}
+
+func writeConfig(t *testing.T, body string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "tagctl.yaml")
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestLoad_RejectsUnknownKeys(t *testing.T) {
+	cases := []struct {
+		name    string
+		body    string
+		wantErr string
+	}{
+		{"top-level typo", "polcy:\n  required:\n    - name: owner\n", "line 1: field polcy not found"},
+		{"requirement typo", "policy:\n  required:\n    - name: environment\n      valuse: [dev]\n", "line 4: field valuse not found"},
+		{"default rule plural key", "rules:\n  defaults:\n    - resources: \"*\"\n      set: {owner: a}\n", "line 3: field resources not found"},
+		{"kubernetes unknown key", "clouds:\n  kubernetes:\n    - name: prod\n      cluster: prod\n", "line 4: field cluster not found"},
+		{"aws account typo keeps its own message", "clouds:\n  aws:\n    - profile: dev\n      regoins: [us-east-1]\n", `unknown field "regoins"`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := Load(writeConfig(t, tc.body))
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("Load() = %v, want error containing %q", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestLoad_ValidatesKubernetesResourceTypes(t *testing.T) {
+	body := "clouds:\n  kubernetes:\n    - name: prod\n      resource_types: [k8s_pod, k8s_pods]\n"
+	_, err := Load(writeConfig(t, body))
+	if err == nil || !strings.Contains(err.Error(), `kubernetes[0]: unknown resource type "k8s_pods"`) {
+		t.Fatalf("Load() = %v, want the unknown resource type rejection", err)
+	}
+}
+
+func TestLoad_EmptyFileIsEmptyConfig(t *testing.T) {
+	cfg, err := Load(writeConfig(t, "# nothing configured yet\n"))
 	if err != nil {
-		t.Fatalf("Load() error = %v", err)
+		t.Fatalf("Load() = %v", err)
+	}
+	if len(cfg.Clouds.AWS) != 0 || len(cfg.Policy.Required) != 0 {
+		t.Errorf("config = %+v, want empty", cfg)
+	}
+}
+
+func TestLoad_AWSMappingDecodesAsOneAccount(t *testing.T) {
+	cfg, err := Load(writeConfig(t, "clouds:\n  aws:\n    profile: dev\n    regions: [us-east-1]\n"))
+	if err != nil {
+		t.Fatalf("Load() = %v", err)
+	}
+	if len(cfg.Clouds.AWS) != 1 || cfg.Clouds.AWS[0].Profile != "dev" || len(cfg.Clouds.AWS[0].Regions) != 1 {
+		t.Errorf("accounts = %+v, want the single dev account", cfg.Clouds.AWS)
+	}
+}
+
+func TestLoad_ShippedConfigsStayValid(t *testing.T) {
+	paths := []string{filepath.Join("..", "..", "tagctl.yaml.example")}
+	for _, name := range []string{"valid.yaml", "minimal.yaml", "aws-only.yaml", "k8s-only.yaml", "invalid-missing-clouds.yaml"} {
+		paths = append(paths, testutil.ConfigPath(name))
+	}
+	for _, path := range paths {
+		t.Run(filepath.Base(path), func(t *testing.T) {
+			if _, err := Load(path); err != nil {
+				t.Fatalf("Load() = %v", err)
+			}
+		})
+	}
+}
+
+func TestValidate_PolicyRulesAndIgnore(t *testing.T) {
+	awsDefault := func(set, when map[string]string) RulesConfig {
+		return RulesConfig{Defaults: []DefaultRule{{Resource: "aws_*", When: when, Set: set}}}
+	}
+	cases := []struct {
+		name    string
+		cfg     Config
+		wantErr string
+	}{
+		{"tag keys differing only in case", Config{Policy: PolicyConfig{Required: []TagRequirement{{Name: "Owner"}, {Name: "owner"}}}}, ""},
+		{"tag required twice", Config{Policy: PolicyConfig{Required: []TagRequirement{{Name: "owner"}, {Name: "owner"}}}}, `policy.required[1]: tag "owner" is already defined at policy.required[0]`},
+		{"tag both required and optional", Config{Policy: PolicyConfig{Required: []TagRequirement{{Name: "owner"}}, Optional: []TagRequirement{{Name: "owner"}}}}, `policy.optional[0]: tag "owner" is already defined at policy.required[0]`},
+		{"optional tag without name", Config{Policy: PolicyConfig{Optional: []TagRequirement{{}}}}, "policy.optional[0]: name is required"},
+		{"optional tag with bad pattern", Config{Policy: PolicyConfig{Optional: []TagRequirement{{Name: "team", Pattern: "[a-"}}}}, "policy.optional[0]: invalid pattern"},
+		{"default with absent condition", Config{Rules: awsDefault(map[string]string{"owner": "a"}, map[string]string{"tag:owner": "absent"})}, ""},
+		{"default with exact value condition", Config{Rules: awsDefault(map[string]string{"backup": "daily"}, map[string]string{"tag:environment": "prod"})}, ""},
+		{"default without resource", Config{Rules: RulesConfig{Defaults: []DefaultRule{{Set: map[string]string{"owner": "a"}}}}}, "rules.defaults[0]: resource is required"},
+		{"default with malformed glob", Config{Rules: RulesConfig{Defaults: []DefaultRule{{Resource: "aws_[", Set: map[string]string{"owner": "a"}}}}}, `rules.defaults[0]: resource: invalid glob "aws_["`},
+		{"default without set", Config{Rules: awsDefault(nil, nil)}, "rules.defaults[0]: set must name at least one tag"},
+		{"condition without tag prefix", Config{Rules: awsDefault(map[string]string{"owner": "a"}, map[string]string{"owner": "absent"})}, `unknown condition "owner"`},
+		{"condition without tag name", Config{Rules: awsDefault(map[string]string{"owner": "a"}, map[string]string{"tag:": "absent"})}, `unknown condition "tag:"`},
+		{"condition present", Config{Rules: awsDefault(map[string]string{"owner": "a"}, map[string]string{"tag:owner": "present"})}, `tag:owner must be "absent" or the exact tag value, got "present"`},
+		{"condition with empty value", Config{Rules: awsDefault(map[string]string{"owner": "a"}, map[string]string{"tag:owner": ""})}, `got ""`},
+		{"ignore with middle wildcard", Config{Ignore: IgnoreConfig{Resources: []string{"aws_*_group"}}}, ""},
+		{"ignore with malformed glob", Config{Ignore: IgnoreConfig{Resources: []string{"*", "aws_[iam"}}}, `ignore.resources[1]: invalid glob "aws_[iam"`},
 	}
 
-	err = cfg.Validate()
-	if err == nil {
-		t.Error("Validate() expected error for bad regex")
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.cfg.Validate()
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Fatalf("Validate() = %v, want nil", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("Validate() = %v, want error containing %q", err, tc.wantErr)
+			}
+		})
 	}
 }
 
@@ -311,32 +422,18 @@ func TestLoad_VerifyIgnoreConfig(t *testing.T) {
 }
 
 func TestLoad_RejectsStaticKeys(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "tagctl.yaml")
 	body := "clouds:\n  aws:\n    - access_key_id: AKIA\n      secret_access_key: s\n      regions: [us-east-1]\n"
-	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	cfg, err := Load(path)
-	if err != nil {
-		t.Fatalf("Load() error = %v", err)
-	}
-	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "access_key_id is not read from the config file") {
-		t.Fatalf("Validate() = %v, want the static-key rejection", err)
+	_, err := Load(writeConfig(t, body))
+	if err == nil || !strings.Contains(err.Error(), "access_key_id is not read from the config file") {
+		t.Fatalf("Load() = %v, want the static-key rejection", err)
 	}
 }
 
 func TestLoad_AssumeRoleFields(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "tagctl.yaml")
 	body := "clouds:\n  aws:\n    - profile: base\n      role_arn: arn:aws:iam::111111111111:role/Audit\n      external_id: ext\n      session_duration: 1800\n      role_session_name: audit\n      mfa_serial: arn:aws:iam::111111111111:mfa/pedro\n      regions: [us-east-1]\n"
-	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	cfg, err := Load(path)
+	cfg, err := Load(writeConfig(t, body))
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
-	}
-	if err := cfg.Validate(); err != nil {
-		t.Fatalf("Validate() = %v", err)
 	}
 	acc := cfg.Clouds.AWS[0]
 	if acc.Profile != "base" || acc.RoleARN != "arn:aws:iam::111111111111:role/Audit" || acc.ExternalID != "ext" ||

@@ -149,13 +149,25 @@ rules:
 | `aws_*` | All AWS resources |
 | `aws_instance` | Only EC2 instances |
 | `aws_s3_*` | S3 buckets and related |
+| `aws_*_group` | Security groups, log groups, Auto Scaling groups... |
 | `k8s_*` | All Kubernetes resources (coming soon) |
 
+Patterns use Go `path.Match` syntax (`*`, `?`, `[...]`); a malformed one is
+rejected when the config loads.
+
 ### Conditions
+
+Every condition under `when` must hold for the rule to apply. Tag names are
+case-sensitive.
 
 | Condition | Meaning |
 |-----------|---------|
 | `tag:NAME: absent` | Tag is not present |
+| `tag:NAME: VALUE` | Tag is present with exactly `VALUE` |
+
+A key without the `tag:` prefix and an empty value are rejected when the config
+loads. `present` is reserved for a future condition and rejected as well, so a
+tag whose literal value is `present` cannot be matched.
 
 <Note>
   More conditions like `tag:NAME: present` and `created_before` are planned for future releases.

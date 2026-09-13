@@ -139,7 +139,7 @@ rules:
 
 # Resources to ignore
 ignore:
-  # Skip these resource types (exact, prefix* or *suffix)
+  # Skip these resource types (globs: aws_iam_*, *_group, aws_*_group)
   resources:
     - "aws_cloudwatch_*"
     - "aws_iam_*"

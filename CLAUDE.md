@@ -12,7 +12,7 @@ This file provides guidance for Claude Code when working on this project.
   image (`GOTOOLCHAIN=local`), bump its tag with a new Go minor in `go.mod`
 - **CLI Framework**: Cobra + Viper
 - **Cloud SDK**: aws-sdk-go-v2 (AWS), client-go (Kubernetes)
-- **Config**: YAML via Viper
+- **Config**: YAML decoded strictly by yaml.v3; Viper only locates the file
 - **Testing**: standard `testing` package
 - **Linting**: golangci-lint (`.golangci.yml`)
 
@@ -408,15 +408,23 @@ Install with: `make hooks`
 
 6. **YAML list formatting**: `clouds.aws` is a list of accounts. Two common
    mistakes: putting `regions` as a separate list item (creates a second account
-   with no identity) and writing `aws:` as a mapping instead of a list (works by
-   accident: the decoder lifts it into a one-element list). `config.Validate()`
-   rejects the first; `tagctl validate` warns about the second
+   with no identity) and writing `aws:` as a mapping instead of a list (still
+   accepted: `AWSAccounts.UnmarshalYAML` lifts it into a one-element list).
+   `config.Validate()` rejects the first; `tagctl validate` warns about the second
 
-7. **Config validation runs on every command**: `loadConfig()` calls
-   `config.Validate()`. It does not require a cloud provider (scan has demo mode,
-   evaluate reads JSON); it checks the account shape (no static keys, role
-   options only with `role_arn`, unknown fields rejected), region codes, regex
-   patterns and Kubernetes `resource_types` (unknown or repeated types rejected)
+7. **Config loading is strict and runs on every command**: Viper only locates
+   the file (`--config` or discovery); `config.Load` decodes it with yaml.v3
+   `KnownFields(true)` (unknown keys fail with their line) and runs
+   `config.Validate()`, for `loadConfig()` and `evaluate --policy` alike. Never
+   decode it with `viper.Unmarshal`: Viper lowercases map keys, so mixed-case
+   tag names in `when`, `set` and `ignore.tags` silently stop matching.
+   Validation does not require a cloud provider (scan has demo mode, evaluate
+   reads JSON); it checks the account shape (no static keys, role options only
+   with `role_arn`, unknown account fields rejected), region codes, regex and
+   glob (`path.Match`) patterns, tag names defined twice, `rules.defaults`
+   (`resource`, non-empty `set`, `when` keys `tag:<name>` with `absent` or an
+   exact value; the planner fails closed on anything else) and Kubernetes
+   `resource_types` (unknown or repeated types rejected)
 
 8. **Bulk tags are eventually consistent**: `tag:GetResources` can lag a few
    minutes behind `tagctl apply`. Per-resource tag APIs are read-after-write,
