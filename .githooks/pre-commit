@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
-# Pre-commit hook for tagctl. The checks run on a copy of the index, so they
-# see what is being committed, not unstaged edits or untracked files.
+# Pre-commit hook for tagctl. The checks run on a copy of the tree being
+# committed, not on unstaged edits or untracked files.
 #
 
 RED='\033[0;31m'
@@ -22,24 +22,32 @@ HOOK_DIR=$(cd "$(dirname "$0")" && pwd) || exit 1
 GIT_DIR_ABS=$(git rev-parse --absolute-git-dir) || exit 1
 # A fixed path keeps the Go build and lint caches warm between commits.
 SNAPSHOT="$GIT_DIR_ABS/tagctl-pre-commit"
+SNAPSHOT_INDEX="$SNAPSHOT.index"
 PATCH="$SNAPSHOT.patch"
 
-cleanup() { rm -rf "$SNAPSHOT" "$PATCH"; }
+cleanup() { rm -rf "$SNAPSHOT" "$SNAPSHOT_INDEX" "$PATCH"; }
 trap cleanup EXIT
 cleanup
 
-git checkout-index --all --prefix="$SNAPSHOT/" || exit 1
+# write-tree leaves out intent-to-add paths (git add -N), which the index
+# holds as empty files that do not compile.
+TREE=$(git write-tree) || exit 1
+GIT_INDEX_FILE="$SNAPSHOT_INDEX" git read-tree "$TREE" || exit 1
+GIT_INDEX_FILE="$SNAPSHOT_INDEX" git checkout-index --all --prefix="$SNAPSHOT/" || exit 1
+
+if git rev-parse --verify -q HEAD >/dev/null; then
+    BASE=HEAD
+    git diff --no-color --no-ext-diff --src-prefix=a/ --dst-prefix=b/ HEAD "$TREE" >"$PATCH" || exit 1
+else
+    BASE=$(git hash-object -t tree /dev/null)
+fi
 
 staged=()
 go_files=()
 while IFS= read -r -d '' file; do
     staged+=("$file")
     [[ $file == *.go ]] && go_files+=("$file")
-done < <(git diff --cached --name-only -z --diff-filter=ACMR)
-
-if git rev-parse --verify -q HEAD >/dev/null; then
-    git diff --cached --no-color --no-ext-diff --src-prefix=a/ --dst-prefix=b/ >"$PATCH" || exit 1
-fi
+done < <(git diff --name-only -z --diff-filter=ACMRT "$BASE" "$TREE")
 
 LINT_BIN_DIR=$(go env GOBIN)
 [ -n "$LINT_BIN_DIR" ] || LINT_BIN_DIR="$(go env GOPATH)/bin"
@@ -55,8 +63,12 @@ echo ""
 # 1. SECRET DETECTION (trufflehog)
 #######################################
 
+# The staged script, so it agrees with the staged .trufflehog-ignore.
+SECRETS_CHECK=./.githooks/check-secrets.sh
+[ -x "$SECRETS_CHECK" ] || SECRETS_CHECK="$HOOK_DIR/check-secrets.sh"
+
 if [ "${#staged[@]}" -gt 0 ]; then
-    "$HOOK_DIR/check-secrets.sh" "${staged[@]}" || FAILED=1
+    "$SECRETS_CHECK" "${staged[@]}" || FAILED=1
 else
     printf 'Checking for secrets (trufflehog)... '
     ok "no staged files"

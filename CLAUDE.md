@@ -385,8 +385,9 @@ commit type. Commit subjects are `type(scope): summary`, at most 60 characters.
 
 ## Git Hooks
 
-The pre-commit hook runs on a copy of the index (`<git dir>/tagctl-pre-commit`),
-never the working tree: `.githooks/check-secrets.sh` on the staged files (any
+The pre-commit hook runs on a copy of `git write-tree` (`<git dir>/tagctl-pre-commit`;
+intent-to-add paths are left out), never the working tree: the staged
+`.githooks/check-secrets.sh` on the staged files (any
 trufflehog finding fails; `.trufflehog-ignore` holds path regexes), `gofmt` on
 staged Go files, `golangci-lint --new-from-patch` with the staged diff (whole
 tree on a root commit; `go vet` when the binary is missing), `go build
