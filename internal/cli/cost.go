@@ -53,7 +53,7 @@ Examples:
 func init() {
 	costCmd.Flags().Int("days", 30, "how many days back to report on")
 	costCmd.Flags().StringSlice("tag", nil, "tag to report on (repeatable; defaults to the policy's required tags)")
-	costCmd.Flags().Float64("fail-under", 0, "fail if any tag accounts for less than this percentage of spend")
+	costCmd.Flags().Float64("fail-under", 0, "exit 1 if any tag accounts for less than this percentage of spend")
 	addAWSAuthFlags(costCmd)
 }
 
@@ -153,8 +153,8 @@ func checkCostCoverage(report *types.CostReport, failUnder float64) error {
 	}
 
 	if len(failing) > 0 {
-		return fmt.Errorf("cost attribution below the required %.1f%%: %s",
-			failUnder, strings.Join(failing, "; "))
+		return gateFailed(fmt.Errorf("cost attribution below the required %.1f%%: %s",
+			failUnder, strings.Join(failing, "; ")))
 	}
 
 	return nil

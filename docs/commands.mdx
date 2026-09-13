@@ -24,6 +24,22 @@ These flags work with all commands:
 | `info` | Show what each step is doing |
 | `debug` | Show detailed trace for troubleshooting. All levels write to stderr, so stdout stays pipeable |
 
+## Exit codes
+
+Every command exits with one of three codes, so a pipeline can tell a policy
+that failed from a check that could not run:
+
+| Code | Meaning |
+|------|---------|
+| `0` | Success, and every gate that was requested passed |
+| `1` | A policy gate failed: `--fail-under` or `--fail-on-new` on `scan`, `evaluate` and `terraform`, `--fail-under` on `cost`, `diff --fail-on-regression`, `normalize --fail-on-drift` |
+| `2` | Any other error: an unknown flag or wrong arguments, an invalid config, an unreadable input or baseline file, `--fail-on-new` without `--baseline`, a [partial scan](#partial-scans) without `--allow-partial`, an `apply` with failed changes |
+
+The reason is printed to stderr after `Error:`. An unknown command
+(`tagctl nosuch`) exits `2`, but `tagctl help <topic>` with an unknown topic
+prints the usage and exits `0`. Ctrl-C or SIGTERM makes `scan`, `apply` and
+`cost` stop and exit `2`; any other command is ended by the signal itself.
+
 ## tagctl init
 
 Generate a new configuration file with example settings.
@@ -92,7 +108,7 @@ list of checks.
 | Exit Code | Meaning |
 |-----------|---------|
 | 0 | Configuration is valid |
-| 1 | Configuration has errors |
+| 2 | Configuration has errors, or no config file was found |
 
 ## tagctl scan
 
@@ -277,8 +293,9 @@ Credentials are checked before discovery starts: an account whose credentials or
 role are rejected at startup stops the scan with an error and no reports.
 
 A partial scan writes every report, including `--sarif`, `--junit` and `--ocsf`,
-and then fails before the CI gate runs: a compliance percentage over part of the
-estate can pass a gate the whole estate would fail. `--allow-partial` accepts the
+and then fails with exit code `2` before the CI gate runs: a compliance
+percentage over part of the estate can pass a gate the whole estate would fail.
+`--allow-partial` accepts the
 scan instead: a warning goes to stderr and the gate runs on the partial result.
 
 `plan`, `diff` and `--baseline` print a warning to stderr when they read a
@@ -445,7 +462,7 @@ Run 'tagctl scan' to verify compliance.
 | Exit Code | Meaning |
 |-----------|---------|
 | 0 | All changes applied successfully |
-| 1 | Some changes failed (`Errors: N` and a `Failed changes:` list are printed) |
+| 2 | Some changes failed (`Errors: N` and a `Failed changes:` list are printed), or the plan or config could not be loaded |
 
 ## tagctl evaluate
 
@@ -600,20 +617,21 @@ aws resourcegroupstaggingapi get-resources --output json | \
 # GitHub Actions example
 - name: Check tag compliance
   run: |
-    cat resources.json | tagctl evaluate --policy .tagctl.yaml > results.json
-    FAILED=$(jq '.summary.failed' results.json)
-    if [ "$FAILED" -gt 0 ]; then
-      echo "Found $FAILED non-compliant resources"
-      exit 1
-    fi
+    tagctl evaluate --resources resources.json --policy .tagctl.yaml \
+      --fail-under 100 > results.json
 ```
+
+The step fails with exit code `1` when any resource is non-compliant and `2`
+when the resources or the policy cannot be read. `results.json` is written
+before the gate runs.
   </Tab>
 </Tabs>
 
 | Exit Code | Meaning |
 |-----------|---------|
-| 0 | Evaluation completed successfully |
-| 1 | Error loading resources or policy |
+| 0 | Evaluation completed, and every requested gate passed |
+| 1 | A gate (`--fail-under`, `--fail-on-new`) failed |
+| 2 | Error loading resources, policy or baseline, or writing a report |
 
 ## tagctl diff
 
@@ -641,7 +659,7 @@ tagctl diff -o json
 
 | Flag | Description |
 |------|-------------|
-| `--fail-on-regression` | Exit non-zero if any finding regressed |
+| `--fail-on-regression` | Exit `1` if any finding regressed |
 
 ### What counts as drift
 
@@ -727,7 +745,7 @@ tagctl cost --fail-under 80
 |------|-------------|
 | `--days <n>` | How many days back to report on (default `30`, minimum `1`) |
 | `--tag <tag>` | Tag to report on (repeatable; defaults to the policy's required tags) |
-| `--fail-under <pct>` | Fail if any tag accounts for less than this share of spend |
+| `--fail-under <pct>` | Exit `1` if any tag accounts for less than this share of spend |
 | `--profile <name>`, `-p` | AWS profile (defaults to the first configured account). Cost Explorer is always called through `us-east-1` |
 | `--role <arn>` | IAM role to assume; `--external-id`, `--session-duration`, `--role-session-name` and `--mfa-serial` refine it |
 | `--output json` | Machine-readable report instead of the table |
@@ -958,7 +976,7 @@ tagctl normalize --fail-on-drift
 | `--abbreviations` | Group a value with a longer one it is a prefix of (default `true`) |
 | `--ignore-tag <tag>` | Tag key to leave alone (repeatable) |
 | `--out <file>` | Write a remediation plan to this path |
-| `--fail-on-drift` | Exit non-zero if any drift is found |
+| `--fail-on-drift` | Exit `1` if any drift is found |
 | `--output json` | Machine-readable report instead of the table |
 
 Values listed under `policy.optional[].values` count as canonical spellings, the same as `policy.required[].values`.
@@ -1028,15 +1046,15 @@ Flags override the config file.
 
 ## CI gates
 
-`scan` and `evaluate` both accept the same set of gate flags, which turn tagctl
+`scan`, `evaluate` and `terraform` accept the same set of gate flags, which turn tagctl
 from a report into a build step.
 
 ### Flags
 
 | Flag | Description |
 |------|-------------|
-| `--fail-under <pct>` | Fail if compliance is below this percentage |
-| `--fail-on-new` | Fail if any finding regressed against `--baseline` |
+| `--fail-under <pct>` | Exit `1` if compliance is below this percentage |
+| `--fail-on-new` | Exit `1` if any finding regressed against `--baseline` |
 | `--baseline <file>` | Baseline scan `--fail-on-new` compares against |
 | `--sarif <path>` | Also write findings as SARIF (`-` for stdout) |
 | `--junit <path>` | Also write findings as JUnit XML (`-` for stdout) |
@@ -1176,7 +1194,11 @@ accept the current state. Every regression after that fails the build.
 | Code | Meaning |
 |------|---------|
 | `0` | The gate passed, or no gate was requested |
-| `1` | The gate failed, or the command errored |
+| `1` | The gate failed |
+| `2` | The gate could not be evaluated: bad flags, an invalid config, an unreadable input or baseline, or a partial scan without `--allow-partial` |
+
+A step that must not treat a broken run as a policy failure, or the other way
+round, can branch on the code; see [Exit codes](#exit-codes).
 
 The reason is printed to stderr:
 

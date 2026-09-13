@@ -63,7 +63,7 @@ func init() {
 	normalizeCmd.Flags().Bool("abbreviations", true, "group a value with a longer one it is a prefix of")
 	normalizeCmd.Flags().StringSlice("ignore-tag", nil, "tag key to leave alone (repeatable)")
 	normalizeCmd.Flags().String("out", "", "write a remediation plan to this path")
-	normalizeCmd.Flags().Bool("fail-on-drift", false, "exit with a non-zero status if any drift is found")
+	normalizeCmd.Flags().Bool("fail-on-drift", false, "exit 1 if any drift is found")
 }
 
 func runNormalize(cmd *cobra.Command, args []string) error {
@@ -99,8 +99,8 @@ func runNormalize(cmd *cobra.Command, args []string) error {
 	}
 
 	if failOnDrift && !result.IsEmpty() {
-		return fmt.Errorf("%d tag value cluster(s) need normalizing, affecting %d resource(s)",
-			len(result.Clusters), result.AffectedResources())
+		return gateFailed(fmt.Errorf("%d tag value cluster(s) need normalizing, affecting %d resource(s)",
+			len(result.Clusters), result.AffectedResources()))
 	}
 
 	return nil

@@ -43,7 +43,7 @@ Examples:
 }
 
 func init() {
-	diffCmd.Flags().Bool("fail-on-regression", false, "exit with a non-zero status if any finding regressed")
+	diffCmd.Flags().Bool("fail-on-regression", false, "exit 1 if any finding regressed")
 }
 
 func runDiff(cmd *cobra.Command, args []string) error {
@@ -79,7 +79,7 @@ func runDiff(cmd *cobra.Command, args []string) error {
 	}
 
 	if failOnRegression && result.HasRegressions() {
-		return fmt.Errorf("%d finding(s) regressed since the baseline", len(result.Regressions))
+		return gateFailed(fmt.Errorf("%d finding(s) regressed since the baseline", len(result.Regressions)))
 	}
 
 	return nil

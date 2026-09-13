@@ -123,15 +123,7 @@ func runTerraform(cmd *cobra.Command, args []string) error {
 		return reportErr
 	}
 
-	gateResult, gateErr := gateOpts.evaluate(result)
-	if gateErr != nil {
-		return gateErr
-	}
-	if !gateResult.Passed {
-		return gateResult.Error()
-	}
-
-	return nil
+	return gateOpts.check(result)
 }
 
 // readTerraformResources reads terraform JSON from a path or stdin.

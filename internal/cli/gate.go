@@ -14,8 +14,8 @@ import (
 
 // addGateFlags registers the flags that turn a command into a pipeline gate.
 func addGateFlags(cmd *cobra.Command) {
-	cmd.Flags().Float64("fail-under", 0, "fail if compliance is below this percentage (0 disables the check)")
-	cmd.Flags().Bool("fail-on-new", false, "fail if any finding regressed against --baseline")
+	cmd.Flags().Float64("fail-under", 0, "exit 1 if compliance is below this percentage (0 disables the check)")
+	cmd.Flags().Bool("fail-on-new", false, "exit 1 if any finding regressed against --baseline")
 	cmd.Flags().String("baseline", "", "baseline scan file to compare against for --fail-on-new")
 	cmd.Flags().String("sarif", "", "also write findings as SARIF to this path (- for stdout)")
 	cmd.Flags().String("junit", "", "also write findings as JUnit XML to this path (- for stdout)")
@@ -98,6 +98,18 @@ func (o gateOptions) evaluate(scan *types.ScanResult) (*report.GateResult, error
 	}
 
 	return o.gate.Evaluate(scan, diff), nil
+}
+
+// check applies the gate and returns a gate failure when the scan does not pass.
+func (o gateOptions) check(scan *types.ScanResult) error {
+	result, err := o.evaluate(scan)
+	if err != nil {
+		return err
+	}
+	if !result.Passed {
+		return gateFailed(result.Error())
+	}
+	return nil
 }
 
 // writeToPathOrStdout runs write against the named file, or stdout for "-".

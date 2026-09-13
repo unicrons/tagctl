@@ -56,7 +56,12 @@ It helps you:
 Example workflow:
   $ tagctl scan          # See what's wrong
   $ tagctl plan          # Generate fix plan
-  $ tagctl apply         # Apply the fixes`,
+  $ tagctl apply         # Apply the fixes
+
+Exit codes:
+  0  success
+  1  a policy gate failed (--fail-under, --fail-on-new, --fail-on-regression, --fail-on-drift)
+  2  any other error (bad flag, invalid config, unreadable input, partial scan, failed apply)`,
 	SilenceUsage:  true,
 	SilenceErrors: true,
 }
