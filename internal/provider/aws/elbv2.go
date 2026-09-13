@@ -1,7 +1,10 @@
 package aws
 
 import (
+	"cmp"
 	"context"
+	"errors"
+	"maps"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	elbv2 "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
@@ -54,71 +57,54 @@ func (p *Provider) listLoadBalancersFrom(ctx context.Context, client elbv2API, r
 		}
 	}
 
-	tagsByARN := p.getELBv2Tags(ctx, client, arns)
+	tagsByARN, tagErrs := getELBv2Tags(ctx, client, arns)
 
 	resources := make([]types.Resource, 0, len(loadBalancers))
 	for _, lb := range loadBalancers {
 		arn := aws.ToString(lb.LoadBalancerArn)
 		name := aws.ToString(lb.LoadBalancerName)
-
 		tags, ok := tagsByARN[arn]
 		if !ok {
-			tags = map[string]string{}
+			p.skipResource(ctx, "ELBv2", region, "load balancer "+name, cmp.Or(tagErrs[arn], errNotDescribed))
+			continue
 		}
-
-		resource := types.Resource{
-			ID:       name,
-			ARN:      arn,
-			Type:     "aws_lb",
-			Name:     name,
-			Region:   region,
-			Account:  p.accountID,
-			Provider: providerName,
-			Tags:     tags,
-		}
-
-		if lb.CreatedTime != nil {
-			resource.CreatedAt = lb.CreatedTime
-		}
-
-		log.Debug("AWS ELBv2: Load balancer %s in %s has %d tags", name, region, len(resource.Tags))
-		resources = append(resources, resource)
+		resources = append(resources, p.resource(region, "aws_lb", name, name, arn, tags, lb.CreatedTime))
 	}
 
 	log.Debug("AWS ELBv2: Found %d load balancers in %s", len(resources), region)
 	return resources, nil
 }
 
-// getELBv2Tags fetches tags for load balancer ARNs in batches.
-// A batch that cannot be read leaves its load balancers untagged rather than
-// failing the whole region scan.
-func (p *Provider) getELBv2Tags(ctx context.Context, client elbv2API, arns []string) map[string]map[string]string {
-	tagsByARN := make(map[string]map[string]string, len(arns))
+// errNotDescribed is the tag read error of an ARN a successful DescribeTags
+// response left out.
+var errNotDescribed = errors.New("missing from DescribeTags response")
 
-	for start := 0; start < len(arns); start += elbTagBatchSize {
-		end := start + elbTagBatchSize
-		if end > len(arns) {
-			end = len(arns)
-		}
-
-		output, err := client.DescribeTags(ctx, &elbv2.DescribeTagsInput{
-			ResourceArns: arns[start:end],
-		})
-		if err != nil {
-			log.Debug("AWS ELBv2: Failed to get tags for batch starting at %d: %v", start, err)
-			continue
-		}
-
-		for _, desc := range output.TagDescriptions {
-			arn := aws.ToString(desc.ResourceArn)
-			if arn == "" {
-				continue
+// getELBv2Tags reads tags for ARNs in DescribeTags batches. An ARN that could
+// not be read is absent from tags; errs holds the failure of its call.
+func getELBv2Tags(ctx context.Context, client elbv2API, arns []string) (tags map[string]map[string]string, errs map[string]error) {
+	tags = make(map[string]map[string]string, len(arns))
+	errs = make(map[string]error)
+	for _, batch := range chunk(arns, elbTagBatchSize) {
+		output, err := client.DescribeTags(ctx, &elbv2.DescribeTagsInput{ResourceArns: batch})
+		switch {
+		case err == nil:
+			for _, desc := range output.TagDescriptions {
+				tags[aws.ToString(desc.ResourceArn)] = elbv2TagsToMap(desc.Tags)
 			}
-			tagsByARN[arn] = elbv2TagsToMap(desc.Tags)
+		case resourceGone(err) && len(batch) > 1:
+			// One deleted ARN fails its whole batch: read the batch one ARN at a time.
+			for _, arn := range batch {
+				batchTags, batchErrs := getELBv2Tags(ctx, client, []string{arn})
+				maps.Copy(tags, batchTags)
+				maps.Copy(errs, batchErrs)
+			}
+		default:
+			for _, arn := range batch {
+				errs[arn] = err
+			}
 		}
 	}
-
-	return tagsByARN
+	return tags, errs
 }
 
 // applyELBv2Tags applies tags to a load balancer.
@@ -182,25 +168,24 @@ func (p *Provider) listTargetGroupsFrom(ctx context.Context, client elbv2API, re
 	}
 	useBulk := p.tagsFor(region).available()
 	var tagsByARN map[string]map[string]string
+	var tagErrs map[string]error
 	if !useBulk {
-		tagsByARN = p.getELBv2Tags(ctx, client, arns)
+		tagsByARN, tagErrs = getELBv2Tags(ctx, client, arns)
 	}
 
 	resources := make([]types.Resource, 0, len(groups))
 	for _, g := range groups {
 		arn := aws.ToString(g.TargetGroupArn)
-		tags := tagsByARN[arn]
-		if useBulk {
-			tags = p.bulkTags(region, arn)
-		}
-		if tags == nil {
-			tags = map[string]string{}
-		}
 		name := aws.ToString(g.TargetGroupName)
-		resources = append(resources, types.Resource{
-			ID: name, Name: name, ARN: arn, Type: "aws_lb_target_group",
-			Region: region, Account: p.accountID, Provider: providerName, Tags: tags,
-		})
+		tags, ok := tagsByARN[arn]
+		if useBulk {
+			tags, ok = p.bulkTags(region, arn), true
+		}
+		if !ok {
+			p.skipResource(ctx, "ELBv2", region, "target group "+name, cmp.Or(tagErrs[arn], errNotDescribed))
+			continue
+		}
+		resources = append(resources, p.resource(region, "aws_lb_target_group", name, name, arn, tags, nil))
 	}
 	log.Debug("AWS ELBv2: Found %d target groups in %s", len(resources), region)
 	return resources, nil

@@ -61,7 +61,7 @@ func (p *Provider) listECRRepositoriesFrom(ctx context.Context, client ecrAPI, r
 			return ecrTagsToMap(output.Tags), nil
 		})
 		if err != nil {
-			log.Error("AWS ECR: Skipping repository %s (%s): cannot read tags: %v", r.name, region, err)
+			p.skipResource(ctx, "ECR", region, "repository "+r.name, err)
 			return nil
 		}
 		return one(types.Resource{

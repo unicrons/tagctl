@@ -3,6 +3,7 @@ package k8s
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -201,11 +202,7 @@ func (p *Provider) ListResources(ctx context.Context) ([]types.Resource, error) 
 		errs = append(errs, err)
 	}
 
-	if len(errs) > 0 {
-		return allResources, errs[0]
-	}
-
-	return allResources, nil
+	return allResources, errors.Join(errs...)
 }
 
 // ApplyTags applies labels to a Kubernetes resource.

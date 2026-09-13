@@ -2,9 +2,9 @@ package aws
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
-	"sync"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
@@ -47,102 +47,53 @@ func (p *Provider) listSQSQueuesFrom(ctx context.Context, client sqsAPI, region 
 		}
 	}
 
-	if len(queueURLs) == 0 {
-		log.Debug("AWS SQS: Found 0 queues in %s", region)
-		return nil, nil
-	}
-
-	// Fetch ARNs and tags in parallel using semaphore
-	sem := make(chan struct{}, maxConcurrentAPICalls)
-	results := make(chan types.Resource, len(queueURLs))
-	var wg sync.WaitGroup
-
-	for _, queueURL := range queueURLs {
-		queueURL := queueURL // capture loop variable
-		wg.Add(1)
-
-		go func() {
-			defer wg.Done()
-
-			// Acquire semaphore
-			sem <- struct{}{}
-			defer func() { <-sem }()
-
-			// A queue whose ARN cannot be resolved is skipped: it cannot be tagged
-			arn := p.getSQSQueueARN(ctx, client, queueURL)
-			if arn == "" {
-				log.Debug("AWS SQS: Skipping queue %s, could not resolve ARN", queueURL)
-				return
-			}
-
-			// The queue name is the last segment of the queue URL
-			name := queueURL
-			if idx := strings.LastIndex(queueURL, "/"); idx != -1 {
-				name = queueURL[idx+1:]
-			}
-
-			tags, _ := p.resourceTags(region, arn, func() (map[string]string, error) {
-				return p.getSQSTags(ctx, client, queueURL), nil
-			})
-
-			log.Debug("AWS SQS: Queue %s in %s has %d tags", name, region, len(tags))
-			results <- types.Resource{
-				ID:       name,
-				Name:     name,
-				ARN:      arn,
-				Type:     "aws_sqs_queue",
-				Region:   region,
-				Account:  p.accountID,
-				Provider: providerName,
-				Tags:     tags,
-			}
-		}()
-	}
-
-	// Close results channel when all goroutines complete
-	go func() {
-		wg.Wait()
-		close(results)
-	}()
-
-	// Collect results
-	resources := make([]types.Resource, 0, cap(results))
-	for resource := range results {
-		resources = append(resources, resource)
-	}
+	resources := forEachConcurrently(queueURLs, func(queueURL string) []types.Resource {
+		name := nameFromARN(queueURL)
+		arn, err := getSQSQueueARN(ctx, client, queueURL)
+		if err != nil {
+			p.skipResource(ctx, "SQS", region, "queue "+name, err)
+			return nil
+		}
+		tags, err := p.resourceTags(region, arn, func() (map[string]string, error) {
+			return getSQSTags(ctx, client, queueURL)
+		})
+		if err != nil {
+			p.skipResource(ctx, "SQS", region, "queue "+name, err)
+			return nil
+		}
+		return one(p.resource(region, "aws_sqs_queue", name, name, arn, tags, nil))
+	})
 
 	log.Debug("AWS SQS: Found %d queues in %s", len(resources), region)
 	return resources, nil
 }
 
-// getSQSQueueARN resolves a queue URL to its ARN, returning "" when unavailable.
-func (p *Provider) getSQSQueueARN(ctx context.Context, client sqsAPI, queueURL string) string {
+// getSQSQueueARN resolves a queue URL to its ARN. Without it the queue cannot
+// be looked up in the bulk source nor tagged.
+func getSQSQueueARN(ctx context.Context, client sqsAPI, queueURL string) (string, error) {
 	output, err := client.GetQueueAttributes(ctx, &sqs.GetQueueAttributesInput{
 		QueueUrl:       aws.String(queueURL),
 		AttributeNames: []sqstypes.QueueAttributeName{sqstypes.QueueAttributeNameQueueArn},
 	})
 	if err != nil {
-		log.Debug("AWS SQS: Failed to get attributes for %s: %v", queueURL, err)
-		return ""
+		return "", fmt.Errorf("get queue ARN: %w", err)
 	}
-	return output.Attributes[string(sqstypes.QueueAttributeNameQueueArn)]
+	arn := output.Attributes[string(sqstypes.QueueAttributeNameQueueArn)]
+	if arn == "" {
+		return "", errors.New("get queue ARN: QueueArn attribute missing")
+	}
+	return arn, nil
 }
 
-// getSQSTags fetches the tags for a single SQS queue.
-// A queue whose tags cannot be read is reported as untagged rather than
-// failing the whole region scan.
-func (p *Provider) getSQSTags(ctx context.Context, client sqsAPI, queueURL string) map[string]string {
+// getSQSTags reads the tags of an SQS queue.
+func getSQSTags(ctx context.Context, client sqsAPI, queueURL string) (map[string]string, error) {
 	output, err := client.ListQueueTags(ctx, &sqs.ListQueueTagsInput{
 		QueueUrl: aws.String(queueURL),
 	})
 	if err != nil {
-		log.Debug("AWS SQS: Failed to get tags for %s: %v", queueURL, err)
-		return map[string]string{}
+		return nil, err
 	}
-	if output.Tags == nil {
-		return map[string]string{}
-	}
-	return output.Tags
+	return output.Tags, nil
 }
 
 // applySQSTags applies tags to an SQS queue.

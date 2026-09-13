@@ -94,9 +94,7 @@ func (p *Provider) listS3BucketsFrom(ctx context.Context, global s3API, regional
 				return getBucketTags(ctx, regional(region), bucketName)
 			})
 			if err != nil {
-				// A bucket whose tags cannot be read is not a finding: skip it
-				// rather than report it as untagged.
-				log.Error("AWS S3: Skipping bucket %s (%s): cannot read tags: %v", bucketName, region, err)
+				p.skipResource(ctx, "S3", region, "bucket "+bucketName, err)
 				results <- s3BucketResult{skip: true}
 				return
 			}

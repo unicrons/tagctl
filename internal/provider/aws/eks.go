@@ -41,7 +41,7 @@ func (p *Provider) listEKSClustersFrom(ctx context.Context, client eksAPI, regio
 	resources := forEachConcurrently(names, func(name string) []types.Resource {
 		output, err := client.DescribeCluster(ctx, &eks.DescribeClusterInput{Name: aws.String(name)})
 		if err != nil || output.Cluster == nil {
-			log.Error("AWS EKS: Skipping cluster %s (%s): cannot describe it: %v", name, region, err)
+			p.skipResource(ctx, "EKS", region, "cluster "+name, err)
 			return nil
 		}
 		c := output.Cluster

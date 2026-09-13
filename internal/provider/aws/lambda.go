@@ -2,134 +2,72 @@ package aws
 
 import (
 	"context"
-	"sync"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/lambda"
+	lambdatypes "github.com/aws/aws-sdk-go-v2/service/lambda/types"
 
 	"github.com/unicrons/tagctl/internal/log"
 	"github.com/unicrons/tagctl/internal/provider"
 	"github.com/unicrons/tagctl/internal/types"
 )
 
-// lambdaFunctionInfo holds function data needed for parallel tag fetching.
-type lambdaFunctionInfo struct {
-	functionName string
-	functionARN  string
-	lastModified *string
+// lambdaAPI is the subset of the Lambda API used to discover functions.
+type lambdaAPI interface {
+	ListFunctions(ctx context.Context, params *lambda.ListFunctionsInput, optFns ...func(*lambda.Options)) (*lambda.ListFunctionsOutput, error)
+	ListTags(ctx context.Context, params *lambda.ListTagsInput, optFns ...func(*lambda.Options)) (*lambda.ListTagsOutput, error)
 }
 
-// listLambdaFunctions lists all Lambda functions in a region using parallel tag fetching.
+// listLambdaFunctions lists all Lambda functions in a region.
 func (p *Provider) listLambdaFunctions(ctx context.Context, region string) ([]types.Resource, error) {
+	return p.listLambdaFunctionsFrom(ctx, p.getLambdaClient(region), region)
+}
+
+// listLambdaFunctionsFrom lists Lambda functions using the given client.
+func (p *Provider) listLambdaFunctionsFrom(ctx context.Context, client lambdaAPI, region string) ([]types.Resource, error) {
 	log.Debug("AWS Lambda: Listing functions in region %s...", region)
-	client := p.getLambdaClient(region)
 
-	// First, collect all functions from pagination
-	var functions []lambdaFunctionInfo
+	var functions []lambdatypes.FunctionConfiguration
 	paginator := lambda.NewListFunctionsPaginator(client, &lambda.ListFunctionsInput{})
-
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
 			return nil, provider.NewProviderError(providerName, "list_lambda_functions", "", err)
 		}
+		functions = append(functions, output.Functions...)
+	}
 
-		for _, fn := range output.Functions {
-			functions = append(functions, lambdaFunctionInfo{
-				functionName: aws.ToString(fn.FunctionName),
-				functionARN:  aws.ToString(fn.FunctionArn),
-				lastModified: fn.LastModified,
-			})
+	resources := forEachConcurrently(functions, func(fn lambdatypes.FunctionConfiguration) []types.Resource {
+		name, arn := aws.ToString(fn.FunctionName), aws.ToString(fn.FunctionArn)
+		tags, err := p.resourceTags(region, arn, func() (map[string]string, error) {
+			return getLambdaTags(ctx, client, arn)
+		})
+		if err != nil {
+			p.skipResource(ctx, "Lambda", region, "function "+name, err)
+			return nil
 		}
-	}
 
-	if len(functions) == 0 {
-		log.Debug("AWS Lambda: Found 0 functions in %s", region)
-		return nil, nil
-	}
-
-	// Fetch tags in parallel using semaphore
-	sem := make(chan struct{}, maxConcurrentAPICalls)
-	results := make(chan types.Resource, len(functions))
-	var wg sync.WaitGroup
-
-	for _, fn := range functions {
-		fn := fn // capture loop variable
-		wg.Add(1)
-
-		go func() {
-			defer wg.Done()
-
-			// Acquire semaphore
-			sem <- struct{}{}
-			defer func() { <-sem }()
-
-			// Get tags for the function
-			tags, _ := p.resourceTags(region, fn.functionARN, func() (map[string]string, error) {
-				return p.getLambdaTags(ctx, region, fn.functionARN), nil
-			})
-
-			resource := types.Resource{
-				ID:       fn.functionName,
-				Name:     fn.functionName,
-				ARN:      fn.functionARN,
-				Type:     "aws_lambda_function",
-				Region:   region,
-				Account:  p.accountID,
-				Provider: providerName,
-				Tags:     tags,
-			}
-
-			// Parse last modified time
-			if fn.lastModified != nil {
-				if t, err := time.Parse("2006-01-02T15:04:05.000+0000", *fn.lastModified); err == nil {
-					resource.CreatedAt = &t
-				}
-			}
-
-			log.Debug("AWS Lambda: Function %s in %s has %d tags", fn.functionName, region, len(tags))
-			results <- resource
-		}()
-	}
-
-	// Close results channel when all goroutines complete
-	go func() {
-		wg.Wait()
-		close(results)
-	}()
-
-	// Collect results
-	resources := make([]types.Resource, 0, cap(results))
-	for resource := range results {
-		resources = append(resources, resource)
-	}
+		var created *time.Time
+		if t, err := time.Parse("2006-01-02T15:04:05.000+0000", aws.ToString(fn.LastModified)); err == nil {
+			created = &t
+		}
+		return one(p.resource(region, "aws_lambda_function", name, name, arn, tags, created))
+	})
 
 	log.Debug("AWS Lambda: Found %d functions in %s", len(resources), region)
 	return resources, nil
 }
 
-// getLambdaTags gets tags for a Lambda function.
-func (p *Provider) getLambdaTags(ctx context.Context, region, functionARN string) map[string]string {
-	log.Debug("AWS Lambda: Getting tags for %s (region: %s)", functionARN, region)
-	client := p.getLambdaClient(region)
-	tags := make(map[string]string)
-
+// getLambdaTags reads the tags of a Lambda function.
+func getLambdaTags(ctx context.Context, client lambdaAPI, arn string) (map[string]string, error) {
 	output, err := client.ListTags(ctx, &lambda.ListTagsInput{
-		Resource: aws.String(functionARN),
+		Resource: aws.String(arn),
 	})
 	if err != nil {
-		log.Debug("AWS Lambda: Failed to get tags for %s: %v", functionARN, err)
-		return tags
+		return nil, err
 	}
-
-	for k, v := range output.Tags {
-		tags[k] = v
-		log.Debug("AWS Lambda: %s has tag %s=%s", functionARN, k, v)
-	}
-
-	log.Debug("AWS Lambda: %s has %d tags", functionARN, len(tags))
-	return tags
+	return output.Tags, nil
 }
 
 // applyLambdaTags applies tags to a Lambda function.

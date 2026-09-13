@@ -74,7 +74,7 @@ func (p *Provider) listECSResourcesFrom(ctx context.Context, client ecsAPI, regi
 	resources = append(resources, forEachConcurrently(clusterARNs, func(clusterARN string) []types.Resource {
 		svcs, err := p.listECSServices(ctx, client, region, clusterARN)
 		if err != nil {
-			log.Error("AWS ECS: Skipping services of cluster %s: %v", nameFromARN(clusterARN), err)
+			p.skipResource(ctx, "ECS", region, "services of cluster "+nameFromARN(clusterARN), err)
 			return nil
 		}
 		return svcs
@@ -104,7 +104,9 @@ func (p *Provider) listECSServices(ctx context.Context, client ecsAPI, region, c
 			Include:  []ecstypes.ServiceField{ecstypes.ServiceFieldTags},
 		})
 		if err != nil {
-			log.Error("AWS ECS: Skipping %d services of cluster %s: %v", len(batch), clusterName, err)
+			for _, arn := range batch {
+				p.skipResource(ctx, "ECS", region, "service "+clusterName+"/"+nameFromARN(arn), err)
+			}
 			return nil
 		}
 		described := make([]types.Resource, 0, len(output.Services))

@@ -202,6 +202,14 @@ When `tag:GetResources` is denied or fails, tagctl degrades in two ways:
   Catalog, Shield, SSM parameters, Incident Manager, Step Functions, Storage
   Gateway, Transfer Family, WAF, Well-Architected and WorkSpaces.
 
+A resource whose own tag call fails (access denied, network timeout) is
+skipped the same way, never reported as untagged. A resource deleted between
+listing and the tag read is simply dropped (visible at `--log-level debug`)
+and not counted. Discovery then returns an
+error that counts the skipped resources and services per service and, like
+every lister error, names the account (and region) it comes from, so
+`tagctl scan` reports the scan as completed with errors instead of success.
+
 Global services (Route 53, CloudFront, IAM, Shield, WAF Classic for
 CloudFront, WAFv2 CloudFront scope) are listed once per account and read their
 tags from the `us-east-1` sweep, which tagctl runs even when `us-east-1` is
@@ -887,7 +895,8 @@ tagctl scan --log-level debug
     configured. Omit `regions` to scan every bucket.
 
     A bucket whose tags cannot be read (network timeout, access denied) is
-    skipped with an `[ERROR]` line rather than reported as untagged. Run with
+    skipped with an `[ERROR]` line rather than reported as untagged, and
+    counted in the error the scan ends with. Run with
     `--log-level debug` to see each bucket's region and the SDK retries.
   </Accordion>
 

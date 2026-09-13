@@ -87,25 +87,25 @@ func TestListSNSTopics(t *testing.T) {
 	}
 }
 
-// A topic whose tags cannot be read is still reported, just without tags,
-// so one denied topic does not fail the whole region scan.
-func TestListSNSTopics_TagErrorYieldsUntaggedTopic(t *testing.T) {
+func TestListSNSTopics_UnreadableTagsSkipTopicNotReportUntagged(t *testing.T) {
+	alerts := "arn:aws:sns:us-east-1:123456789012:alerts"
 	denied := "arn:aws:sns:us-east-1:123456789012:denied"
 
 	mock := &mockSNSClient{
-		pages:      [][]snstypes.Topic{{{TopicArn: aws.String(denied)}}},
+		pages:      [][]snstypes.Topic{{{TopicArn: aws.String(alerts)}, {TopicArn: aws.String(denied)}}},
 		tagsErrFor: map[string]bool{denied: true},
 	}
 
-	resources, err := testProvider().listSNSTopicsFrom(context.Background(), mock, "us-east-1")
+	p := testProvider()
+	resources, err := p.listSNSTopicsFrom(context.Background(), mock, "us-east-1")
 	if err != nil {
 		t.Fatalf("listSNSTopicsFrom() error = %v, want nil", err)
 	}
-	if len(resources) != 1 {
-		t.Fatalf("got %d resources, want 1", len(resources))
+	if len(resources) != 1 || resources[0].ARN != alerts {
+		t.Fatalf("resources = %+v, want only the readable topic", resources)
 	}
-	if len(resources[0].Tags) != 0 {
-		t.Errorf("got %d tags, want 0", len(resources[0].Tags))
+	if errors.Join(p.skipped.errs()...) == nil {
+		t.Error("the skipped topic was not recorded")
 	}
 }
 

@@ -10,6 +10,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	elbv2 "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
 	elbv2types "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2/types"
+	"github.com/aws/smithy-go"
 )
 
 // mockELBv2Client serves DescribeLoadBalancers pages and records tag batches.
@@ -20,6 +21,9 @@ type mockELBv2Client struct {
 	tags        map[string][]elbv2types.Tag
 	listErr     error
 	tagsErr     error
+	gone        map[string]bool
+	omit        map[string]bool
+	tagCalls    int
 	calls       int
 	batchSizes  []int
 	describeAll []string
@@ -55,14 +59,23 @@ func (m *mockELBv2Client) DescribeTargetGroups(ctx context.Context, params *elbv
 }
 
 func (m *mockELBv2Client) DescribeTags(ctx context.Context, params *elbv2.DescribeTagsInput, optFns ...func(*elbv2.Options)) (*elbv2.DescribeTagsOutput, error) {
+	m.tagCalls++
 	if m.tagsErr != nil {
 		return nil, m.tagsErr
+	}
+	for _, arn := range params.ResourceArns {
+		if m.gone[arn] {
+			return nil, &elbv2types.LoadBalancerNotFoundException{Message: aws.String("not found")}
+		}
 	}
 	m.batchSizes = append(m.batchSizes, len(params.ResourceArns))
 	m.describeAll = append(m.describeAll, params.ResourceArns...)
 
 	descs := make([]elbv2types.TagDescription, 0, len(params.ResourceArns))
 	for _, arn := range params.ResourceArns {
+		if m.omit[arn] {
+			continue
+		}
 		descs = append(descs, elbv2types.TagDescription{
 			ResourceArn: aws.String(arn),
 			Tags:        m.tags[arn],
@@ -160,9 +173,7 @@ func TestListLoadBalancers_BatchesTagRequests(t *testing.T) {
 	}
 }
 
-// A tag call that fails leaves those load balancers untagged rather than
-// failing the whole region scan.
-func TestListLoadBalancers_TagErrorYieldsUntagged(t *testing.T) {
+func TestListLoadBalancers_UnreadableTagsSkipLoadBalancerNotReportUntagged(t *testing.T) {
 	mock := &mockELBv2Client{
 		pages: [][]elbv2types.LoadBalancer{{
 			{
@@ -173,15 +184,102 @@ func TestListLoadBalancers_TagErrorYieldsUntagged(t *testing.T) {
 		tagsErr: errors.New("access denied"),
 	}
 
-	resources, err := testProvider().listLoadBalancersFrom(context.Background(), mock, "us-east-1")
+	p := testProvider()
+	resources, err := p.listLoadBalancersFrom(context.Background(), mock, "us-east-1")
 	if err != nil {
 		t.Fatalf("listLoadBalancersFrom() error = %v, want nil", err)
 	}
-	if len(resources) != 1 {
-		t.Fatalf("got %d resources, want 1", len(resources))
+	if len(resources) != 0 {
+		t.Fatalf("resources = %+v, want none", resources)
 	}
-	if len(resources[0].Tags) != 0 {
-		t.Errorf("got %d tags, want 0", len(resources[0].Tags))
+	if errors.Join(p.skipped.errs()...) == nil {
+		t.Error("the skipped load balancer was not recorded")
+	}
+}
+
+func TestListLoadBalancers_DeletedLoadBalancerDropsOnlyItselfFromItsBatch(t *testing.T) {
+	const total = 25
+	arnOf := func(i int) string {
+		return fmt.Sprintf("arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/lb%d/x", i)
+	}
+	lbs := make([]elbv2types.LoadBalancer, 0, total)
+	for i := range total {
+		lbs = append(lbs, elbv2types.LoadBalancer{LoadBalancerArn: aws.String(arnOf(i)), LoadBalancerName: aws.String(fmt.Sprintf("lb%d", i))})
+	}
+	mock := &mockELBv2Client{pages: [][]elbv2types.LoadBalancer{lbs}, gone: map[string]bool{arnOf(3): true}}
+
+	p := testProvider()
+	resources, err := p.listLoadBalancersFrom(context.Background(), mock, "us-east-1")
+	if err != nil {
+		t.Fatalf("listLoadBalancersFrom() error = %v, want nil", err)
+	}
+	if len(resources) != total-1 {
+		t.Fatalf("got %d load balancers, want %d (only the deleted one dropped)", len(resources), total-1)
+	}
+	if err := errors.Join(p.skipped.errs()...); err != nil {
+		t.Errorf("a deleted load balancer was counted as skipped: %v", err)
+	}
+}
+
+func TestListLoadBalancers_BatchDeniedIsNotRetriedPerARN(t *testing.T) {
+	lbs := make([]elbv2types.LoadBalancer, 0, elbTagBatchSize)
+	for i := range elbTagBatchSize {
+		lbs = append(lbs, elbv2types.LoadBalancer{
+			LoadBalancerArn:  aws.String(fmt.Sprintf("arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/lb%d/x", i)),
+			LoadBalancerName: aws.String(fmt.Sprintf("lb%d", i)),
+		})
+	}
+	mock := &mockELBv2Client{
+		pages:   [][]elbv2types.LoadBalancer{lbs},
+		tagsErr: &smithy.GenericAPIError{Code: "AccessDenied", Message: "not authorized to perform elasticloadbalancing:DescribeTags"},
+	}
+
+	p := testProvider()
+	resources, err := p.listLoadBalancersFrom(context.Background(), mock, "us-east-1")
+	if err != nil || len(resources) != 0 {
+		t.Fatalf("resources = %+v, err = %v, want none and no error", resources, err)
+	}
+	if mock.tagCalls != 1 {
+		t.Errorf("DescribeTags calls = %d, want 1 for one denied batch", mock.tagCalls)
+	}
+}
+
+func TestListLoadBalancers_ARNMissingFromDescribeTagsIsSkipped(t *testing.T) {
+	arn := "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/abc"
+	mock := &mockELBv2Client{
+		pages: [][]elbv2types.LoadBalancer{{{LoadBalancerArn: aws.String(arn), LoadBalancerName: aws.String(webCluster)}}},
+		omit:  map[string]bool{arn: true},
+	}
+
+	p := testProvider()
+	resources, err := p.listLoadBalancersFrom(context.Background(), mock, "us-east-1")
+	if err != nil || len(resources) != 0 {
+		t.Fatalf("resources = %+v, err = %v, want none and no error", resources, err)
+	}
+	if errors.Join(p.skipped.errs()...) == nil {
+		t.Error("the load balancer left out of DescribeTags was not recorded")
+	}
+}
+
+func TestListTargetGroups_UnreadableFallbackTagsSkipTargetGroup(t *testing.T) {
+	mock := &mockELBv2Client{
+		targetPages: [][]elbv2types.TargetGroup{{{
+			TargetGroupArn:  aws.String("arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/abc"),
+			TargetGroupName: aws.String(webCluster),
+		}}},
+		tagsErr: errors.New("access denied"),
+	}
+
+	p := testProvider()
+	resources, err := p.listTargetGroupsFrom(context.Background(), mock, "us-east-1")
+	if err != nil {
+		t.Fatalf("listTargetGroupsFrom() error = %v, want nil", err)
+	}
+	if len(resources) != 0 {
+		t.Fatalf("resources = %+v, want none", resources)
+	}
+	if errors.Join(p.skipped.errs()...) == nil {
+		t.Error("the skipped target group was not recorded")
 	}
 }
 

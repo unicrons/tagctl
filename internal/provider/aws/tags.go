@@ -2,6 +2,10 @@ package aws
 
 import (
 	"context"
+	"fmt"
+	"maps"
+	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -180,13 +184,87 @@ func (p *Provider) startTagSources(ctx context.Context) {
 
 // requireBulkTags reports whether bulk tags are available for region. Services
 // with no tag API of their own cannot be audited without them; the caller
-// skips the service and this logs why, once per service and region.
+// skips the service and this logs and records why, once per service and region.
 func (p *Provider) requireBulkTags(region, label string) bool {
 	if p.tagsFor(region).available() {
 		return true
 	}
 	log.Error("AWS %s: skipped in %s: reading its tags needs the tag:GetResources permission", label, region)
+	p.skipped.service(label, region)
 	return false
+}
+
+// skipResource leaves out a resource whose tags cannot be read and records it.
+// A resource deleted since it was listed, or a cancelled scan, records nothing.
+func (p *Provider) skipResource(ctx context.Context, label, region, resource string, err error) {
+	if ctx.Err() != nil {
+		return
+	}
+	if resourceGone(err) {
+		log.Debug("AWS %s: %s (%s) was deleted during discovery: %v", label, resource, region, err)
+		return
+	}
+	log.Error("AWS %s: Skipping %s (%s): cannot read tags: %v", label, resource, region, err)
+	p.skipped.resource(label)
+}
+
+// skipLog counts, per service label, what discovery left out because tags
+// could not be read. The zero value is ready to use.
+type skipLog struct {
+	mu        sync.Mutex
+	resources map[string]int
+	services  map[string]map[string]bool
+}
+
+func (s *skipLog) resource(label string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.resources == nil {
+		s.resources = make(map[string]int)
+	}
+	s.resources[label]++
+}
+
+func (s *skipLog) service(label, region string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.services == nil {
+		s.services = make(map[string]map[string]bool)
+	}
+	if s.services[label] == nil {
+		s.services[label] = make(map[string]bool)
+	}
+	s.services[label][region] = true
+}
+
+func (s *skipLog) reset() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.resources, s.services = nil, nil
+}
+
+// errs summarises the skips: one error for resources, one for services.
+func (s *skipLog) errs() []error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var errs []error
+	if len(s.resources) > 0 {
+		total := 0
+		parts := make([]string, 0, len(s.resources))
+		for _, label := range slices.Sorted(maps.Keys(s.resources)) {
+			total += s.resources[label]
+			parts = append(parts, fmt.Sprintf("%s %d", label, s.resources[label]))
+		}
+		errs = append(errs, fmt.Errorf("skipped %d resource(s) whose tags cannot be read: %s", total, strings.Join(parts, ", ")))
+	}
+	if len(s.services) > 0 {
+		parts := make([]string, 0, len(s.services))
+		for _, label := range slices.Sorted(maps.Keys(s.services)) {
+			parts = append(parts, fmt.Sprintf("%s in %d region(s)", label, len(s.services[label])))
+		}
+		errs = append(errs, fmt.Errorf("skipped %d service(s) that need tag:GetResources: %s", len(s.services), strings.Join(parts, ", ")))
+	}
+	return errs
 }
 
 // bulkTags returns the tags of arn from the bulk source; empty when untagged.

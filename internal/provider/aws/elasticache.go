@@ -61,7 +61,7 @@ func (p *Provider) listElastiCacheClustersFrom(ctx context.Context, client elast
 			return elastiCacheTagsToMap(output.TagList), nil
 		})
 		if err != nil {
-			log.Error("AWS ElastiCache: Skipping cluster %s (%s): cannot read tags: %v", c.id, region, err)
+			p.skipResource(ctx, "ElastiCache", region, "cluster "+c.id, err)
 			return nil
 		}
 		return one(types.Resource{

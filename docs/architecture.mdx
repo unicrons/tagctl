@@ -347,6 +347,10 @@ wg.Wait()
   as untagged: a network failure must not become a compliance finding. The same
   rule applies to a whole service when it depends on `tag:GetResources` and the
   permission is missing
+- The AWS provider counts those skips per service and returns them, joined with
+  every lister error, alongside the resources it did find, so an incomplete
+  inventory never looks like a clean scan. A resource deleted while the scan
+  runs is not a skip: it is dropped at debug level
 - Structured errors with provider/operation context
 
 ```go
