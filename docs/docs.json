@@ -48,7 +48,8 @@
             "group": "Contributing",
             "pages": [
               "development",
-              "architecture"
+              "architecture",
+              "contributing/adding-an-aws-service"
             ]
           }
         ]
