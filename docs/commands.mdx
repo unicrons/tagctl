@@ -268,12 +268,29 @@ The `--output` flag controls what's printed to stdout. Output files are **always
       "reason": "missing"
     }
   ],
+  "resources": [
+    {
+      "identity": "arn:aws:ec2:us-east-1:123456789012:instance/i-0abc123",
+      "id": "i-0abc123",
+      "arn": "arn:aws:ec2:us-east-1:123456789012:instance/i-0abc123",
+      "type": "aws_instance",
+      "provider": "aws",
+      "account": "123456789012",
+      "region": "us-east-1"
+    }
+  ],
   "violations": [...],
   "by_account": {...},
   "by_tag": {...}
 }
 ```
 </Accordion>
+
+`resources` is the inventory: one entry per evaluated resource, including those
+no policy tag produced a finding for (an empty policy, or only optional tags the
+resource does not carry). `identity` is the ARN when there is one, otherwise
+`provider/account/region/id` with empty parts dropped; `diff` compares resources
+by it. Scans written by older versions have no `resources` key.
 
 `violations` and `violation_count` repeat the `FAILED` findings for tools that
 read the older key. `by_tag` counts, per policy tag, the resources where the tag
@@ -692,7 +709,15 @@ independently.
 | **New resources** | Present only in the current scan |
 | **Removed resources** | Present only in the baseline scan |
 
-A resource with the same ID in a different account is a different resource.
+A resource with the same ID in a different account or region is a different
+resource.
+
+New and removed resources come from each scan's `resources` inventory plus the
+resources its findings name, so a resource with no findings still counts. A scan
+written by an older version has no inventory and only names the resources in its
+findings. When such a file counts resources but has no findings either (an empty
+policy), `diff` prints a warning to stderr: new and removed resources may be
+wrong. Regressions and resolved findings are not affected.
 
 When either file is a [partial scan](#partial-scans), `diff` prints a warning to
 stderr: resources discovery missed look new or removed, and their findings look

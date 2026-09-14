@@ -169,6 +169,78 @@ func TestDiff_NewAndRemovedResources(t *testing.T) {
 	}
 }
 
+// An empty policy produces no findings; the inventory still names the resources.
+func TestDiff_NewAndRemovedResourcesWithoutFindings(t *testing.T) {
+	inventory := func(ids ...string) *types.ScanResult {
+		scan := scanWith()
+		for _, id := range ids {
+			resource := failing(testAccount, id, tagOwner).Resource
+			scan.Resources = append(scan.Resources, resource.Ref())
+		}
+		scan.TotalResources = len(ids)
+		return scan
+	}
+
+	diff := Diff(inventory("i-old", "i-kept"), inventory("i-kept", "i-new"))
+
+	if len(diff.NewResources) != 1 || diff.NewResources[0].ID != "i-new" {
+		t.Errorf("NewResources = %+v, want just i-new", diff.NewResources)
+	}
+	if len(diff.RemovedResources) != 1 || diff.RemovedResources[0].ID != "i-old" {
+		t.Errorf("RemovedResources = %+v, want just i-old", diff.RemovedResources)
+	}
+	if diff.IsClean() {
+		t.Error("IsClean() = true, want false when resources moved")
+	}
+}
+
+// A baseline written before scans kept an inventory still names its resources
+// through findings, so they must not show up as new.
+func TestDiff_InventoryMatchesResourcesFromFindings(t *testing.T) {
+	baseline := scanWith(failing(testAccount, "i-1", tagOwner))
+	current := scanWith(failing(testAccount, "i-1", tagOwner))
+	for _, id := range []string{"i-1", "i-2"} {
+		resource := failing(testAccount, id, tagOwner).Resource
+		current.Resources = append(current.Resources, resource.Ref())
+	}
+
+	diff := Diff(baseline, current)
+
+	if len(diff.NewResources) != 1 || diff.NewResources[0].ID != "i-2" {
+		t.Errorf("NewResources = %+v, want just i-2", diff.NewResources)
+	}
+	if len(diff.RemovedResources) != 0 {
+		t.Errorf("RemovedResources = %+v, want none", diff.RemovedResources)
+	}
+}
+
+// The same ID in two regions is two resources, listed in a stable order.
+func TestDiff_NewResourcesAreSortedAcrossRegions(t *testing.T) {
+	current := scanWith()
+	for _, region := range []string{"us-east-1", "eu-west-1", "ap-south-1"} {
+		resource := failing(testAccount, "/aws/lambda/fn", tagOwner).Resource
+		resource.Region = region
+		current.Resources = append(current.Resources, resource.Ref())
+	}
+
+	for i := 0; i < 5; i++ {
+		diff := Diff(scanWith(), current)
+		got := make([]string, 0, len(diff.NewResources))
+		for _, r := range diff.NewResources {
+			got = append(got, r.Region)
+		}
+		want := []string{"ap-south-1", "eu-west-1", "us-east-1"}
+		if len(got) != len(want) {
+			t.Fatalf("run %d: new resource regions = %v, want %v", i, got, want)
+		}
+		for j := range want {
+			if got[j] != want[j] {
+				t.Fatalf("run %d: new resource regions = %v, want %v", i, got, want)
+			}
+		}
+	}
+}
+
 func TestDiff_CompliancePctDelta(t *testing.T) {
 	baseline := scanWith()
 	baseline.CompliancePct = 88.0
