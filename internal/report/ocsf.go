@@ -246,7 +246,7 @@ func ocsfEvent(f *types.Finding, scannedAt time.Time, opts OCSFOptions) OCSFComp
 				Version:    opts.Version,
 				URLString:  "https://github.com/unicrons/tagctl",
 			},
-			Profiles: []string{"cloud"},
+			Profiles: []string{"cloud", "datetime"},
 		},
 		Observables: []OCSFObservable{{
 			Name:   "resources[0].uid",

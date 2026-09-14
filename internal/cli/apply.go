@@ -142,8 +142,7 @@ func runApply(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// printPlanSummary describes the plan about to be applied on stderr, next to
-// the confirmation prompt, so both stay visible when stdout is redirected.
+// printPlanSummary describes the plan about to be applied on stderr.
 func printPlanSummary(planFile string, plan *types.Plan) {
 	summary := plan.Summarize()
 	fmt.Fprintf(os.Stderr, "Applying plan from %s\n", planFile)

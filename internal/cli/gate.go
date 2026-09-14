@@ -25,6 +25,7 @@ func addGateFlags(cmd *cobra.Command) {
 
 // gateOptions holds the parsed gate flags for one command run.
 type gateOptions struct {
+	command   string
 	gate      report.Gate
 	baseline  string
 	sarifPath string
@@ -42,6 +43,7 @@ func readGateFlags(cmd *cobra.Command) gateOptions {
 	ocsfPath, _ := cmd.Flags().GetString("ocsf")
 
 	return gateOptions{
+		command:   cmd.Name(),
 		gate:      report.Gate{FailUnder: failUnder, FailOnNew: failOnNew},
 		baseline:  baseline,
 		sarifPath: sarifPath,
@@ -82,11 +84,13 @@ func (o gateOptions) stdoutFormat(cmd *cobra.Command, supported ...string) (stri
 }
 
 // writeReports writes any machine-readable reports the flags asked for.
+// policyFile is the config file the command read, "" when there was none.
 func (o gateOptions) writeReports(scan *types.ScanResult, policyFile string) error {
 	if o.sarifPath != "" {
 		if err := writeToPathOrStdout(o.sarifPath, func(f *os.File) error {
 			return report.WriteSARIF(f, scan, report.SARIFOptions{
-				PolicyFile: policyFile,
+				PolicyFile: artifactURI(policyFile),
+				Command:    o.command,
 				Version:    appVersion,
 			})
 		}); err != nil {
@@ -144,14 +148,29 @@ func (o gateOptions) check(scan *types.ScanResult) error {
 	return nil
 }
 
+// artifactURI is path relative to the working directory with forward slashes,
+// which is how code scanning resolves a file in the checked-out repository.
+func artifactURI(path string) string {
+	if path == "" {
+		return ""
+	}
+	if filepath.IsAbs(path) {
+		if wd, err := os.Getwd(); err == nil {
+			if rel, relErr := filepath.Rel(wd, path); relErr == nil {
+				path = rel
+			}
+		}
+	}
+	return filepath.ToSlash(filepath.Clean(path))
+}
+
 // writeToPathOrStdout runs write against the named file, or stdout for "-".
 func writeToPathOrStdout(path string, write func(*os.File) error) error {
 	if path == "-" {
 		return write(os.Stdout)
 	}
 
-	// #nosec G304 -- the report path is supplied by the user running the CLI.
-	file, err := os.Create(filepath.Clean(path))
+	file, err := createReport(path)
 	if err != nil {
 		return err
 	}

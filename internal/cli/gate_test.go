@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -236,6 +237,40 @@ func TestWriteToPathOrStdout_File(t *testing.T) {
 	}
 	if string(data) != "written" {
 		t.Errorf("file contains %q, want %q", data, "written")
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+	if mode := info.Mode().Perm(); runtime.GOOS != "windows" && mode != 0o600 {
+		t.Errorf("report mode = %o, want 600: reports carry every tag value and ARN", mode)
+	}
+}
+
+func TestArtifactURI(t *testing.T) {
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name string
+		path string
+		want string
+	}{
+		{name: "no config file", path: "", want: ""},
+		{name: "relative path", path: filepath.Join(".", "config", "prod.yaml"), want: "config/prod.yaml"},
+		{name: "absolute path under the working directory", path: filepath.Join(wd, "config", "prod.yaml"), want: "config/prod.yaml"},
+		{name: "absolute path above the working directory", path: filepath.Join(filepath.Dir(wd), "tagctl.yaml"), want: "../tagctl.yaml"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := artifactURI(tt.path); got != tt.want {
+				t.Errorf("artifactURI(%q) = %q, want %q", tt.path, got, tt.want)
+			}
+		})
 	}
 }
 

@@ -323,7 +323,11 @@ Scan and plan commands write to the `output/` directory (see `internal/cli/paths
 - `plan-YYYYMMDD-HHMMSS.json` — remediation plan
 
 The gate flags (`--sarif`, `--junit`, `--ocsf`) on `scan`/`evaluate`/`terraform`
-write extra machine-readable reports wherever the flag points. OCSF emits one
+write extra machine-readable reports (mode 0600, `createReport`) wherever the
+flag points. SARIF anchors results to the config file read
+(`viper.ConfigFileUsed()`, or `evaluate --policy`) relative to the working
+directory, sets `automationDetails.id` `tagctl/<command>/` and marks a partial
+scan `invocations[0].executionSuccessful: false`. OCSF emits one
 Compliance Finding (class 2003, schema 1.4.0) per finding, passes included;
 `finding_info.uid` (`<resource identity>#<tag>`) and `analytic.uid` are the
 same ids SARIF uses, keep them aligned. The full mapping is the contract in
