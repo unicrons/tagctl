@@ -4,8 +4,8 @@ go 1.26.6
 
 require (
 	github.com/aws/aws-sdk-go-v2 v1.47.0
-	github.com/aws/aws-sdk-go-v2/config v1.33.4
-	github.com/aws/aws-sdk-go-v2/credentials v1.20.4
+	github.com/aws/aws-sdk-go-v2/config v1.33.5
+	github.com/aws/aws-sdk-go-v2/credentials v1.20.5
 	github.com/aws/aws-sdk-go-v2/service/accessanalyzer v1.56.0
 	github.com/aws/aws-sdk-go-v2/service/acm v1.50.0
 	github.com/aws/aws-sdk-go-v2/service/acmpca v1.56.0
@@ -84,7 +84,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/ssm v1.78.0
 	github.com/aws/aws-sdk-go-v2/service/ssmincidents v1.47.0
 	github.com/aws/aws-sdk-go-v2/service/storagegateway v1.52.0
-	github.com/aws/aws-sdk-go-v2/service/sts v1.50.0
+	github.com/aws/aws-sdk-go-v2/service/sts v1.51.0
 	github.com/aws/aws-sdk-go-v2/service/transfer v1.82.0
 	github.com/aws/aws-sdk-go-v2/service/waf v1.38.0
 	github.com/aws/aws-sdk-go-v2/service/wafregional v1.38.0
@@ -93,6 +93,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/workspaces v1.80.0
 	github.com/aws/smithy-go v1.28.1
 	github.com/spf13/cobra v1.10.2
+	github.com/spf13/pflag v1.0.10
 	github.com/spf13/viper v1.21.0
 	golang.org/x/term v0.46.0
 	gopkg.in/yaml.v3 v3.0.1
@@ -144,7 +145,6 @@ require (
 	github.com/sourcegraph/conc v0.3.1-0.20240121214520-5f936abd7ae8 // indirect
 	github.com/spf13/afero v1.15.0 // indirect
 	github.com/spf13/cast v1.10.0 // indirect
-	github.com/spf13/pflag v1.0.10 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
