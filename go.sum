@@ -112,8 +112,8 @@ github.com/aws/aws-sdk-go-v2/service/glacier v1.41.0 h1:JjkH24bxahSkFo1A+CffJ1G9
 github.com/aws/aws-sdk-go-v2/service/glacier v1.41.0/go.mod h1:l71uHdU4EpWtSMfnPemSJFHe/xQjYyuzLSNL0LUZ1pE=
 github.com/aws/aws-sdk-go-v2/service/globalaccelerator v1.44.0 h1:on+HjI22BdJA4anZ3BZFpPptvexbL3LVQgBCJc7KjEc=
 github.com/aws/aws-sdk-go-v2/service/globalaccelerator v1.44.0/go.mod h1:lYe3kbAu3/ZhDHeaVn1Cs1cc6tthWZDaqiOOOOEA4+g=
-github.com/aws/aws-sdk-go-v2/service/glue v1.158.0 h1:xTJVlNlyBX91Wg9HsELZp+N2zgNvxGKFjAdio8Ovub8=
-github.com/aws/aws-sdk-go-v2/service/glue v1.158.0/go.mod h1:7FRMlGrTAJzJ0CQ4ByGISaMGaZe6PKgI8NzU9btDL5A=
+github.com/aws/aws-sdk-go-v2/service/glue v1.159.0 h1:yWLi9wK1piPtU9q/OmYdQbrRWs9S0+T06g9aNsYnAnI=
+github.com/aws/aws-sdk-go-v2/service/glue v1.159.0/go.mod h1:7FRMlGrTAJzJ0CQ4ByGISaMGaZe6PKgI8NzU9btDL5A=
 github.com/aws/aws-sdk-go-v2/service/guardduty v1.92.0 h1:PJR3H5bIkvLN4+KaERiNd2YocXININ58E6lSTEEVCcI=
 github.com/aws/aws-sdk-go-v2/service/guardduty v1.92.0/go.mod h1:iBAZYc2/+kVLQfBOODIa92wJbw17spv2zxK1CHHR7z0=
 github.com/aws/aws-sdk-go-v2/service/iam v1.64.0 h1:CjgiPuyW26WQeQ934DxMNuwkDg6+ziqgPN9lHQ5rwYA=
