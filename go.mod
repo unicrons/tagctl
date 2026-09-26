@@ -55,7 +55,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/fsx v1.74.0
 	github.com/aws/aws-sdk-go-v2/service/glacier v1.41.0
 	github.com/aws/aws-sdk-go-v2/service/globalaccelerator v1.44.0
-	github.com/aws/aws-sdk-go-v2/service/glue v1.158.0
+	github.com/aws/aws-sdk-go-v2/service/glue v1.160.0
 	github.com/aws/aws-sdk-go-v2/service/guardduty v1.92.0
 	github.com/aws/aws-sdk-go-v2/service/iam v1.64.0
 	github.com/aws/aws-sdk-go-v2/service/kafka v1.64.0
@@ -93,6 +93,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/workspaces v1.80.0
 	github.com/aws/smithy-go v1.28.1
 	github.com/spf13/cobra v1.10.2
+	github.com/spf13/pflag v1.0.10
 	github.com/spf13/viper v1.21.0
 	golang.org/x/term v0.46.0
 	gopkg.in/yaml.v3 v3.0.1
@@ -144,7 +145,6 @@ require (
 	github.com/sourcegraph/conc v0.3.1-0.20240121214520-5f936abd7ae8 // indirect
 	github.com/spf13/afero v1.15.0 // indirect
 	github.com/spf13/cast v1.10.0 // indirect
-	github.com/spf13/pflag v1.0.10 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
