@@ -9,6 +9,20 @@ updates:
     labels:
       - "dependencies"
       - "go"
+    groups:
+      aws-sdk:
+        patterns:
+          - "github.com/aws/*"
+      kubernetes:
+        patterns:
+          - "k8s.io/*"
+          - "sigs.k8s.io/*"
+      go-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
 
   - package-ecosystem: "github-actions"
     directory: "/"
@@ -19,3 +33,7 @@ updates:
     labels:
       - "dependencies"
       - "ci"
+    groups:
+      github-actions:
+        patterns:
+          - "*"
