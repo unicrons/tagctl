@@ -33,6 +33,7 @@ internal/
 │   ├── cost.go           # Cost attribution reporting
 │   ├── gate.go           # CI gate flags shared by scan/evaluate/terraform
 │   ├── exitcode.go       # ExitCode: 0 success, 1 gate failed, 2 other error
+│   ├── version.go        # Build metadata (ldflags) and version command
 │   ├── init.go           # Config scaffolding
 │   ├── validate.go       # Config validation
 │   ├── output.go         # Table/JSON/CSV/HTML output
@@ -379,9 +380,9 @@ CI will reject.
 
 Pushing a `v*` tag runs `.github/workflows/release.yml`: GoReleaser
 (`.goreleaser.yaml`) builds linux/darwin/windows × amd64/arm64 with `-s -w`
-and the `main.version`/`main.buildTime` ldflags, attaches archives and
-`checksums.txt` to the GitHub Release and groups the notes by conventional
-commit type. Commit subjects are `type(scope): summary`, at most 60 characters.
+and the `internal/cli.Version`/`Commit`/`Date` ldflags (`internal/cli/version.go`,
+also used by `make build`), attaches archives and `checksums.txt` to a draft
+GitHub Release to publish by hand, with notes sorted from the commit log. Commit subjects are `type(scope): summary`, at most 60 characters.
 
 ## Git Hooks
 
