@@ -188,7 +188,9 @@ jobs:
           echo "scanning: ${dirs:-./...}"
 
       - name: Run gosec
-        run: go run github.com/securego/gosec/v2/cmd/gosec@v2.29.0 -exclude=G104 ${{ steps.pkgs.outputs.dirs }}
+        env:
+          PKG_DIRS: ${{ steps.pkgs.outputs.dirs }}
+        run: go run github.com/securego/gosec/v2/cmd/gosec@v2.29.0 -exclude=G104 $PKG_DIRS
 
       - name: Run govulncheck
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
