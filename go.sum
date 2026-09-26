@@ -36,8 +36,8 @@ github.com/aws/aws-sdk-go-v2/service/autoscaling v1.78.0 h1:CN7ZkNEZb5Ob0DtntBQL
 github.com/aws/aws-sdk-go-v2/service/autoscaling v1.78.0/go.mod h1:nkWNnRTHDlkZZrZzhmcPrOkoF+werzJzCOHGpbIpcfA=
 github.com/aws/aws-sdk-go-v2/service/backup v1.65.0 h1:fWz+6hRwjmnJKtiXPBbJZutpmTCGePLgmZ0fbUL9tFc=
 github.com/aws/aws-sdk-go-v2/service/backup v1.65.0/go.mod h1:QEaFmDCzYNbpo7/gAmsRnShieasyDJSy9oM/x/iFIE0=
-github.com/aws/aws-sdk-go-v2/service/batch v1.75.0 h1:Yc8i50r2EzPQMEZa7gT5ez2+p2lKK0vI/PRhy/0+AkI=
-github.com/aws/aws-sdk-go-v2/service/batch v1.75.0/go.mod h1:mGKoCk/Q9eMO8rioiglQULspo+iMM9rjmA+YhhKs+Aw=
+github.com/aws/aws-sdk-go-v2/service/batch v1.77.0 h1:O1yeCpdh5Te7LQZPWhJ9imVIzjvEjGffJ9XCtW4n4Es=
+github.com/aws/aws-sdk-go-v2/service/batch v1.77.0/go.mod h1:mGKoCk/Q9eMO8rioiglQULspo+iMM9rjmA+YhhKs+Aw=
 github.com/aws/aws-sdk-go-v2/service/bedrock v1.72.0 h1:n5BPReZVbQXEWxxb4ZLOeeLpu1KNoBul1sDJgpKOPMw=
 github.com/aws/aws-sdk-go-v2/service/bedrock v1.72.0/go.mod h1:tFtu0iACN2cRrgcRrrBdQRtKEGK0lRrmEI2yC13/Ygw=
 github.com/aws/aws-sdk-go-v2/service/cloudformation v1.81.0 h1:HAYwS6/mgbd+M+enVmjjkHcpPfSzDKy9pVnT2YGXVYU=
