@@ -1,0 +1,79 @@
+name: Security Scan
+run-name: Security Scan
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions: {}
+
+concurrency:
+  group: security-scan-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      workflows: ${{ steps.filter.outputs.workflows }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Detect workflow changes
+        uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad # v3.0.4
+        id: filter
+        with:
+          filters: |
+            workflows:
+              - '.github/workflows/**'
+
+  zizmor:
+    name: Workflow Analysis
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.workflows == 'true'
+    continue-on-error: true
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Run zizmor
+        uses: zizmorcore/zizmor-action@6599ee8b7a49aef6a770f63d261d214911a7ce02 # v0.6.0
+        with:
+          advanced-security: "false"
+          annotations: "true"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  trufflehog:
+    name: Secret Scanning
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Run TruffleHog
+        uses: trufflesecurity/trufflehog@363923b901c911a9164f50b6c423f47c15372b1c # v3.97.4
+        with:
+          extra_args: --only-verified
