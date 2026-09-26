@@ -49,7 +49,18 @@ is mounted from your machine, so `git config core.hooksPath` would also enable
 the hook for commits made outside the container. Run `make hooks` yourself to
 opt in.
 
-To preview the docs, install the Mintlify CLI at the version
+To preview the docs in a container, install Docker with the Compose plugin,
+then run this from the repository root:
+
+```bash
+docker compose up --build
+```
+
+Open [http://localhost:3000](http://localhost:3000). The Compose service mounts
+`./docs` into the container, so edits to the docs appear in the preview. Stop
+the service with `Ctrl+C`, or run `docker compose down` from another terminal.
+
+For a direct local preview, install the Mintlify CLI at the version
 `.github/workflows/ci.yml` pins:
 
 ```bash
