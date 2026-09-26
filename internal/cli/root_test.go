@@ -9,14 +9,21 @@ import (
 func TestExecute_Version(t *testing.T) {
 	rootCmd.SetArgs([]string{"version"})
 
-	appVersion = "1.0.0"
-	appBuildTime = "2024-01-01"
+	Version, Commit, Date = "1.0.0", "abc1234", "2024-01-01"
+	t.Cleanup(func() { Version, Commit, Date = "dev", "none", "unknown" })
 
-	// Version command writes to stdout via fmt.Printf, not cmd.OutOrStdout()
-	// Just verify it executes without error
-	err := rootCmd.Execute()
-	if err != nil {
+	buf := new(bytes.Buffer)
+	rootCmd.SetOut(buf)
+	rootCmd.SetErr(buf)
+
+	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("Execute() error = %v", err)
+	}
+
+	for _, want := range []string{"1.0.0", "abc1234", "2024-01-01"} {
+		if !strings.Contains(buf.String(), want) {
+			t.Errorf("version output should contain %q, got %q", want, buf.String())
+		}
 	}
 }
 

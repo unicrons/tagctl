@@ -198,7 +198,7 @@ func printBanner() {
 		colorCyan, colorReset,
 		colorCyan, colorReset,
 		colorDim, colorReset,
-		colorDim, appVersion, colorReset,
+		colorDim, Version, colorReset,
 	)
 }
 

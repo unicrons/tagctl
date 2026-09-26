@@ -247,7 +247,7 @@ func writeScanHTML(result *types.ScanResult, path string) error {
 	}
 	defer file.Close()
 
-	return report.WriteHTML(file, result, report.HTMLOptions{Version: appVersion})
+	return report.WriteHTML(file, result, report.HTMLOptions{Version: Version})
 }
 
 // outputPlanTable prints plan in table format.

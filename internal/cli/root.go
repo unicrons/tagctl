@@ -14,22 +14,10 @@ var (
 	cfgFile      string
 	outputFormat string
 	logLevel     string
-	appVersion   string
-	appBuildTime string
 )
 
 // Execute runs the root command.
-func Execute(version, buildTime string) error {
-	appVersion = version
-	appBuildTime = buildTime
-
-	// Enable --version flag with custom template
-	rootCmd.Version = version
-	rootCmd.SetVersionTemplate(banner + `
-  Version: {{.Version}}
-  Built:   ` + buildTime + `
-
-`)
+func Execute() error {
 	return rootCmd.Execute()
 }
 
@@ -113,18 +101,4 @@ func initConfig() {
 	if err := viper.ReadInConfig(); err != nil {
 		log.Debug("reading config: %v", err)
 	}
-}
-
-func printVersion() {
-	fmt.Print(banner)
-	fmt.Printf("  Version: %s\n", appVersion)
-	fmt.Printf("  Built:   %s\n\n", appBuildTime)
-}
-
-var versionCmd = &cobra.Command{
-	Use:   "version",
-	Short: "Print version information",
-	Run: func(cmd *cobra.Command, args []string) {
-		printVersion()
-	},
 }
