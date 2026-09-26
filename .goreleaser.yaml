@@ -1,0 +1,46 @@
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - main: ./cmd/tagctl
+    binary: tagctl
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X github.com/unicrons/tagctl/internal/cli.Version={{ .Version }} -X github.com/unicrons/tagctl/internal/cli.Commit={{ .ShortCommit }} -X github.com/unicrons/tagctl/internal/cli.Date={{ .Date }}
+
+universal_binaries:
+  - replace: true
+
+archives:
+  - formats: [zip]
+    name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: linux
+        formats: [tar.gz]
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^ci:"
+      - "^chore:"
+
+checksum:
+  name_template: checksums.txt
+
+release:
+  # Visit the project's GitHub Releases page to publish this release.
+  draft: true
