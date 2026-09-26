@@ -64,11 +64,13 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Check commit subjects and PR title
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}
-        run: scripts/check-commits.sh "origin/${{ github.base_ref }}" "$PR_TITLE"
+          BASE_REF: ${{ github.base_ref }}
+        run: scripts/check-commits.sh "origin/$BASE_REF" "$PR_TITLE"
 
   # Pushes to main only re-run Test: the pull request already ran every other job.
   lint:
