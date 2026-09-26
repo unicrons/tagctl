@@ -110,7 +110,7 @@ func (o gateOptions) writeReports(scan *types.ScanResult, policyFile string) err
 			return report.WriteSARIF(f, scan, report.SARIFOptions{
 				PolicyFile: artifactURI(policyFile),
 				Command:    o.command,
-				Version:    appVersion,
+				Version:    Version,
 			})
 		}); err != nil {
 			return fmt.Errorf("failed to write SARIF report: %w", err)
@@ -128,7 +128,7 @@ func (o gateOptions) writeReports(scan *types.ScanResult, policyFile string) err
 	if o.ocsfPath != "" {
 		if err := writeToPathOrStdout(o.ocsfPath, func(f *os.File) error {
 			return report.WriteOCSF(f, scan, report.OCSFOptions{
-				Version: appVersion,
+				Version: Version,
 				Lines:   report.OCSFLinesPath(o.ocsfPath),
 			})
 		}); err != nil {
@@ -138,7 +138,7 @@ func (o gateOptions) writeReports(scan *types.ScanResult, policyFile string) err
 
 	if o.summaryPath != "" {
 		if err := writeToPathOrStdout(o.summaryPath, func(f *os.File) error {
-			return report.WriteMarkdown(f, scan, report.MarkdownOptions{Version: appVersion})
+			return report.WriteMarkdown(f, scan, report.MarkdownOptions{Version: Version})
 		}); err != nil {
 			return fmt.Errorf("failed to write Markdown summary: %w", err)
 		}

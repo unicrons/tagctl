@@ -264,7 +264,7 @@ func printBanner() {
 		c.cyan, c.reset,
 		c.cyan, c.reset,
 		c.dim, c.reset,
-		c.dim, appVersion, c.reset,
+		c.dim, Version, c.reset,
 	)
 }
 
