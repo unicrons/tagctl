@@ -1,6 +1,7 @@
-# CLAUDE.md
+# AGENTS.md
 
-This file provides guidance for Claude Code when working on this project.
+This file provides guidance for coding agents (Claude Code, Codex, Cursor and
+others) working on this project.
 
 ## Project Overview
 

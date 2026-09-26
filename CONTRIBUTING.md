@@ -269,7 +269,7 @@ We're looking for contributors to help with:
 - **Azure** - VMs, Storage Accounts, AKS
 
 For a new AWS service, follow "Adding a New AWS Service" in
-[CLAUDE.md](CLAUDE.md), which walks through the lister, tag source, applier
+[AGENTS.md](AGENTS.md), which walks through the lister, tag source, applier
 routing and the tests that pin the supported set.
 
 1. Create `internal/provider/newcloud/provider.go`:
