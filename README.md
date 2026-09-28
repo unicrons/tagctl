@@ -230,5 +230,5 @@ Apache 2.0. See [LICENSE](LICENSE).
 ---
 
 <p align="center">
-  <a href="https://tagctl.dev">tagctl.dev</a> · Made with ❤️ for the FinOps community
+  <a href="https://tagctl.dev">tagctl.dev</a> · Made with ❤️ for the cloud community
 </p>
