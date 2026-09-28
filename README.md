@@ -35,6 +35,10 @@
 
 <br>
 
+<p align="center">
+  <img src="docs/images/demo.gif" alt="tagctl scan, plan and apply in a terminal" width="800">
+</p>
+
 ## Why tagctl?
 
 Untagged resources are a FinOps blind spot: you cannot allocate the cost,
