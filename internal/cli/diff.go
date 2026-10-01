@@ -72,6 +72,8 @@ func runDiff(cmd *cobra.Command, args []string) error {
 	const diffConsequence = "new, removed and resolved counts may be wrong"
 	warnPartialScan(os.Stderr, baselinePath, baseline, diffConsequence)
 	warnPartialScan(os.Stderr, currentPath, current, diffConsequence)
+	warnNoInventory(os.Stderr, baselinePath, baseline)
+	warnNoInventory(os.Stderr, currentPath, current)
 
 	result := engine.Diff(baseline, current)
 

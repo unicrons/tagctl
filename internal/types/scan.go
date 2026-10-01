@@ -32,6 +32,10 @@ type ScanResult struct {
 	// Findings is the list of all compliance findings (PASS and FAILED).
 	Findings []Finding `json:"findings"`
 
+	// Resources lists every evaluated resource, including those with no findings.
+	// Scans written by older versions have none.
+	Resources []ResourceRef `json:"resources,omitempty"`
+
 	// ByAccount contains per-account statistics.
 	ByAccount map[string]*AccountStats `json:"by_account"`
 
@@ -63,6 +67,55 @@ func (s *ScanResult) FailedFindings() []Finding {
 	}
 
 	return failures
+}
+
+// ResourceRef is the inventory entry of a scanned resource: what identifies it, without its tags.
+type ResourceRef struct {
+	// Identity is Resource.Identity(), the key diff compares resources by.
+	Identity string `json:"identity"`
+
+	// ID is the cloud-specific resource identifier.
+	ID string `json:"id"`
+
+	// ARN is the Amazon Resource Name, when the resource has one.
+	ARN string `json:"arn,omitempty"`
+
+	// Type is the resource type.
+	Type string `json:"type"`
+
+	// Provider is the cloud provider.
+	Provider string `json:"provider"`
+
+	// Account is the cloud account/project identifier.
+	Account string `json:"account"`
+
+	// Region is the cloud region where the resource exists.
+	Region string `json:"region"`
+}
+
+// Ref returns the inventory entry of the resource.
+func (r *Resource) Ref() ResourceRef {
+	return ResourceRef{
+		Identity: r.Identity(),
+		ID:       r.ID,
+		ARN:      r.ARN,
+		Type:     r.Type,
+		Provider: r.Provider,
+		Account:  r.Account,
+		Region:   r.Region,
+	}
+}
+
+// Resource rebuilds the resource the entry was taken from, without its name or tags.
+func (r ResourceRef) Resource() Resource {
+	return Resource{
+		ID:       r.ID,
+		ARN:      r.ARN,
+		Type:     r.Type,
+		Provider: r.Provider,
+		Account:  r.Account,
+		Region:   r.Region,
+	}
 }
 
 // AccountStats contains per-account statistics.

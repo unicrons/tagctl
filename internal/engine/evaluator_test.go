@@ -540,6 +540,33 @@ func TestEvaluateResources_Findings(t *testing.T) {
 	}
 }
 
+func TestEvaluateResources_RecordsInventoryWithoutFindings(t *testing.T) {
+	evaluator, err := NewEvaluator(config.PolicyConfig{
+		Optional: []config.TagRequirement{{Name: "project"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resources := []types.Resource{
+		{ID: "i-1", Type: "aws_instance", Account: "111", Region: "eu-west-1", Provider: "aws", Tags: map[string]string{}},
+		{ID: "i-1", Type: "aws_instance", Account: "111", Region: "us-east-1", Provider: "aws", Tags: map[string]string{}},
+	}
+
+	result := evaluator.EvaluateResources(resources)
+
+	if len(result.Findings) != 0 {
+		t.Fatalf("findings = %d, want 0 for absent optional tags", len(result.Findings))
+	}
+	if len(result.Resources) != len(resources) {
+		t.Fatalf("Resources = %+v, want one entry per resource", result.Resources)
+	}
+	for i, ref := range result.Resources {
+		if ref.Identity != resources[i].Identity() {
+			t.Errorf("Resources[%d].Identity = %q, want %q", i, ref.Identity, resources[i].Identity())
+		}
+	}
+}
+
 // A log group name repeated in two regions is two resources. Keying compliance
 // by bare ID collapsed them and reported phantom compliant resources.
 func TestEvaluateResources_SameIDAcrossRegions(t *testing.T) {

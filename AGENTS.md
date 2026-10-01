@@ -240,6 +240,11 @@ SARIF and `terraform` read failures through it. An optional tag is checked only
 on resources that carry it: an absent one is no finding and not `missing` in
 `by_tag`, and its `compliance_percent` is the valid share of its carriers (100
 when there are none).
+`ScanResult.Resources` (`resources`, omitted when empty) is the inventory
+`EvaluateResources` records, one `ResourceRef` (identity, id, arn, type, provider,
+account, region) per resource, findings or not. `engine.Diff` takes new/removed
+resources from the inventory plus the resources findings name; `diff` warns when
+a scan file counts resources but has neither (written before the inventory).
 
 ### Providers
 

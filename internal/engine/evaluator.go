@@ -103,6 +103,7 @@ func valueUnknown(resource types.Resource, tag string) bool {
 func (e *Evaluator) EvaluateResources(resources []types.Resource) *types.ScanResult {
 	result := types.NewScanResult()
 	result.TotalResources = len(resources)
+	result.Resources = make([]types.ResourceRef, 0, len(resources))
 
 	for _, req := range e.policy.Required {
 		result.ByTag[req.Name] = &types.TagStats{Tag: req.Name, Required: true}
@@ -123,6 +124,7 @@ func (e *Evaluator) EvaluateResources(resources []types.Resource) *types.ScanRes
 			result.ByAccount[accountKey] = account
 		}
 		account.Total++
+		result.Resources = append(result.Resources, resource.Ref())
 
 		findings := e.EvaluateResourceFindings(resource)
 		result.Findings = append(result.Findings, findings...)
