@@ -27,6 +27,7 @@ internal/
 │   ├── scan.go           # Scan command
 │   ├── plan.go           # Plan command
 │   ├── apply.go          # Apply command
+│   ├── apply_interactive.go # apply --interactive: per-resource review
 │   ├── evaluate.go       # Evaluate command (Prowler integration)
 │   ├── diff.go           # Compliance drift between two scans
 │   ├── normalize.go      # Tag value drift detection
@@ -216,6 +217,12 @@ ignore:
 2. **Evaluate**: `engine.Evaluator` → `[]types.Finding` (PASS or FAILED)
 3. **Plan**: `engine.Planner` → filters FAILED findings with `missing` reason → `[]types.TagChange`
 4. **Apply**: `engine.ValidatePlan` (add/update only) → `engine.Applier` → `provider.Provider.ApplyTags()` → cloud API calls
+
+`apply --interactive` runs `reviewChanges` between loading the plan and the
+applier: one prompt per `Resource.Identity()` on stderr, answers read from
+`applyInput` (tests replace it and `stdinIsTerminal`). The approved changes
+become a filtered copy of the plan, checked again with `engine.ValidatePlan`;
+skipped changes are counted apart, never as applied or failed.
 
 ### Exit codes
 
