@@ -79,7 +79,7 @@ const maxRetryAttempts = 7
 
 // dialTimeout bounds the TCP connect to an AWS endpoint. The SDK default is
 // 30s, which turns one unreachable regional endpoint into a 90s stall after
-// retries.
+// retries. Credential resolution keeps the SDK default.
 const dialTimeout = 5 * time.Second
 
 // defaultRegion is used for the initial API calls and as the S3 location
@@ -166,11 +166,7 @@ type Provider struct {
 func New(ctx context.Context, account cfgpkg.AWSAccount) (*Provider, error) {
 	log.Debug("AWS: Creating provider for profile=%q role=%q regions=%v", account.Profile, account.RoleARN, account.Regions)
 
-	opts := []func(*config.LoadOptions) error{
-		config.WithHTTPClient(awshttp.NewBuildableClient().WithDialerOptions(func(d *net.Dialer) {
-			d.Timeout = dialTimeout
-		})),
-	}
+	var opts []func(*config.LoadOptions) error
 	if account.Profile != "" {
 		opts = append(opts, config.WithSharedConfigProfile(account.Profile))
 	}
@@ -206,6 +202,8 @@ func New(ctx context.Context, account cfgpkg.AWSAccount) (*Provider, error) {
 	}
 	log.Info("AWS: Authenticated as account %s (ARN: %s) in %s",
 		aws.ToString(identity.Account), aws.ToString(identity.Arn), time.Since(stsStart).Round(time.Millisecond))
+
+	cfg.HTTPClient = scanHTTPClient(cfg.HTTPClient)
 
 	regions := account.Regions
 	if len(regions) == 0 {
@@ -319,6 +317,19 @@ func withRetryDefaults(cfg aws.Config) aws.Config {
 		cfg.RetryMaxAttempts = maxRetryAttempts
 	}
 	return cfg
+}
+
+// scanHTTPClient returns the client for the service calls of a scan: base with
+// the short dial timeout. The credential providers built before it keep base,
+// so a slow SSO or STS endpoint is not cut at dialTimeout.
+func scanHTTPClient(base aws.HTTPClient) aws.HTTPClient {
+	buildable, ok := base.(*awshttp.BuildableClient)
+	if !ok {
+		return base
+	}
+	return buildable.WithDialerOptions(func(d *net.Dialer) {
+		d.Timeout = dialTimeout
+	})
 }
 
 // initialRegion picks the region for the STS and region-discovery calls: the
