@@ -122,6 +122,7 @@ func TestGetResourceType_RoutesARNsOfEveryPartition(t *testing.T) {
 		{"arn:aws:apigateway:us-east-1::/restapis/abc", "tagging_api"},
 		{"arn:aws:iam::123456789012:role/admin", "tagging_api"},
 		{"arn:aws:route53:::hostedzone/Z1", "tagging_api"},
+		{"arn:aws:s3:::logs", "s3_bucket"},
 		{"arn:aws:ec2:us-east-1:123456789012:transit-gateway/tgw-0abc", "tagging_api"},
 	}
 	regions := map[string]string{partitionChina: regionBeijing, partitionGov: regionGovWest}
@@ -141,6 +142,11 @@ func TestGetResourceType_RoutesByARNSegmentsNotSubstrings(t *testing.T) {
 		{"service word inside another service's resource", "arn:aws-cn:states:cn-north-1:123456789012:stateMachine:service/ecs", "tagging_api"},
 		{"ECS cluster named like a service path", "arn:aws-us-gov:ecs:us-gov-west-1:123456789012:cluster/service", "ecs_cluster"},
 		{"target group word in a classic balancer name", "arn:aws-cn:elasticloadbalancing:cn-north-1:123456789012:loadbalancer/targetgroup", "classic_load_balancer"},
+		{"S3 object", "arn:aws-cn:s3:::logs/2026/app.log", "tagging_api"},
+		{"S3 access point", "arn:aws-us-gov:s3:us-gov-west-1:123456789012:accesspoint/logs", "tagging_api"},
+		{"bare bucket name", "my-bucket-name", ""},
+		{"bare name of another service", "orders", ""},
+		{"empty identifier", "", ""},
 		{"ARN with too few segments", "arn:aws-cn:rds:cn-north-1", ""},
 		{"ARN without a partition", "arn::rds:cn-north-1:123456789012:db:mydb", ""},
 		{"ARN without a service", "arn:aws-us-gov::us-gov-west-1:123456789012:db:mydb", ""},
@@ -156,10 +162,15 @@ func TestGetResourceType_RoutesByARNSegmentsNotSubstrings(t *testing.T) {
 	}
 }
 
-func TestApplyTags_RejectsAMalformedARN(t *testing.T) {
-	err := testProvider().ApplyTags(context.Background(), "arn:aws-cn:rds:cn-north-1", map[string]string{"owner": "x"})
-	if err == nil || !strings.Contains(err.Error(), "arn:aws-cn:rds:cn-north-1") {
-		t.Errorf("err = %v, want an error naming the malformed ARN", err)
+func TestApplyTags_RejectsIdentifiersWithoutARoute(t *testing.T) {
+	for _, id := range []string{"arn:aws-cn:rds:cn-north-1", "my-bucket-name", "orders", ""} {
+		err := testProvider().ApplyTags(context.Background(), id, map[string]string{"owner": "x"})
+		if err == nil || !strings.Contains(err.Error(), "unknown resource type") {
+			t.Errorf("ApplyTags(%q) err = %v, want an unknown resource type error", id, err)
+		}
+		if id != "" && err != nil && !strings.Contains(err.Error(), id) {
+			t.Errorf("ApplyTags(%q) err = %v, want it to name the identifier", id, err)
+		}
 	}
 }
 

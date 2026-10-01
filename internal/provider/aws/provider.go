@@ -620,11 +620,10 @@ func (p *Provider) tagAppliers() map[string]tagApplier {
 
 // ApplyTags applies tags to an AWS resource.
 func (p *Provider) ApplyTags(ctx context.Context, resourceID string, tags map[string]string) error {
-	resourceType := p.getResourceType(resourceID)
-	apply, ok := p.tagAppliers()[resourceType]
+	apply, ok := p.tagAppliers()[p.getResourceType(resourceID)]
 	if !ok {
 		return provider.NewProviderError(providerName, "apply_tags", resourceID,
-			fmt.Errorf("unknown resource type: %s", resourceType))
+			errors.New("unknown resource type: expected an ARN or an EC2 resource ID"))
 	}
 	return apply(ctx, resourceID, tags)
 }
@@ -668,10 +667,9 @@ var arnServiceRoutes = map[string]string{
 }
 
 // getResourceType returns the tagging route of a resource identifier, or ""
-// for a malformed ARN. ARNs of any partition are routed by their service and
-// resource segments, falling back to the Resource Groups Tagging API; EC2
-// resources by their ID prefix. Any other plain name is assumed to be an S3
-// bucket.
+// when it is neither a well-formed ARN nor an EC2 resource ID. ARNs of any
+// partition are routed by their service and resource segments, falling back
+// to the Resource Groups Tagging API; EC2 resources by their ID prefix.
 func (p *Provider) getResourceType(resourceID string) string {
 	if !strings.HasPrefix(resourceID, "arn:") {
 		for _, entry := range ec2IDPrefixes {
@@ -679,13 +677,17 @@ func (p *Provider) getResourceType(resourceID string) string {
 				return entry.route
 			}
 		}
-		return "s3_bucket"
+		return ""
 	}
 	parsed, err := arn.Parse(resourceID)
 	if err != nil || parsed.Partition == "" || parsed.Service == "" || parsed.Resource == "" {
 		return ""
 	}
 	switch parsed.Service {
+	case "s3":
+		if isBucketARN(parsed) {
+			return "s3_bucket"
+		}
 	case "ecs":
 		if strings.HasPrefix(parsed.Resource, "service/") {
 			return "ecs_service"

@@ -77,7 +77,7 @@ func TestTaggingIdentifier(t *testing.T) {
 		want string
 	}{
 		{"aws_instance", "i-1"},
-		{"aws_s3_bucket", "i-1"},
+		{"aws_s3_bucket", "arn:x"},
 		{"aws_db_instance", "arn:x"},
 		{"aws_lambda_function", "arn:x"},
 		{"aws_dynamodb_table", "arn:x"},

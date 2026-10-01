@@ -260,7 +260,7 @@ func TestGetResourceType(t *testing.T) {
 		{"vol-0abc123def456", "ebs_volume"},
 		{"arn:aws:rds:us-east-1:123456789012:db:mydb", "rds_instance"},
 		{"arn:aws:lambda:us-east-1:123456789012:function:myfunction", "lambda_function"},
-		{"my-bucket-name", "s3_bucket"},
+		{"arn:aws:s3:::my-bucket-name", "s3_bucket"},
 	}
 
 	for _, tt := range tests {
@@ -358,7 +358,7 @@ func TestGetResourceType_AllSupportedServices(t *testing.T) {
 		{"arn:aws:wafv2:us-east-1:123456789012:regional/webacl/web/abc", "tagging_api"},
 		{"arn:aws:lightsail:us-east-1:123456789012:Instance/abc", "lightsail"},
 		{"arn:aws:globalaccelerator::123456789012:accelerator/abc", "global_accelerator"},
-		{"my-bucket-name", "s3_bucket"},
+		{"arn:aws:s3:::my-bucket-name", "s3_bucket"},
 	}
 
 	appliers := p.tagAppliers()

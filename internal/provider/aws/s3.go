@@ -3,9 +3,11 @@ package aws
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/aws/arn"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/aws/smithy-go"
@@ -190,8 +192,19 @@ func getBucketTags(ctx context.Context, client s3API, bucketName string) (map[st
 	return tags, nil
 }
 
-// applyS3Tags applies tags to an S3 bucket.
-func (p *Provider) applyS3Tags(ctx context.Context, bucketName string, tags map[string]string) error {
+// isBucketARN reports whether an S3 ARN names a bucket, not an object or an
+// access point.
+func isBucketARN(parsed arn.ARN) bool {
+	return parsed.Region == "" && parsed.AccountID == "" && !strings.Contains(parsed.Resource, "/")
+}
+
+// applyS3Tags applies tags to an S3 bucket addressed by ARN.
+func (p *Provider) applyS3Tags(ctx context.Context, bucketARN string, tags map[string]string) error {
+	parsed, err := arn.Parse(bucketARN)
+	if err != nil {
+		return provider.NewProviderError(providerName, "put_bucket_tagging", bucketARN, err)
+	}
+	bucketName := parsed.Resource
 	region := p.getBucketRegion(ctx, p.s3Client, bucketName)
 	log.Debug("AWS S3: Applying tags to bucket %s (region: %s)", bucketName, region)
 

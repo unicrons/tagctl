@@ -575,7 +575,9 @@ Install with: `make hooks`
     Accelerator lives only in us-west-2 and Lightsail only in
     `lightsailRegions`; both are addressed by their own tag API, not the
     Tagging API. `idAddressedTypes` in the applier is the short list of types
-    tagged by ID (EC2 family, S3); everything else is tagged by ARN
+    tagged by ID (EC2 family); everything else, S3 buckets included, is tagged
+    by ARN. An identifier that is neither an ARN nor an EC2 ID has no route
+    and `ApplyTags` fails with `unknown resource type`
 
 12. **Cost Explorer bills per request**: `cost` runs one `GetCostAndUsage`
     query per tag (plus its pages). `--trend` switches that query to `DAILY`

@@ -185,7 +185,7 @@ func (a *RealApplier) applyResourceChanges(ctx context.Context, changes []types.
 }
 
 // idAddressedTypes lists the AWS resource types whose tagging API takes the
-// bare ID (EC2 family) or name (S3). Every other type is addressed by ARN.
+// bare ID (EC2 family). Every other type is addressed by ARN.
 var idAddressedTypes = map[string]bool{
 	"aws_instance":         true,
 	"aws_ami":              true,
@@ -199,7 +199,6 @@ var idAddressedTypes = map[string]bool{
 	"aws_nat_gateway":      true,
 	"aws_vpc_endpoint":     true,
 	"aws_eip":              true,
-	"aws_s3_bucket":        true,
 }
 
 // taggingIdentifier returns the identifier a provider expects when tagging a
