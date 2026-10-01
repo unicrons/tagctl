@@ -10,6 +10,7 @@ import (
 	"strings"
 	"text/tabwriter"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/unicrons/tagctl/internal/report"
 	"github.com/unicrons/tagctl/internal/types"
@@ -82,41 +83,12 @@ func outputScanTable(result *types.ScanResult, verbose bool) error {
 	// Findings table
 	if len(result.Findings) > 0 {
 		fmt.Println("Findings:")
-		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(w, "  STATUS\tRESOURCE\tTYPE\tTAG\tVALUE")
-		fmt.Fprintln(w, "  ──────\t────────\t────\t───\t─────")
-
 		limit := 10
 		if verbose {
 			limit = len(result.Findings)
 		}
-
-		shown := 0
-		for _, f := range result.Findings {
-			if shown >= limit && !verbose {
-				break
-			}
-
-			// Color codes
-			var statusStr string
-			if f.Status == types.StatusPass {
-				statusStr = "\033[32mPASS\033[0m"
-			} else {
-				statusStr = "\033[31mFAILED\033[0m"
-			}
-
-			value := f.Actual
-			if value == "" && f.Status == types.StatusFailed {
-				value = "(missing)"
-			} else if value == "" {
-				value = "-"
-			}
-
-			fmt.Fprintf(w, "  %s\t%s\t%s\t%s\t%s\n",
-				statusStr, printable(f.Resource.DisplayName()), f.Resource.Type, printable(f.Tag), printable(value))
-			shown++
-		}
-		_ = w.Flush()
+		shown := min(limit, len(result.Findings))
+		printFindingsTable(os.Stdout, result.Findings[:shown])
 
 		if shown < len(result.Findings) {
 			remaining := len(result.Findings) - shown
@@ -195,6 +167,68 @@ func csvSafe(cell string) string {
 		return "'" + cell
 	}
 	return cell
+}
+
+// Findings table cells longer than these are cut: one ARN-sized name would
+// otherwise wrap every row. The report files keep the full values.
+const (
+	maxResourceWidth = 48
+	maxValueWidth    = 32
+)
+
+// printFindingsTable writes the findings as aligned columns. It pads by hand
+// because tabwriter counts the colour codes as cell width.
+func printFindingsTable(out io.Writer, findings []types.Finding) {
+	rows := make([][]string, 0, len(findings)+2)
+	rows = append(rows,
+		[]string{"STATUS", "RESOURCE", "TYPE", "TAG", "VALUE"},
+		[]string{"──────", "────────", "────", "───", "─────"},
+	)
+	for _, f := range findings {
+		status := "FAILED"
+		if f.Status == types.StatusPass {
+			status = "PASS"
+		}
+		value := f.Actual
+		if value == "" && f.Status == types.StatusFailed {
+			value = "(missing)"
+		} else if value == "" {
+			value = "-"
+		}
+		rows = append(rows, []string{
+			status,
+			truncate(printable(f.Resource.DisplayName()), maxResourceWidth),
+			f.Resource.Type,
+			printable(f.Tag),
+			truncate(printable(value), maxValueWidth),
+		})
+	}
+
+	widths := make([]int, len(rows[0]))
+	for _, row := range rows {
+		for i, cell := range row {
+			widths[i] = max(widths[i], utf8.RuneCountInString(cell))
+		}
+	}
+	for n, row := range rows {
+		var line strings.Builder
+		line.WriteString("  ")
+		for i, cell := range row {
+			padded := cell
+			if i < len(row)-1 {
+				padded += strings.Repeat(" ", widths[i]-utf8.RuneCountInString(cell)+2)
+			}
+			if i == 0 && n >= 2 {
+				colour := "\033[31m"
+				if cell == "PASS" {
+					colour = "\033[32m"
+				}
+				padded = colour + cell + "\033[0m" + padded[len(cell):]
+			}
+			line.WriteString(padded)
+		}
+		fmt.Fprintln(out, line.String())
+	}
 }
 
 // printable replaces control characters so a tag value cannot drive the
