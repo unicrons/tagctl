@@ -327,8 +327,9 @@ func (p *Provider) ApplyTags(ctx context.Context, id string, tags map[string]str
   in the profile) override either value. Credential providers the SDK builds
   while loading a profile chain (`source_profile`, SSO) keep the SDK defaults
   unless those settings are present
-- The SDK HTTP client uses a 5s connect timeout, so an unreachable regional
-  endpoint costs seconds, not minutes
+- Scan calls use a 5s connect timeout, so an unreachable regional endpoint
+  costs seconds, not minutes; credential resolution (SSO, AssumeRole) keeps
+  the SDK default
 - Applier processes resources with configurable concurrency, runs its progress
   callback one change at a time and stops dispatching once the context is
   cancelled
