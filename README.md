@@ -216,7 +216,8 @@ specific file instead of the latest. Flags, exit codes and CI gates are in the
 | [AWS provider](docs/providers/aws.mdx) | Resource types and IAM policies |
 | [OCSF](docs/integrations/ocsf.mdx) | Field mapping for the OCSF output |
 | [Architecture](docs/architecture.mdx) | How the pieces fit together |
-| [Roadmap](docs/roadmap.mdx) | Kubernetes, GCP and Azure providers |
+| [Roadmap](docs/roadmap.mdx) | Where tagctl is going, providers included |
+| [Development](docs/development.mdx) | Provider status, setup and checks |
 
 ## Contributing
 

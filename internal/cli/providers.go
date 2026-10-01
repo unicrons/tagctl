@@ -38,7 +38,7 @@ func loadConfig() (*config.Config, error) {
 
 // initProviders initializes cloud providers from configuration.
 // If regionOverride is provided, it overrides the regions in the config.
-// Currently only AWS is supported. GCP, Azure, and Kubernetes coming soon.
+// Only AWS accounts are initialized; Kubernetes, GCP and Azure entries are ignored.
 func initProviders(ctx context.Context, cfg *config.Config, regionOverride []string) ([]provider.Provider, error) {
 	providers := make([]provider.Provider, 0, len(cfg.Clouds.AWS))
 

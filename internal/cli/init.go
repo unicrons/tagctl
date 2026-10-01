@@ -78,14 +78,9 @@ clouds:
     #   role_session_name: tagctl       # Optional
     #   mfa_serial: arn:aws:iam::111111111111:mfa/me  # Optional, code read from stdin
 
-  # GCP (coming soon)
-  # gcp:
-  #   - project: my-project
-  #     credentials_file: ~/.config/gcloud/application_default_credentials.json
-
-  # Azure (coming soon)
-  # azure:
-  #   - subscription: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+  # Only aws is scanned. kubernetes (experimental) and gcp/azure (not started)
+  # are accepted and ignored. Provider status:
+  # https://github.com/unicrons/tagctl/blob/main/docs/development.mdx
 
 # Tag policy definition
 policy:

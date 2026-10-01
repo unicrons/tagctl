@@ -1,16 +1,14 @@
 ---
-title: 'Kubernetes Provider (Coming Soon)'
-description: 'Configure tagctl for Kubernetes clusters - Coming in a future release'
+title: 'Kubernetes Provider (Experimental)'
+description: 'Configuration read by the Kubernetes provider, which the CLI does not call yet'
 icon: 'dharmachakra'
 ---
 
 <Warning>
-**Not Yet Available**: Kubernetes support is not implemented in the current version of tagctl. This documentation describes **planned functionality** for a future release.
-
-Currently, only **AWS** is supported. See the [AWS Provider](/providers/aws) documentation.
+**Not wired into the CLI.** The provider in `internal/provider/k8s/` lists and labels the resource types below, but no command calls it: a `clouds.kubernetes` entry passes validation and scans nothing. This page documents the configuration that provider reads. See [provider status](/development#provider-status).
 </Warning>
 
-## Planned Resources
+## Resource Types
 
 | Resource | Type | Labels Location |
 |----------|------|-----------------|
@@ -206,6 +204,18 @@ roleRef:
 
 ## Running tagctl in Kubernetes
 
+<Warning>
+  The CLI does not call the Kubernetes provider yet, so a deployment with only a
+  `clouds.kubernetes` entry scans demo data. See [Provider Status](/development#provider-status).
+</Warning>
+
+No container image is published. Build a static binary from source, copy it into an image of your
+own and push that image to a registry the cluster can pull from:
+
+```bash
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o tagctl ./cmd/tagctl
+```
+
 ### Deployment
 
 ```yaml
@@ -227,7 +237,7 @@ spec:
       serviceAccountName: tagctl
       containers:
         - name: tagctl
-          image: ghcr.io/unicrons/tagctl:latest
+          image: registry.example.com/tagctl:dev   # the image you built
           command: ["tagctl", "scan", "--output", "json"]
           volumeMounts:
             - name: config

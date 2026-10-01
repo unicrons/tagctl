@@ -97,3 +97,21 @@ terraform  ──▶ shift left: block it before it exists
 
 Each stage reuses the same policy and the same `Finding` model, so a violation
 means the same thing wherever it is reported.
+
+## Providers
+
+AWS is the only provider the CLI runs today. The state of each one is in the
+[provider status](/development#provider-status) table.
+
+- **Kubernetes**: `internal/provider/k8s/` already lists and labels pods,
+  deployments, services, namespaces, config maps and secrets. What is left is
+  wiring it into the CLI (`initProviders` skips `clouds.kubernetes`) and
+  covering `scan` and `apply` against a cluster end to end.
+- **GCP** and **Azure**: not started. `clouds.gcp` and `clouds.azure` are
+  reserved config keys. The evaluator, planner and report writers are
+  cloud-agnostic, so a new provider implements `ListResources` and `ApplyTags`
+  and inherits the rest.
+
+Contributions are welcome. The
+[contributing guide](https://github.com/unicrons/tagctl/blob/main/CONTRIBUTING.md#adding-a-new-provider)
+describes how to add a provider.
