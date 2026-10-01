@@ -384,6 +384,69 @@ func TestEvaluateResourceFindings(t *testing.T) {
 }
 ```
 
+### Testing without an AWS account
+
+No part of the test suite needs cloud credentials, and a change can be
+validated end to end without them. localstack, moto and other AWS emulators
+are not part of the test setup: `compose.yaml` only serves the docs preview,
+and CI runs `go test` with no AWS access at all.
+
+**Run the CLI on demo data.** `scan --mock` evaluates a built-in set of
+resources (`engine.NewMockScanner`) and writes the same reports a real scan
+does, so `plan`, `diff`, `normalize` and the report formats can be exercised
+on its output. `apply` simulates its changes when the config has no AWS
+account.
+
+```bash
+make build
+./bin/tagctl scan --mock --sarif /tmp/tagctl.sarif
+./bin/tagctl plan
+```
+
+**Evaluate fixture resources.** `evaluate` reads resources from JSON instead
+of the cloud, which covers policy and evaluator changes:
+
+```bash
+./bin/tagctl evaluate \
+  --resources test/testdata/fixtures/resources-aws.json \
+  --policy test/testdata/configs/valid.yaml
+```
+
+**Test a lister against a mock client.** Each AWS lister is split in two:
+`list<Service>` resolves the real regional client and `list<Service>From`
+takes a narrow interface holding only the SDK calls it makes. A test
+implements that interface with a struct and passes it in.
+`internal/provider/aws/efs.go` and `efs_test.go` are a complete example:
+
+```go
+// efs.go
+type efsAPI interface {
+    DescribeFileSystems(ctx context.Context, params *efs.DescribeFileSystemsInput, optFns ...func(*efs.Options)) (*efs.DescribeFileSystemsOutput, error)
+    TagResource(ctx context.Context, params *efs.TagResourceInput, optFns ...func(*efs.Options)) (*efs.TagResourceOutput, error)
+}
+
+// efs_test.go
+mock := &mockEFSClient{pages: [][]efstypes.FileSystemDescription{ /* ... */ }}
+resources, err := testProvider().listEFSFileSystemsFrom(context.Background(), mock, "us-east-1")
+```
+
+`testProvider()` (`ec2_network_test.go`) builds a `Provider` with a fixed
+account and no AWS session. Cover at least pagination, a list error and the
+tag-read failure path of a new lister. `TestPermissionPolicies_*` then fails
+if the lister calls an API the IAM policies in `permissions/aws/` do not allow.
+
+**Use the shared fixtures.** `test/testdata/configs/` holds valid and invalid
+`tagctl.yaml` files, `test/testdata/fixtures/` resources, scan results and
+plans as JSON. Load them through `test/testutil` (`ConfigPath`, `FixturePath`,
+`LoadResources`, `LoadScanResult`, `LoadPlan`) instead of building paths by
+hand. `evaluate-violations.golden.json` pins the evaluator's output; a change
+that moves it needs the golden file updated in the same commit.
+
+What mocks cannot show is how a real service answers: throttling, eventual
+consistency of the bulk tag API, or an IAM action missing from the policy. If
+you could not check that, say so in the pull request so reviewers know the
+change has not run against AWS.
+
 ## Contributing
 
 <Steps>

@@ -21,7 +21,7 @@ unacceptable behavior privately.
 - Go 1.26.6 or later (the version in `go.mod`)
 - Git
 - Make
-- AWS credentials (for testing with real resources)
+- AWS credentials are optional: only a scan of real resources needs them
 
 ### Setup
 
@@ -326,6 +326,14 @@ func (p *Provider) ApplyTags(ctx context.Context, resourceID string, tags map[st
 4. Document in `docs/rules.mdx`
 
 ## Testing Guidelines
+
+### Without an AWS account
+
+You do not need AWS credentials to contribute. The suite mocks every SDK call
+and localstack is not part of the setup.
+[Testing without an AWS account](docs/development.mdx#testing-without-an-aws-account)
+covers `scan --mock`, testing a lister through its narrow API interface with a
+mock client, and the fixtures in `test/testdata`.
 
 ### Test File Naming
 
