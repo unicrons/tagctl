@@ -145,7 +145,7 @@ go test -v -run TestEvaluate ./internal/engine/
   `outputFormatFor` (first listed is the default when unset): scan
   `table|json|csv`; cost `table|json|csv`; plan, diff, normalize, terraform `table|json`;
   evaluate `json`; apply, init, validate, version `table`. Anything else exits 2
-- `-l, --log-level` — `error`, `info`, `debug`
+- `-l, --log-level` — `error`, `info`, `debug`; anything else exits 2
 
 stdout carries only the selected output. Banner, spinners, prompts, warnings and
 "wrote X" notices go to stderr (`fmt.Fprint(os.Stderr, ...)`). A gate report on

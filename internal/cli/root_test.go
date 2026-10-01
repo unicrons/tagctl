@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+
+	"github.com/unicrons/tagctl/internal/log"
 )
 
 func TestExecute_Version(t *testing.T) {
@@ -70,5 +72,27 @@ func TestRootCmd_SubCommands(t *testing.T) {
 		if !commands[expected] {
 			t.Errorf("expected subcommand %q not found", expected)
 		}
+	}
+}
+
+func TestExecute_InvalidLogLevelIsAUsageError(t *testing.T) {
+	run := execute(t, "--log-level", "verbose", "version")
+	if ExitCode(run.err) != exitError {
+		t.Fatalf("exit code = %d (err %v), want %d", ExitCode(run.err), run.err, exitError)
+	}
+	for _, want := range []string{"--log-level", `"verbose"`, "error, info, debug"} {
+		if !strings.Contains(run.err.Error(), want) {
+			t.Errorf("error %q does not mention %s", run.err, want)
+		}
+	}
+	if run.stdout != "" {
+		t.Errorf("command ran despite the invalid level: %q", run.stdout)
+	}
+}
+
+func TestExecute_LogLevelIsCaseInsensitive(t *testing.T) {
+	t.Cleanup(func() { log.SetLevel(log.LevelError) })
+	if run := execute(t, "--log-level", "DEBUG", "version"); run.err != nil {
+		t.Fatalf("err = %v", run.err)
 	}
 }

@@ -3,7 +3,6 @@ package cli
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -15,6 +14,9 @@ var (
 	logLevel     string
 	appVersion   string
 	appBuildTime string
+
+	// logLevelErr is the --log-level error initConfig cannot return itself.
+	logLevelErr error
 )
 
 // Execute runs the root command.
@@ -63,6 +65,9 @@ Exit codes:
   2  any other error (bad flag, invalid config, unreadable input, partial scan, failed apply)`,
 	SilenceUsage:  true,
 	SilenceErrors: true,
+	PersistentPreRunE: func(*cobra.Command, []string) error {
+		return logLevelErr
+	},
 }
 
 func init() {
@@ -88,9 +93,8 @@ func init() {
 }
 
 func initConfig() {
-	// Set log level
-	if err := log.SetLevelFromString(logLevel); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: %v, using 'info'\n", err)
+	if logLevelErr = log.SetLevelFromString(logLevel); logLevelErr != nil {
+		logLevelErr = fmt.Errorf("--log-level: %w", logLevelErr)
 	}
 
 	viper.SetConfigType("yaml")

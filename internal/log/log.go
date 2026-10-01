@@ -53,6 +53,7 @@ func SetLevel(level Level) {
 }
 
 // SetLevelFromString sets the log level from a string (error, info, debug).
+// An unknown level is an error and leaves the current level untouched.
 func SetLevelFromString(level string) error {
 	switch strings.ToLower(level) {
 	case "error":
@@ -62,7 +63,7 @@ func SetLevelFromString(level string) error {
 	case "debug":
 		SetLevel(LevelDebug)
 	default:
-		return fmt.Errorf("invalid log level: %s (valid: error, info, debug)", level)
+		return fmt.Errorf("invalid log level %q (valid: error, info, debug)", level)
 	}
 	return nil
 }

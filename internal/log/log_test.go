@@ -49,6 +49,7 @@ func TestLevelFiltering(t *testing.T) {
 }
 
 func TestSetLevelFromString(t *testing.T) {
+	capture(t, LevelError)
 	for in, want := range map[string]Level{"error": LevelError, "INFO": LevelInfo, "Debug": LevelDebug} {
 		if err := SetLevelFromString(in); err != nil {
 			t.Fatalf("%q: %v", in, err)
@@ -57,8 +58,22 @@ func TestSetLevelFromString(t *testing.T) {
 			t.Errorf("%q: got %d, want %d", in, GetLevel(), want)
 		}
 	}
-	if err := SetLevelFromString("loud"); err == nil {
-		t.Error("expected error for invalid level")
+}
+
+func TestSetLevelFromString_InvalidKeepsTheLevel(t *testing.T) {
+	capture(t, LevelDebug)
+
+	err := SetLevelFromString("loud")
+	if err == nil {
+		t.Fatal("expected error for invalid level")
+	}
+	for _, want := range []string{`"loud"`, "error, info, debug"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not mention %s", err, want)
+		}
+	}
+	if GetLevel() != LevelDebug {
+		t.Errorf("level = %d after an invalid value, want it unchanged", GetLevel())
 	}
 }
 
