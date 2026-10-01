@@ -162,8 +162,16 @@ func writeFindingsCSV(w io.Writer, result *types.ScanResult) error {
 	return cw.Error()
 }
 
+// csvSafe quotes a cell a spreadsheet would run as a formula. Spreadsheets
+// skip leading whitespace before the trigger character, so it is skipped here too.
 func csvSafe(cell string) string {
-	if cell != "" && strings.ContainsRune("=+-@\t\r", rune(cell[0])) {
+	if cell == "" {
+		return cell
+	}
+	body := strings.TrimLeftFunc(cell, func(r rune) bool {
+		return unicode.IsSpace(r) || unicode.IsControl(r)
+	})
+	if strings.ContainsRune("\t\r\n", rune(cell[0])) || (body != "" && strings.ContainsRune("=+-@", rune(body[0]))) {
 		return "'" + cell
 	}
 	return cell
