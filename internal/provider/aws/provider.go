@@ -603,14 +603,16 @@ func (p *Provider) tagAppliers(region string) map[string]tagApplier {
 		"kms_key":               p.applyKMSTags,
 		"kinesis_stream":        p.applyKinesisTags,
 		"cloudwatch_log_group":  p.applyLogGroupTags,
-		"s3_bucket":             p.applyS3Tags,
-		"rds_instance":          p.applyRDSTags,
-		"lambda_function":       p.applyLambdaTags,
-		"sns_topic":             p.applySNSTags,
-		"sqs_queue":             p.applySQSTags,
-		"autoscaling_group":     p.applyAutoScalingTags,
-		routeLightsail:          p.applyLightsailTags,
-		"global_accelerator":    p.applyGlobalAcceleratorTags,
+		"s3_bucket": func(ctx context.Context, resourceID string, tags map[string]string) error {
+			return p.applyS3Tags(ctx, resourceID, region, tags)
+		},
+		"rds_instance":       p.applyRDSTags,
+		"lambda_function":    p.applyLambdaTags,
+		"sns_topic":          p.applySNSTags,
+		"sqs_queue":          p.applySQSTags,
+		"autoscaling_group":  p.applyAutoScalingTags,
+		routeLightsail:       p.applyLightsailTags,
+		"global_accelerator": p.applyGlobalAcceleratorTags,
 	}
 	for _, t := range []string{"ec2_instance", "ebs_volume", "ebs_snapshot", "security_group", "vpc", "subnet",
 		"ami", "elastic_ip", "nat_gateway", "internet_gateway", "vpc_endpoint", "launch_template"} {
@@ -628,7 +630,7 @@ func (p *Provider) ApplyTags(ctx context.Context, resourceID string, tags map[st
 
 // ApplyTagsInRegion applies tags to an AWS resource. region is where the
 // resource lives; EC2 resources, addressed by bare ID, cannot be tagged
-// without it.
+// without it and S3 buckets need a GetBucketLocation call.
 func (p *Provider) ApplyTagsInRegion(ctx context.Context, resourceID, region string, tags map[string]string) error {
 	apply, ok := p.tagAppliers(region)[p.getResourceType(resourceID)]
 	if !ok {

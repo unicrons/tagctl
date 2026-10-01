@@ -518,7 +518,10 @@ Install with: `make hooks`
 1. **S3 is global**: buckets are listed once through `ListBuckets` (paginated, which
    also returns each bucket's region), then filtered by the configured `regions`
    before their tags are read with the right regional client. A bucket whose tags
-   cannot be read is skipped with an error, never reported as untagged
+   cannot be read is skipped with an error, never reported as untagged. Apply
+   tags a bucket by ARN through `tag:TagResources` in the bucket's region
+   (from the plan, else `GetBucketLocation`), never with a read followed by
+   `PutBucketTagging`, which replaces the whole tag set
 
 2. **Empty regions config**: `regions: []` means discover all available regions
    via the EC2 API

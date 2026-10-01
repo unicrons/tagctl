@@ -292,8 +292,12 @@ func (p *Provider) resourceTags(region, arn string, fallback func() (map[string]
 
 // applyTagsViaTaggingAPI tags any resource by ARN through TagResources.
 func (p *Provider) applyTagsViaTaggingAPI(ctx context.Context, arn string, tags map[string]string) error {
-	client := p.getTaggingClient(p.taggingRegion(arn))
+	return tagResources(ctx, p.getTaggingClient(p.taggingRegion(arn)), arn, tags)
+}
 
+// tagResources adds tags to one ARN through TagResources, which leaves the
+// resource's other tags in place.
+func tagResources(ctx context.Context, client taggingAPI, arn string, tags map[string]string) error {
 	output, err := client.TagResources(ctx, &resourcegroupstaggingapi.TagResourcesInput{
 		ResourceARNList: []string{arn},
 		Tags:            tags,

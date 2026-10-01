@@ -199,49 +199,21 @@ func isBucketARN(parsed arn.ARN) bool {
 }
 
 // applyS3Tags applies tags to an S3 bucket addressed by ARN.
-func (p *Provider) applyS3Tags(ctx context.Context, bucketARN string, tags map[string]string) error {
+func (p *Provider) applyS3Tags(ctx context.Context, bucketARN, region string, tags map[string]string) error {
+	taggingFor := func(region string) taggingAPI { return p.getTaggingClient(region) }
+	return p.applyS3TagsWith(ctx, p.s3Client, taggingFor, bucketARN, region, tags)
+}
+
+// applyS3TagsWith tags a bucket through TagResources in the bucket's region.
+// PutBucketTagging replaces the whole tag set, so using it means reading the
+// set first and losing whatever is written in between.
+func (p *Provider) applyS3TagsWith(ctx context.Context, locator s3API, taggingFor func(region string) taggingAPI, bucketARN, region string, tags map[string]string) error {
 	parsed, err := arn.Parse(bucketARN)
 	if err != nil {
-		return provider.NewProviderError(providerName, "put_bucket_tagging", bucketARN, err)
+		return provider.NewProviderError(providerName, "tag_resources", bucketARN, err)
 	}
-	bucketName := parsed.Resource
-	region := p.getBucketRegion(ctx, p.s3Client, bucketName)
-	log.Debug("AWS S3: Applying tags to bucket %s (region: %s)", bucketName, region)
-
-	regionalClient := p.getS3RegionalClient(region)
-
-	// PutBucketTagging replaces the whole tag set, so the merge must start
-	// from the real existing tags or it would wipe them.
-	existingTags, err := getBucketTags(ctx, regionalClient, bucketName)
-	if err != nil {
-		return provider.NewProviderError(providerName, "get_bucket_tagging", bucketName, err)
+	if region == "" || region == regionGlobal {
+		region = p.getBucketRegion(ctx, locator, parsed.Resource)
 	}
-
-	// Merge tags (new tags override existing)
-	for k, v := range tags {
-		existingTags[k] = v
-	}
-
-	// Convert to S3 tag set
-	tagSet := make([]s3types.Tag, 0, len(existingTags))
-	for k, v := range existingTags {
-		tagSet = append(tagSet, s3types.Tag{
-			Key:   aws.String(k),
-			Value: aws.String(v),
-		})
-	}
-
-	_, err = regionalClient.PutBucketTagging(ctx, &s3.PutBucketTaggingInput{
-		Bucket: aws.String(bucketName),
-		Tagging: &s3types.Tagging{
-			TagSet: tagSet,
-		},
-	})
-
-	if err != nil {
-		return provider.NewProviderError(providerName, "put_bucket_tagging", bucketName, err)
-	}
-
-	log.Debug("AWS S3: Successfully applied %d tags to bucket %s", len(tagSet), bucketName)
-	return nil
+	return tagResources(ctx, taggingFor(region), bucketARN, tags)
 }

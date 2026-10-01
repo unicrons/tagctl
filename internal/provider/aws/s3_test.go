@@ -289,6 +289,74 @@ func TestGetBucketRegion(t *testing.T) {
 	}
 }
 
+func TestApplyS3Tags_SendsOnlyTheNewTagsThroughTheTaggingAPI(t *testing.T) {
+	const bucketARN = "arn:aws:s3:::logs"
+	tests := []struct {
+		name          string
+		region        string
+		wantRegion    string
+		wantLocations int
+	}{
+		{"region from the plan", "eu-west-1", "eu-west-1", 0},
+		{"no region looks the bucket up", "", "ap-south-1", 1},
+		{"global is not a bucket region", regionGlobal, "ap-south-1", 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s3mock := &mockS3Client{
+				bucketLocations: map[string]s3types.BucketLocationConstraint{"logs": "ap-south-1"},
+				bucketTags:      map[string][]s3types.Tag{"logs": {{Key: aws.String("existing"), Value: aws.String("kept")}}},
+			}
+			tagging := &mockTaggingClient{}
+			var regions []string
+			taggingFor := func(region string) taggingAPI {
+				regions = append(regions, region)
+				return tagging
+			}
+
+			err := testProvider().applyS3TagsWith(context.Background(), s3mock, taggingFor, bucketARN, tt.region, map[string]string{"owner": "x"})
+			if err != nil {
+				t.Fatalf("err = %v", err)
+			}
+			if !equalStrings(regions, []string{tt.wantRegion}) {
+				t.Errorf("tagging clients requested for %v, want %s", regions, tt.wantRegion)
+			}
+			if got := tagging.tagged[bucketARN]; len(got) != 1 || got["owner"] != "x" {
+				t.Errorf("TagResources tags = %v, want only the new tag", got)
+			}
+			if len(s3mock.taggingCalls) != 0 {
+				t.Errorf("GetBucketTagging called for %v, want no read before the write", s3mock.taggingCalls)
+			}
+			if len(s3mock.locationCalls) != tt.wantLocations {
+				t.Errorf("GetBucketLocation called %d times, want %d", len(s3mock.locationCalls), tt.wantLocations)
+			}
+		})
+	}
+}
+
+func TestApplyS3Tags_ReportsATaggingAPIFailure(t *testing.T) {
+	const bucketARN = "arn:aws:s3:::logs"
+	tagging := &mockTaggingClient{failing: map[string]string{bucketARN: "access denied"}}
+	taggingFor := func(string) taggingAPI { return tagging }
+
+	err := testProvider().applyS3TagsWith(context.Background(), &mockS3Client{}, taggingFor, bucketARN, "eu-west-1", map[string]string{"owner": "x"})
+
+	var failure *taggingFailure
+	if !errors.As(err, &failure) || failure.message != "access denied" {
+		t.Errorf("err = %v, want the per-resource failure", err)
+	}
+}
+
+func TestApplyS3Tags_RejectsAnIdentifierThatIsNotAnARN(t *testing.T) {
+	taggingFor := func(string) taggingAPI {
+		t.Error("tagging client requested for a malformed identifier")
+		return &mockTaggingClient{}
+	}
+	if err := testProvider().applyS3TagsWith(context.Background(), &mockS3Client{}, taggingFor, "logs", "eu-west-1", nil); err == nil {
+		t.Error("err = nil, want an error")
+	}
+}
+
 func equalStrings(a, b []string) bool {
 	if len(a) != len(b) {
 		return false
