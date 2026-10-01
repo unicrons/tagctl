@@ -28,6 +28,7 @@
 
 <p align="center">
   <a href="https://github.com/unicrons/tagctl/actions/workflows/ci.yml"><img src="https://github.com/unicrons/tagctl/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://codecov.io/gh/unicrons/tagctl"><img src="https://codecov.io/gh/unicrons/tagctl/graph/badge.svg" alt="Coverage"></a>
   <a href="https://goreportcard.com/report/github.com/unicrons/tagctl"><img src="https://goreportcard.com/badge/github.com/unicrons/tagctl" alt="Go Report Card"></a>
   <a href="https://github.com/unicrons/tagctl/releases"><img src="https://img.shields.io/github/v/release/unicrons/tagctl?color=6366F1" alt="Release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-6366F1.svg" alt="License"></a>
@@ -206,6 +207,33 @@ Each command feeds the next through `output/` (`--output-dir` names another
 directory); `--scan` and `--plan` pick a specific file instead of the latest. Flags, exit codes and CI gates are in the
 [command reference](docs/commands.mdx).
 
+## Use in CI
+
+The repository is also a GitHub Action. It builds tagctl at the ref you pin,
+runs it with `args` and fails the step when a gate fails:
+
+```yaml
+permissions:
+  contents: read
+  id-token: write   # OIDC token for configure-aws-credentials
+
+jobs:
+  tag-compliance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::123456789012:role/github-tagctl
+          aws-region: us-east-1
+      - uses: unicrons/tagctl@main
+        with:
+          args: scan --fail-under 80 --sarif tagctl.sarif
+```
+
+Inputs, the `exit-code` output, OIDC setup and SARIF upload are in the
+[GitHub Action guide](docs/integrations/github-action.mdx).
+
 ## Documentation
 
 | | |
@@ -216,6 +244,7 @@ directory); `--scan` and `--plan` pick a specific file instead of the latest. Fl
 | [Rules](docs/rules.mdx) | Inference and defaults |
 | [AWS provider](docs/providers/aws.mdx) | Resource types and IAM policies |
 | [Kubernetes provider](docs/providers/kubernetes.mdx) | Resource types, RBAC and label limits |
+| [GitHub Action](docs/integrations/github-action.mdx) | Run tagctl in a workflow |
 | [OCSF](docs/integrations/ocsf.mdx) | Field mapping for the OCSF output |
 | [Architecture](docs/architecture.mdx) | How the pieces fit together |
 | [Roadmap](docs/roadmap.mdx) | Where tagctl is going, providers included |
