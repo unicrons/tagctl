@@ -270,17 +270,22 @@ func TestGetBucketRegion(t *testing.T) {
 			"ireland":  s3types.BucketLocationConstraintEuWest1,
 		},
 	}
+	p := testProvider()
 
 	cases := map[string]string{"virginia": "us-east-1", "ireland": "eu-west-1"}
 	for bucket, want := range cases {
-		if got := getBucketRegion(context.Background(), mock, bucket); got != want {
+		if got := p.getBucketRegion(context.Background(), mock, bucket); got != want {
 			t.Errorf("%s: region = %q, want %q", bucket, got, want)
 		}
 	}
 
 	failing := &mockS3Client{getLocationErr: errors.New("boom")}
-	if got := getBucketRegion(context.Background(), failing, "any"); got != "us-east-1" {
+	if got := p.getBucketRegion(context.Background(), failing, "any"); got != "us-east-1" {
 		t.Errorf("on error region = %q, want us-east-1 fallback", got)
+	}
+	china := &Provider{partition: "aws-cn", regions: []string{"cn-north-1"}}
+	if got := china.getBucketRegion(context.Background(), failing, "any"); got != "cn-northwest-1" {
+		t.Errorf("on error region = %q, want the aws-cn global region", got)
 	}
 }
 

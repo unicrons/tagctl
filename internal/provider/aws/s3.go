@@ -80,7 +80,7 @@ func (p *Provider) listS3BucketsFrom(ctx context.Context, global s3API, regional
 
 			region := aws.ToString(bucket.BucketRegion)
 			if region == "" {
-				region = getBucketRegion(ctx, global, bucketName)
+				region = p.getBucketRegion(ctx, global, bucketName)
 			}
 			log.Debug("AWS S3: Bucket %s is in region %s", bucketName, region)
 
@@ -90,7 +90,8 @@ func (p *Provider) listS3BucketsFrom(ctx context.Context, global s3API, regional
 				return
 			}
 
-			tags, err := p.resourceTags(region, "arn:aws:s3:::"+bucketName, func() (map[string]string, error) {
+			bucketARN := p.buildARN("s3", "", "", bucketName)
+			tags, err := p.resourceTags(region, bucketARN, func() (map[string]string, error) {
 				return getBucketTags(ctx, regional(region), bucketName)
 			})
 			if err != nil {
@@ -107,7 +108,7 @@ func (p *Provider) listS3BucketsFrom(ctx context.Context, global s3API, regional
 				Account:  p.accountID,
 				Provider: providerName,
 				Tags:     tags,
-				ARN:      "arn:aws:s3:::" + bucketName,
+				ARN:      bucketARN,
 			}
 
 			if bucket.CreationDate != nil {
@@ -150,21 +151,16 @@ func (p *Provider) isConfiguredRegion(region string) bool {
 	return false
 }
 
-// getBucketRegion resolves a bucket's region when ListBuckets did not report it.
-func getBucketRegion(ctx context.Context, client s3API, bucketName string) string {
+// getBucketRegion resolves a bucket's region when ListBuckets did not report
+// it. An empty location constraint or a failed lookup yields the global
+// region: only us-east-1 reports an empty constraint.
+func (p *Provider) getBucketRegion(ctx context.Context, client s3API, bucketName string) string {
 	output, err := client.GetBucketLocation(ctx, &s3.GetBucketLocationInput{
 		Bucket: aws.String(bucketName),
 	})
-	if err != nil {
-		// Default to us-east-1 if we can't determine the region
-		return defaultRegion
+	if err != nil || output.LocationConstraint == "" {
+		return p.globalRegion()
 	}
-
-	// Empty location constraint means us-east-1
-	if output.LocationConstraint == "" {
-		return defaultRegion
-	}
-
 	return string(output.LocationConstraint)
 }
 
@@ -196,7 +192,7 @@ func getBucketTags(ctx context.Context, client s3API, bucketName string) (map[st
 
 // applyS3Tags applies tags to an S3 bucket.
 func (p *Provider) applyS3Tags(ctx context.Context, bucketName string, tags map[string]string) error {
-	region := getBucketRegion(ctx, p.s3Client, bucketName)
+	region := p.getBucketRegion(ctx, p.s3Client, bucketName)
 	log.Debug("AWS S3: Applying tags to bucket %s (region: %s)", bucketName, region)
 
 	regionalClient := p.getS3RegionalClient(region)

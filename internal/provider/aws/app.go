@@ -2,7 +2,6 @@ package aws
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/acm"
@@ -287,7 +286,7 @@ func (p *Provider) listUserPoolsFrom(ctx context.Context, client cognitoAPI, reg
 		}
 		for _, u := range output.UserPools {
 			id := aws.ToString(u.Id)
-			arn := fmt.Sprintf("arn:aws:cognito-idp:%s:%s:userpool/%s", region, p.accountID, id)
+			arn := p.buildARN("cognito-idp", region, p.accountID, "userpool/"+id)
 			resources = append(resources, types.Resource{
 				ID: id, Name: aws.ToString(u.Name), ARN: arn, Type: "aws_cognito_user_pool",
 				Region: region, Account: p.accountID, Provider: providerName,
@@ -316,7 +315,7 @@ func (p *Provider) listCodeBuildProjectsFrom(ctx context.Context, client codeBui
 			return nil, provider.NewProviderError(providerName, "list_codebuild_projects", "", err)
 		}
 		for _, name := range output.Projects {
-			arn := fmt.Sprintf("arn:aws:codebuild:%s:%s:project/%s", region, p.accountID, name)
+			arn := p.buildARN("codebuild", region, p.accountID, "project/"+name)
 			resources = append(resources, p.bulkResource(region, "aws_codebuild_project", name, name, arn, nil))
 		}
 	}

@@ -281,6 +281,10 @@ func TestExtractRegionFromARN(t *testing.T) {
 		{"arn:aws:rds:us-east-1:123456789012:db:mydb", "us-east-1"},
 		{"arn:aws:lambda:eu-west-1:123456789012:function:myfunction", "eu-west-1"},
 		{"arn:aws:ec2:ap-southeast-2:123456789012:instance/i-0abc123", "ap-southeast-2"},
+		{"arn:aws-cn:rds:cn-north-1:123456789012:db:mydb", "cn-north-1"},
+		{"arn:aws-us-gov:lambda:us-gov-west-1:123456789012:function:fn", "us-gov-west-1"},
+		{"arn:aws:iam::123456789012:role/admin", ""},
+		{"arn:aws:rds:us-east-1", ""},
 		{"invalid-arn", ""},
 		{"", ""},
 	}
@@ -295,70 +299,11 @@ func TestExtractRegionFromARN(t *testing.T) {
 	}
 }
 
-func TestSplitARN(t *testing.T) {
-	tests := []struct {
-		arn           string
-		expectedParts []string
-	}{
-		{
-			"arn:aws:rds:us-east-1:123456789012:db:mydb",
-			[]string{"arn", "aws", "rds", "us-east-1", "123456789012", "db", "mydb"},
-		},
-		{
-			"arn:aws:s3:::mybucket",
-			[]string{"arn", "aws", "s3", "", "", "mybucket"},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.arn, func(t *testing.T) {
-			result := splitARN(tt.arn)
-			if len(result) != len(tt.expectedParts) {
-				t.Errorf("splitARN(%q) returned %d parts, want %d", tt.arn, len(result), len(tt.expectedParts))
-				return
-			}
-			for i, part := range result {
-				if part != tt.expectedParts[i] {
-					t.Errorf("splitARN(%q)[%d] = %q, want %q", tt.arn, i, part, tt.expectedParts[i])
-				}
-			}
-		})
-	}
-}
-
 func TestEC2TagsToMap(t *testing.T) {
 	// Test with nil tags
 	result := ec2TagsToMap(nil)
 	if len(result) != 0 {
 		t.Errorf("ec2TagsToMap(nil) returned %d tags, want 0", len(result))
-	}
-}
-
-func TestBuildEC2ARN(t *testing.T) {
-	tests := []struct {
-		accountID    string
-		region       string
-		resourceType string
-		resourceID   string
-		expectedARN  string
-	}{
-		{
-			"123456789012", "us-east-1", "instance", "i-0abc123",
-			"arn:aws:ec2:us-east-1:123456789012:instance/i-0abc123",
-		},
-		{
-			"123456789012", "eu-west-1", "volume", "vol-0abc123",
-			"arn:aws:ec2:eu-west-1:123456789012:volume/vol-0abc123",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.expectedARN, func(t *testing.T) {
-			result := buildEC2ARN(tt.accountID, tt.region, tt.resourceType, tt.resourceID)
-			if result != tt.expectedARN {
-				t.Errorf("buildEC2ARN() = %q, want %q", result, tt.expectedARN)
-			}
-		})
 	}
 }
 

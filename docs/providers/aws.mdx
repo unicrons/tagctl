@@ -212,9 +212,11 @@ every lister error, names the account (and region) it comes from, so
 
 Global services (Route 53, CloudFront, IAM, Shield, WAF Classic for
 CloudFront, WAFv2 CloudFront scope) are listed once per account and read their
-tags from the `us-east-1` sweep, which tagctl runs even when `us-east-1` is
-not in `regions`. Global Accelerator only exists in `us-west-2` and reads and
-writes its tags through its own API.
+tags from the sweep of the partition's global region (`us-east-1` in the
+commercial partition, see [Partitions](#partitions)), which tagctl runs even
+when that region is not in `regions`. Global Accelerator only exists in
+`us-west-2` of the commercial partition and reads and writes its tags through
+its own API.
 
 Some services report "not set up" instead of an empty list: DRS in a region
 never initialised, Shield without an Advanced subscription, Firewall Manager
@@ -292,6 +294,34 @@ tagctl scan --region eu-west-1
 # Scan multiple specific regions
 tagctl scan --region eu-west-1 --region us-east-1
 ```
+
+## Partitions
+
+tagctl takes the partition from the caller identity (`sts:GetCallerIdentity`)
+and uses it for every ARN it builds and for the global services, so nothing
+has to be configured:
+
+| Partition | Identity ARN prefix | Global region |
+|-----------|---------------------|---------------|
+| Commercial | `arn:aws:` | `us-east-1` |
+| China | `arn:aws-cn:` | `cn-northwest-1` |
+| GovCloud (US) | `arn:aws-us-gov:` | `us-gov-west-1` |
+
+The global region is where Route 53, CloudFront, IAM, Shield, the CloudFront
+WAF scopes and Cost Explorer are called and where the bulk tag sweep for them
+runs. `tagctl apply` routes a change by the service and resource segments of
+its ARN, whatever the partition.
+
+<Note>
+  Outside the commercial partition Global Accelerator and Lightsail are not
+  scanned: they do not exist there. A global service the partition does not
+  offer answers with an error, which the scan reports as a lister error for
+  that service (see `--allow-partial`). The IAM policies below are written
+  for `arn:aws:`; replace the prefix as described under
+  [Read-Write (Apply)](#read-write-apply). China and GovCloud are covered by
+  unit tests against mocked APIs, not by scans of real accounts in those
+  partitions.
+</Note>
 
 ## Authentication
 

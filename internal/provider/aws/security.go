@@ -3,7 +3,6 @@ package aws
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -244,7 +243,7 @@ func (p *Provider) listDirectoriesFrom(ctx context.Context, client directoryAPI,
 		}
 		for _, d := range output.DirectoryDescriptions {
 			id := aws.ToString(d.DirectoryId)
-			arn := fmt.Sprintf("arn:aws:ds:%s:%s:directory/%s", region, p.accountID, id)
+			arn := p.buildARN("ds", region, p.accountID, "directory/"+id)
 			resources = append(resources, p.bulkResource(region, "aws_directory_service_directory", id, aws.ToString(d.Name), arn, d.LaunchTime))
 		}
 	}
@@ -314,7 +313,7 @@ func (p *Provider) listDetectorsFrom(ctx context.Context, client guardDutyAPI, r
 			p.skipResource(ctx, "GuardDuty", region, "detector "+id, err)
 			return nil
 		}
-		arn := fmt.Sprintf("arn:aws:guardduty:%s:%s:detector/%s", region, p.accountID, id)
+		arn := p.buildARN("guardduty", region, p.accountID, "detector/"+id)
 		return one(p.resource(region, "aws_guardduty_detector", id, id, arn, detector.Tags, parseRFC3339(detector.CreatedAt)))
 	})
 	log.Debug("AWS GuardDuty: Found %d detectors in %s", len(resources), region)
@@ -385,7 +384,7 @@ func (p *Provider) listRegionalWebACLsFrom(ctx context.Context, client wafRegion
 		}
 		for _, acl := range output.WebACLs {
 			id := aws.ToString(acl.WebACLId)
-			arn := fmt.Sprintf("arn:aws:waf-regional:%s:%s:webacl/%s", region, p.accountID, id)
+			arn := p.buildARN("waf-regional", region, p.accountID, "webacl/"+id)
 			resources = append(resources, p.bulkResource(region, "aws_wafregional_web_acl", id, aws.ToString(acl.Name), arn, nil))
 		}
 		return output.NextMarker, nil
@@ -402,7 +401,8 @@ func (p *Provider) listWAFv2RegionalWebACLs(ctx context.Context, region string) 
 }
 
 // listWAFv2WebACLsFrom lists WAFv2 web ACLs of one scope. The CLOUDFRONT
-// scope only exists in us-east-1 and is handled by the global listers.
+// scope only exists in the partition's global region and is handled by the
+// global listers.
 func (p *Provider) listWAFv2WebACLsFrom(ctx context.Context, client wafv2API, region string, scope wafv2types.Scope) ([]types.Resource, error) {
 	if !p.requireBulkTags(region, "WAFv2") {
 		return nil, nil

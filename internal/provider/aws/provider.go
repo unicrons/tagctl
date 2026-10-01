@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/aws/arn"
 	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/acm"
@@ -82,8 +83,8 @@ const maxRetryAttempts = 7
 // retries. Credential resolution keeps the SDK default.
 const dialTimeout = 5 * time.Second
 
-// defaultRegion is used for the initial API calls and as the S3 location
-// constraint for buckets in the us-east-1 region, which report an empty one.
+// defaultRegion is used for the initial API calls when neither the SDK nor
+// the config names a region, before the partition is known.
 const defaultRegion = "us-east-1"
 
 // providerName is the Provider field of every AWS resource.
@@ -97,6 +98,8 @@ type Provider struct {
 	cfg       aws.Config
 	account   cfgpkg.AWSAccount
 	accountID string
+	// partition comes from the caller identity; empty means partitionAWS.
+	partition string
 	regions   []string
 	mu        sync.Mutex
 
@@ -154,7 +157,8 @@ type Provider struct {
 	// client type and region.
 	clients map[string]any
 
-	// costClient is global: Cost Explorer is only reachable through us-east-1.
+	// costClient is global: Cost Explorer is reached through the partition's
+	// global region.
 	costClient *costexplorer.Client
 }
 
@@ -203,6 +207,11 @@ func New(ctx context.Context, account cfgpkg.AWSAccount) (*Provider, error) {
 	log.Info("AWS: Authenticated as account %s (ARN: %s) in %s",
 		aws.ToString(identity.Account), aws.ToString(identity.Arn), time.Since(stsStart).Round(time.Millisecond))
 
+	partition, err := partitionOf(aws.ToString(identity.Arn))
+	if err != nil {
+		return nil, provider.NewProviderError(providerName, "get_identity", "", err)
+	}
+
 	cfg.HTTPClient = scanHTTPClient(cfg.HTTPClient)
 
 	regions := account.Regions
@@ -228,6 +237,7 @@ func New(ctx context.Context, account cfgpkg.AWSAccount) (*Provider, error) {
 		cfg:                cfg,
 		account:            account,
 		accountID:          aws.ToString(identity.Account),
+		partition:          partition,
 		regions:            regions,
 		clients:            make(map[string]any),
 		ec2Clients:         make(map[string]*ec2.Client),
@@ -270,9 +280,9 @@ func New(ctx context.Context, account cfgpkg.AWSAccount) (*Provider, error) {
 		beanstalkClients:   make(map[string]*elasticbeanstalk.Client),
 	}
 
-	// Global services: S3 listing, Route 53, CloudFront and IAM live in us-east-1.
+	// Route 53, CloudFront and IAM are called through the partition's global region.
 	globalCfg := cfg.Copy()
-	globalCfg.Region = defaultRegion
+	globalCfg.Region = p.globalRegion()
 	p.s3Client = s3.NewFromConfig(cfg)
 	p.route53Client = route53.NewFromConfig(globalCfg)
 	p.cloudfrontClient = cloudfront.NewFromConfig(globalCfg)
@@ -568,6 +578,9 @@ func acquireSlot(ctx context.Context, slots chan struct{}) bool {
 	}
 }
 
+// routeLightsail is the tagging route of Lightsail resources.
+const routeLightsail = "lightsail"
+
 // tagApplier writes tags to one resource through its service API.
 type tagApplier func(ctx context.Context, resourceID string, tags map[string]string) error
 
@@ -595,7 +608,7 @@ func (p *Provider) tagAppliers() map[string]tagApplier {
 		"sns_topic":             p.applySNSTags,
 		"sqs_queue":             p.applySQSTags,
 		"autoscaling_group":     p.applyAutoScalingTags,
-		"lightsail":             p.applyLightsailTags,
+		routeLightsail:          p.applyLightsailTags,
 		"global_accelerator":    p.applyGlobalAcceleratorTags,
 	}
 	for _, t := range []string{"ec2_instance", "ebs_volume", "ebs_snapshot", "security_group", "vpc", "subnet",
@@ -616,9 +629,9 @@ func (p *Provider) ApplyTags(ctx context.Context, resourceID string, tags map[st
 	return apply(ctx, resourceID, tags)
 }
 
-// resourceTypePrefixes maps an ID or ARN prefix to the tagging route used by
-// ApplyTags. Order matters only for readability; prefixes do not overlap.
-var resourceTypePrefixes = []struct{ prefix, resourceType string }{
+// ec2IDPrefixes maps the ID prefix of the EC2 resources tagged by bare ID to
+// their tagging route.
+var ec2IDPrefixes = []struct{ prefix, route string }{
 	{"i-", "ec2_instance"},
 	{"vol-", "ebs_volume"},
 	{"snap-", "ebs_snapshot"},
@@ -631,56 +644,69 @@ var resourceTypePrefixes = []struct{ prefix, resourceType string }{
 	{"sg-", "security_group"},
 	{"vpc-", "vpc"},
 	{"subnet-", "subnet"},
-	{"arn:aws:rds:", "rds_instance"},
-	{"arn:aws:lambda:", "lambda_function"},
-	{"arn:aws:sns:", "sns_topic"},
-	{"arn:aws:sqs:", "sqs_queue"},
-	{"arn:aws:autoscaling:", "autoscaling_group"},
-	{"arn:aws:dynamodb:", "dynamodb_table"},
-	{"arn:aws:eks:", "eks_cluster"},
-	{"arn:aws:elasticache:", "elasticache_cluster"},
-	{"arn:aws:elasticfilesystem:", "efs_file_system"},
-	{"arn:aws:ecr:", "ecr_repository"},
-	{"arn:aws:kms:", "kms_key"},
-	{"arn:aws:kinesis:", "kinesis_stream"},
-	{"arn:aws:logs:", "cloudwatch_log_group"},
-	{"arn:aws:lightsail:", "lightsail"},
-	{"arn:aws:globalaccelerator:", "global_accelerator"},
 }
 
-// getResourceType determines the resource type from the resource ID.
-// EC2-style resources are identified by their ID prefix, everything else by
-// its ARN service segment. Any other ARN is tagged through the Resource
-// Groups Tagging API. A plain name with no recognisable prefix is assumed to
-// be an S3 bucket.
+// arnServiceRoutes maps the service segment of an ARN to the tagging route of
+// the services tagged through their own API. ECS and Elastic Load Balancing
+// also depend on the resource segment and are routed in getResourceType.
+var arnServiceRoutes = map[string]string{
+	"rds":               "rds_instance",
+	"lambda":            "lambda_function",
+	"sns":               "sns_topic",
+	"sqs":               "sqs_queue",
+	"autoscaling":       "autoscaling_group",
+	"dynamodb":          "dynamodb_table",
+	"eks":               "eks_cluster",
+	"elasticache":       "elasticache_cluster",
+	"elasticfilesystem": "efs_file_system",
+	"ecr":               "ecr_repository",
+	"kms":               "kms_key",
+	"kinesis":           "kinesis_stream",
+	"logs":              "cloudwatch_log_group",
+	"lightsail":         routeLightsail,
+	"globalaccelerator": "global_accelerator",
+}
+
+// getResourceType returns the tagging route of a resource identifier, or ""
+// for a malformed ARN. ARNs of any partition are routed by their service and
+// resource segments, falling back to the Resource Groups Tagging API; EC2
+// resources by their ID prefix. Any other plain name is assumed to be an S3
+// bucket.
 func (p *Provider) getResourceType(resourceID string) string {
-	switch {
-	case strings.HasPrefix(resourceID, "arn:aws:ecs:"):
-		if strings.Contains(resourceID, ":service/") {
+	if !strings.HasPrefix(resourceID, "arn:") {
+		for _, entry := range ec2IDPrefixes {
+			if strings.HasPrefix(resourceID, entry.prefix) {
+				return entry.route
+			}
+		}
+		return "s3_bucket"
+	}
+	parsed, err := arn.Parse(resourceID)
+	if err != nil || parsed.Partition == "" || parsed.Service == "" || parsed.Resource == "" {
+		return ""
+	}
+	switch parsed.Service {
+	case "ecs":
+		if strings.HasPrefix(parsed.Resource, "service/") {
 			return "ecs_service"
 		}
 		return "ecs_cluster"
-	case strings.HasPrefix(resourceID, "arn:aws:elasticloadbalancing:"):
+	case "elasticloadbalancing":
 		switch {
-		case strings.Contains(resourceID, ":targetgroup/"):
+		case strings.HasPrefix(parsed.Resource, "targetgroup/"):
 			return "target_group"
-		case strings.Contains(resourceID, ":loadbalancer/app/"),
-			strings.Contains(resourceID, ":loadbalancer/net/"),
-			strings.Contains(resourceID, ":loadbalancer/gwy/"):
+		case strings.HasPrefix(parsed.Resource, "loadbalancer/app/"),
+			strings.HasPrefix(parsed.Resource, "loadbalancer/net/"),
+			strings.HasPrefix(parsed.Resource, "loadbalancer/gwy/"):
 			return "load_balancer"
 		default:
 			return "classic_load_balancer"
 		}
 	}
-	for _, entry := range resourceTypePrefixes {
-		if strings.HasPrefix(resourceID, entry.prefix) {
-			return entry.resourceType
-		}
+	if route, ok := arnServiceRoutes[parsed.Service]; ok {
+		return route
 	}
-	if strings.HasPrefix(resourceID, "arn:") {
-		return "tagging_api"
-	}
-	return "s3_bucket"
+	return "tagging_api"
 }
 
 // getEC2Client returns the EC2 client for a region.

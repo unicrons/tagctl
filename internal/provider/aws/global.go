@@ -15,9 +15,7 @@ import (
 )
 
 // Global services are discovered once, not per region, and report their tags
-// through the us-east-1 bulk source.
-
-const globalRegion = defaultRegion
+// through the bulk source of the partition's global region.
 
 type route53API interface {
 	ListHostedZones(ctx context.Context, params *route53.ListHostedZonesInput, optFns ...func(*route53.Options)) (*route53.ListHostedZonesOutput, error)
@@ -56,7 +54,7 @@ func (p *Provider) listHostedZones(ctx context.Context) ([]types.Resource, error
 }
 
 func (p *Provider) listHostedZonesFrom(ctx context.Context, client route53API) ([]types.Resource, error) {
-	if !p.requireBulkTags(globalRegion, "Route 53") {
+	if !p.requireBulkTags(p.globalRegion(), "Route 53") {
 		return nil, nil
 	}
 	var resources []types.Resource
@@ -68,11 +66,11 @@ func (p *Provider) listHostedZonesFrom(ctx context.Context, client route53API) (
 		}
 		for _, z := range output.HostedZones {
 			id := strings.TrimPrefix(aws.ToString(z.Id), "/hostedzone/")
-			arn := "arn:aws:route53:::hostedzone/" + id
+			arn := p.buildARN("route53", "", "", "hostedzone/"+id)
 			resources = append(resources, types.Resource{
 				ID: id, Name: strings.TrimSuffix(aws.ToString(z.Name), "."), ARN: arn, Type: "aws_route53_zone",
 				Region: regionGlobal, Account: p.accountID, Provider: providerName,
-				Tags: p.bulkTags(globalRegion, arn),
+				Tags: p.bulkTags(p.globalRegion(), arn),
 			})
 		}
 	}
@@ -85,7 +83,7 @@ func (p *Provider) listDistributions(ctx context.Context) ([]types.Resource, err
 }
 
 func (p *Provider) listDistributionsFrom(ctx context.Context, client cloudFrontAPI) ([]types.Resource, error) {
-	if !p.requireBulkTags(globalRegion, "CloudFront") {
+	if !p.requireBulkTags(p.globalRegion(), "CloudFront") {
 		return nil, nil
 	}
 	var resources []types.Resource
@@ -103,7 +101,7 @@ func (p *Provider) listDistributionsFrom(ctx context.Context, client cloudFrontA
 			resources = append(resources, types.Resource{
 				ID: aws.ToString(d.Id), Name: aws.ToString(d.DomainName), ARN: arn, Type: "aws_cloudfront_distribution",
 				Region: regionGlobal, Account: p.accountID, Provider: providerName,
-				Tags: p.bulkTags(globalRegion, arn),
+				Tags: p.bulkTags(p.globalRegion(), arn),
 			})
 		}
 	}
@@ -118,7 +116,7 @@ func (p *Provider) listIAMRoles(ctx context.Context) ([]types.Resource, error) {
 }
 
 func (p *Provider) listIAMRolesFrom(ctx context.Context, client iamAPI) ([]types.Resource, error) {
-	if !p.requireBulkTags(globalRegion, "IAM") {
+	if !p.requireBulkTags(p.globalRegion(), "IAM") {
 		return nil, nil
 	}
 	var resources []types.Resource
@@ -137,7 +135,7 @@ func (p *Provider) listIAMRolesFrom(ctx context.Context, client iamAPI) ([]types
 			resources = append(resources, types.Resource{
 				ID: name, Name: name, ARN: arn, Type: "aws_iam_role",
 				Region: regionGlobal, Account: p.accountID, Provider: providerName,
-				Tags: p.bulkTags(globalRegion, arn), CreatedAt: r.CreateDate,
+				Tags: p.bulkTags(p.globalRegion(), arn), CreatedAt: r.CreateDate,
 			})
 		}
 	}

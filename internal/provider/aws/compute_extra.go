@@ -2,7 +2,6 @@ package aws
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/appstream"
@@ -159,7 +158,7 @@ func (p *Provider) listDirectConnectConnectionsFrom(ctx context.Context, client 
 	resources := make([]types.Resource, 0, len(output.Connections))
 	for _, c := range output.Connections {
 		id := aws.ToString(c.ConnectionId)
-		arn := fmt.Sprintf("arn:aws:directconnect:%s:%s:dxcon/%s", region, p.accountID, id)
+		arn := p.buildARN("directconnect", region, p.accountID, "dxcon/"+id)
 		tags := tagsToMap(c.Tags,
 			func(t directconnecttypes.Tag) *string { return t.Key },
 			func(t directconnecttypes.Tag) *string { return t.Value })
@@ -181,7 +180,7 @@ func (p *Provider) listLifecyclePoliciesFrom(ctx context.Context, client dlmAPI,
 	resources := make([]types.Resource, 0, len(output.Policies))
 	for _, pol := range output.Policies {
 		id := aws.ToString(pol.PolicyId)
-		arn := fmt.Sprintf("arn:aws:dlm:%s:%s:policy/%s", region, p.accountID, id)
+		arn := p.buildARN("dlm", region, p.accountID, "policy/"+id)
 		name := aws.ToString(pol.Description)
 		if name == "" {
 			name = id
@@ -314,7 +313,7 @@ func (p *Provider) listSSMResourcesFrom(ctx context.Context, client ssmAPI, regi
 		}
 		for _, d := range output.DocumentIdentifiers {
 			name := aws.ToString(d.Name)
-			arn := fmt.Sprintf("arn:aws:ssm:%s:%s:document/%s", region, p.accountID, name)
+			arn := p.buildARN("ssm", region, p.accountID, "document/"+name)
 			tags := tagsToMap(d.Tags,
 				func(t ssmtypes.Tag) *string { return t.Key },
 				func(t ssmtypes.Tag) *string { return t.Value })
@@ -369,7 +368,7 @@ func (p *Provider) listWorkSpacesFrom(ctx context.Context, client workSpacesAPI,
 				continue
 			}
 			id := aws.ToString(ws.WorkspaceId)
-			arn := fmt.Sprintf("arn:aws:workspaces:%s:%s:workspace/%s", region, p.accountID, id)
+			arn := p.buildARN("workspaces", region, p.accountID, "workspace/"+id)
 			name := aws.ToString(ws.UserName)
 			if name == "" {
 				name = id

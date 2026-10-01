@@ -957,7 +957,7 @@ tagctl cost --fail-under 80
 | `--tag <tag>` | Tag to report on (repeatable; defaults to the policy's required tags) |
 | `--trend` | Split the window into periods and estimate the next one, see [Trend](#trend) |
 | `--fail-under <pct>` | Exit `1` if any tag accounts for less than this share of spend |
-| `--profile <name>`, `-p` | AWS profile (defaults to the first configured account). Cost Explorer is always called through `us-east-1` |
+| `--profile <name>`, `-p` | AWS profile (defaults to the first configured account). Cost Explorer is always called through the partition's global region (`us-east-1` in the commercial partition) |
 | `--role <arn>` | IAM role to assume; `--external-id`, `--session-duration`, `--role-session-name` and `--mfa-serial` refine it |
 | `--output json` | Machine-readable report instead of the table |
 | `--output csv` | One row per tag: `tag,attributed,unattributed,coverage_percent,currency`. With `--trend`, one row per tag and period |
@@ -992,7 +992,8 @@ own needs:
 }
 ```
 
-Cost Explorer is a global service reached through `us-east-1`, and it reports
+Cost Explorer is a global service reached through the partition's global
+region (`us-east-1` in the commercial partition), and it reports
 for the whole payer account, so a single profile is enough regardless of how
 many accounts you scan.
 

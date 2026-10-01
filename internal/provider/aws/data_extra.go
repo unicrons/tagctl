@@ -2,7 +2,6 @@ package aws
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/athena"
@@ -98,7 +97,7 @@ func (p *Provider) listWorkGroupsFrom(ctx context.Context, client athenaAPI, reg
 		}
 		for _, wg := range output.WorkGroups {
 			name := aws.ToString(wg.Name)
-			arn := fmt.Sprintf("arn:aws:athena:%s:%s:workgroup/%s", region, p.accountID, name)
+			arn := p.buildARN("athena", region, p.accountID, "workgroup/"+name)
 			resources = append(resources, p.bulkResource(region, "aws_athena_workgroup", name, name, arn, wg.CreationTime))
 		}
 	}
@@ -178,7 +177,7 @@ func (p *Provider) describePipelines(ctx context.Context, client dataPipelineAPI
 	described := make([]types.Resource, 0, len(output.PipelineDescriptionList))
 	for _, d := range output.PipelineDescriptionList {
 		id := aws.ToString(d.PipelineId)
-		arn := fmt.Sprintf("arn:aws:datapipeline:%s:%s:pipeline/%s", region, p.accountID, id)
+		arn := p.buildARN("datapipeline", region, p.accountID, "pipeline/"+id)
 		tags := tagsToMap(d.Tags,
 			func(t datapipelinetypes.Tag) *string { return t.Key },
 			func(t datapipelinetypes.Tag) *string { return t.Value })
@@ -322,7 +321,7 @@ func (p *Provider) listSESResourcesFrom(ctx context.Context, client sesAPI, regi
 		}
 		for _, id := range output.EmailIdentities {
 			name := aws.ToString(id.IdentityName)
-			arn := fmt.Sprintf("arn:aws:ses:%s:%s:identity/%s", region, p.accountID, name)
+			arn := p.buildARN("ses", region, p.accountID, "identity/"+name)
 			resources = append(resources, p.bulkResource(region, "aws_ses_email_identity", name, name, arn, nil))
 		}
 	}
@@ -333,7 +332,7 @@ func (p *Provider) listSESResourcesFrom(ctx context.Context, client sesAPI, regi
 			return nil, provider.NewProviderError(providerName, "list_ses_configuration_sets", "", err)
 		}
 		for _, name := range output.ConfigurationSets {
-			arn := fmt.Sprintf("arn:aws:ses:%s:%s:configuration-set/%s", region, p.accountID, name)
+			arn := p.buildARN("ses", region, p.accountID, "configuration-set/"+name)
 			resources = append(resources, p.bulkResource(region, "aws_ses_configuration_set", name, name, arn, nil))
 		}
 	}

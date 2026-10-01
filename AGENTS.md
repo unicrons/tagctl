@@ -305,6 +305,15 @@ a scan file counts resources but has neither (written before the inventory).
   `maxRetryAttempts` (7) unless `AWS_RETRY_MODE`/`AWS_MAX_ATTEMPTS` or the
   profile set them. `--profile`/`--role` and friends live in
   `internal/cli/auth.go` and override a config with at most one AWS entry.
+- **AWS partitions**: `New` reads the partition from the caller identity ARN
+  (`partitionOf`) into `Provider.partition`; empty means `aws` (providers built
+  in tests). Build every ARN with `p.buildARN`/`p.ec2ARN`, never a literal
+  `arn:aws:`. `p.globalRegion()` (table in `partition.go`, copied from the
+  SDK's `partitions.json`) is where the global clients, Cost Explorer, the
+  extra bulk sweep (`tagSweepRegions`) and the Tagging API for region-less
+  ARNs (`taggingRegion`) go. Global Accelerator is skipped outside `aws`.
+  `getResourceType` routes ARNs with `arn.Parse` on the service and resource
+  segments, so it is partition-agnostic; a malformed ARN has no route.
 - **Kubernetes**: `initProviders()` builds one `k8s.Provider` per
   `clouds.kubernetes` entry through `newKubernetesProvider` (a package var in
   `internal/cli/providers.go`; tests swap it for `k8s.NewWithClients` with
@@ -549,9 +558,9 @@ Install with: `make hooks`
    minutes behind `tagctl apply`. Per-resource tag APIs are read-after-write,
    so a fresh scan may disagree between services for a short while
 
-9. **Bulk tags only cover the configured regions plus `us-east-1`**: the
-   global listers read from the `us-east-1` sweep, which `startTagSources`
-   adds even when that region is not configured
+9. **Bulk tags only cover the configured regions plus the partition's global
+   region** (`us-east-1` in `aws`): the global listers read from that sweep,
+   which `startTagSources` adds even when the region is not configured
 
 10. **The bulk sweep must stay filtered**: an unfiltered `GetResources` in
    a real development account returned 33k tagged ARNs (337 sequential pages, 32 s)

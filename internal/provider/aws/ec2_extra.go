@@ -29,7 +29,7 @@ func (p *Provider) ec2Resource(region, arnType, resourceType, id string, tags []
 	r := types.Resource{
 		ID:        id,
 		Name:      id,
-		ARN:       buildEC2ARN(p.accountID, region, arnType, id),
+		ARN:       p.ec2ARN(region, arnType, id),
 		Type:      resourceType,
 		Region:    region,
 		Account:   p.accountID,

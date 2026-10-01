@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/aws/arn"
 	"github.com/aws/aws-sdk-go-v2/service/rds"
 	rdstypes "github.com/aws/aws-sdk-go-v2/service/rds/types"
 
@@ -101,30 +102,12 @@ func (p *Provider) applyRDSTags(ctx context.Context, resourceARN string, tags ma
 	return nil
 }
 
-// extractRegionFromARN extracts the region from an AWS ARN.
-// ARN format: arn:aws:service:region:account:resource
-func extractRegionFromARN(arn string) string {
-	parts := splitARN(arn)
-	if len(parts) >= 4 {
-		return parts[3]
+// extractRegionFromARN returns the region segment of an ARN, empty when the
+// ARN has none or does not parse.
+func extractRegionFromARN(resourceARN string) string {
+	parsed, err := arn.Parse(resourceARN)
+	if err != nil {
+		return ""
 	}
-	return ""
-}
-
-// splitARN splits an ARN into its components.
-func splitARN(arn string) []string {
-	var parts []string
-	current := ""
-	for _, c := range arn {
-		if c == ':' {
-			parts = append(parts, current)
-			current = ""
-		} else {
-			current += string(c)
-		}
-	}
-	if current != "" {
-		parts = append(parts, current)
-	}
-	return parts
+	return parsed.Region
 }

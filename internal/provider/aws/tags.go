@@ -164,14 +164,11 @@ func fetchBulkTagGroup(ctx context.Context, client taggingAPI, filters []string)
 	return tags, nil
 }
 
-// startTagSources launches one bulk tag fetch per configured region.
+// startTagSources launches one bulk tag fetch per region of tagSweepRegions.
 func (p *Provider) startTagSources(ctx context.Context) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	regions := p.regions
-	if !p.isConfiguredRegion(defaultRegion) {
-		regions = append(append([]string{}, regions...), defaultRegion)
-	}
+	regions := p.tagSweepRegions()
 	p.tagSources = make(map[string]*tagSource, len(regions))
 	for _, region := range regions {
 		region := region
@@ -295,11 +292,7 @@ func (p *Provider) resourceTags(region, arn string, fallback func() (map[string]
 
 // applyTagsViaTaggingAPI tags any resource by ARN through TagResources.
 func (p *Provider) applyTagsViaTaggingAPI(ctx context.Context, arn string, tags map[string]string) error {
-	region := extractRegionFromARN(arn)
-	if region == "" {
-		region = defaultRegion
-	}
-	client := p.getTaggingClient(region)
+	client := p.getTaggingClient(p.taggingRegion(arn))
 
 	output, err := client.TagResources(ctx, &resourcegroupstaggingapi.TagResourcesInput{
 		ResourceARNList: []string{arn},
@@ -315,6 +308,16 @@ func (p *Provider) applyTagsViaTaggingAPI(ctx context.Context, arn string, tags 
 
 	log.Debug("AWS Tagging: Applied %d tags to %s", len(tags), arn)
 	return nil
+}
+
+// taggingRegion returns the region whose Tagging API endpoint tags arn: its
+// own, or the partition's global region for ARNs without one (IAM, Route 53,
+// CloudFront).
+func (p *Provider) taggingRegion(arn string) string {
+	if region := extractRegionFromARN(arn); region != "" {
+		return region
+	}
+	return p.globalRegion()
 }
 
 // taggingFailure is a per-resource failure reported inside a successful

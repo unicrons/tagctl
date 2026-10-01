@@ -2,7 +2,6 @@ package aws
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/firehose"
@@ -67,7 +66,7 @@ func (p *Provider) listRedshiftClustersFrom(ctx context.Context, client redshift
 			resources = append(resources, types.Resource{
 				ID:        id,
 				Name:      id,
-				ARN:       fmt.Sprintf("arn:aws:redshift:%s:%s:cluster:%s", region, p.accountID, id),
+				ARN:       p.buildARN("redshift", region, p.accountID, "cluster:"+id),
 				Type:      "aws_redshift_cluster",
 				Region:    region,
 				Account:   p.accountID,
@@ -185,7 +184,7 @@ func (p *Provider) listGlueJobsFrom(ctx context.Context, client glueAPI, region 
 		}
 		for _, j := range output.Jobs {
 			name := aws.ToString(j.Name)
-			arn := fmt.Sprintf("arn:aws:glue:%s:%s:job/%s", region, p.accountID, name)
+			arn := p.buildARN("glue", region, p.accountID, "job/"+name)
 			resources = append(resources, types.Resource{
 				ID:        name,
 				Name:      name,
@@ -219,7 +218,7 @@ func (p *Provider) listFirehoseStreamsFrom(ctx context.Context, client firehoseA
 			return nil, provider.NewProviderError(providerName, "list_firehose_streams", "", err)
 		}
 		for _, name := range output.DeliveryStreamNames {
-			arn := fmt.Sprintf("arn:aws:firehose:%s:%s:deliverystream/%s", region, p.accountID, name)
+			arn := p.buildARN("firehose", region, p.accountID, "deliverystream/"+name)
 			resources = append(resources, types.Resource{
 				ID:       name,
 				Name:     name,

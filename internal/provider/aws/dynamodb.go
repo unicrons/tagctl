@@ -2,7 +2,6 @@ package aws
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
@@ -40,7 +39,7 @@ func (p *Provider) listDynamoDBTablesFrom(ctx context.Context, client dynamoDBAP
 	}
 
 	resources := forEachConcurrently(names, func(name string) []types.Resource {
-		arn := fmt.Sprintf("arn:aws:dynamodb:%s:%s:table/%s", region, p.accountID, name)
+		arn := p.buildARN("dynamodb", region, p.accountID, "table/"+name)
 
 		tags, err := p.resourceTags(region, arn, func() (map[string]string, error) {
 			return getDynamoDBTags(ctx, client, arn)

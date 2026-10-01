@@ -51,7 +51,7 @@ func (p *Provider) listEC2Instances(ctx context.Context, region string) ([]types
 				}
 
 				// Set ARN
-				resource.ARN = buildEC2ARN(p.accountID, region, "instance", resource.ID)
+				resource.ARN = p.ec2ARN(region, "instance", resource.ID)
 
 				// Set creation time
 				if instance.LaunchTime != nil {
@@ -100,7 +100,7 @@ func (p *Provider) listEBSVolumes(ctx context.Context, region string) ([]types.R
 			}
 
 			// Set ARN
-			resource.ARN = buildEC2ARN(p.accountID, region, "volume", resource.ID)
+			resource.ARN = p.ec2ARN(region, "volume", resource.ID)
 
 			// Set creation time
 			if volume.CreateTime != nil {
@@ -143,7 +143,7 @@ func (p *Provider) listEBSSnapshotsFrom(ctx context.Context, client ebsSnapshots
 			resource := types.Resource{
 				ID:        id,
 				Name:      id,
-				ARN:       buildEC2ARN(p.accountID, region, "snapshot", id),
+				ARN:       p.ec2ARN(region, "snapshot", id),
 				Type:      "aws_ebs_snapshot",
 				Region:    region,
 				Account:   p.accountID,
@@ -168,7 +168,7 @@ func (p *Provider) applyEC2Tags(ctx context.Context, resourceID string, tags map
 	log.Debug("AWS EC2: Applying tags to resource %s", resourceID)
 
 	// If the resourceID is an ARN, extract the region
-	if strings.HasPrefix(resourceID, "arn:aws:ec2:") {
+	if strings.HasPrefix(resourceID, "arn:") {
 		region := extractRegionFromARN(resourceID)
 		if region != "" {
 			log.Debug("AWS EC2: Extracted region %s from ARN", region)
@@ -259,11 +259,6 @@ func ec2TagsToMap(tags []ec2types.Tag) map[string]string {
 	return result
 }
 
-// buildEC2ARN builds an ARN for an EC2 resource.
-func buildEC2ARN(accountID, region, resourceType, resourceID string) string {
-	return "arn:aws:ec2:" + region + ":" + accountID + ":" + resourceType + "/" + resourceID
-}
-
 // listSecurityGroups lists all EC2 security groups in a region.
 func (p *Provider) listSecurityGroups(ctx context.Context, region string) ([]types.Resource, error) {
 	return p.listSecurityGroupsFrom(ctx, p.getEC2Client(region), region)
@@ -299,7 +294,7 @@ func (p *Provider) listSecurityGroupsFrom(ctx context.Context, client ec2Describ
 				resource.Name = aws.ToString(sg.GroupName)
 			}
 
-			resource.ARN = buildEC2ARN(p.accountID, region, "security-group", resource.ID)
+			resource.ARN = p.ec2ARN(region, "security-group", resource.ID)
 
 			log.Debug("AWS SecurityGroup: %s (%s) in %s has %d tags", resource.ID, resource.Name, region, len(resource.Tags))
 			resources = append(resources, resource)
@@ -344,7 +339,7 @@ func (p *Provider) listVPCsFrom(ctx context.Context, client ec2DescribeVpcsAPI, 
 				resource.Name = resource.ID
 			}
 
-			resource.ARN = buildEC2ARN(p.accountID, region, "vpc", resource.ID)
+			resource.ARN = p.ec2ARN(region, "vpc", resource.ID)
 
 			log.Debug("AWS VPC: %s (%s) in %s has %d tags", resource.ID, resource.Name, region, len(resource.Tags))
 			resources = append(resources, resource)
@@ -389,7 +384,7 @@ func (p *Provider) listSubnetsFrom(ctx context.Context, client ec2DescribeSubnet
 				resource.Name = resource.ID
 			}
 
-			resource.ARN = buildEC2ARN(p.accountID, region, "subnet", resource.ID)
+			resource.ARN = p.ec2ARN(region, "subnet", resource.ID)
 
 			log.Debug("AWS Subnet: %s (%s) in %s has %d tags", resource.ID, resource.Name, region, len(resource.Tags))
 			resources = append(resources, resource)

@@ -2,7 +2,6 @@ package aws
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	elb "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancing"
@@ -64,7 +63,7 @@ func (p *Provider) listClassicLoadBalancersFrom(ctx context.Context, client clas
 	resources := make([]types.Resource, 0, len(lbs))
 	for _, lb := range lbs {
 		name := aws.ToString(lb.LoadBalancerName)
-		arn := fmt.Sprintf("arn:aws:elasticloadbalancing:%s:%s:loadbalancer/%s", region, p.accountID, name)
+		arn := p.buildARN("elasticloadbalancing", region, p.accountID, "loadbalancer/"+name)
 		tags := tagsByName[name]
 		if useBulk {
 			tags = p.bulkTags(region, arn)

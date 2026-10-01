@@ -2,7 +2,6 @@ package aws
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/amplify"
@@ -172,7 +171,7 @@ func (p *Provider) listCodeCommitRepositoriesFrom(ctx context.Context, client co
 		}
 		for _, r := range output.Repositories {
 			name := aws.ToString(r.RepositoryName)
-			arn := fmt.Sprintf("arn:aws:codecommit:%s:%s:%s", region, p.accountID, name)
+			arn := p.buildARN("codecommit", region, p.accountID, name)
 			resources = append(resources, p.bulkResource(region, "aws_codecommit_repository", name, name, arn, nil))
 		}
 	}
@@ -197,7 +196,7 @@ func (p *Provider) listPipelinesFrom(ctx context.Context, client codePipelineAPI
 		}
 		for _, pl := range output.Pipelines {
 			name := aws.ToString(pl.Name)
-			arn := fmt.Sprintf("arn:aws:codepipeline:%s:%s:%s", region, p.accountID, name)
+			arn := p.buildARN("codepipeline", region, p.accountID, name)
 			resources = append(resources, p.bulkResource(region, "aws_codepipeline", name, name, arn, pl.Created))
 		}
 	}
