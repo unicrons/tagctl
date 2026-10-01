@@ -108,8 +108,9 @@ func outputScanTable(result *types.ScanResult, verbose bool) error {
 		}
 
 		// Summary
-		fmt.Printf("Summary: \033[32m%d PASS\033[0m | \033[31m%d FAILED\033[0m\n",
-			passFindings, failFindings)
+		c := paletteFor(os.Stdout)
+		fmt.Printf("Summary: %s%d PASS%s | %s%d FAILED%s\n",
+			c.green, passFindings, c.reset, c.red, failFindings, c.reset)
 		fmt.Println()
 	}
 
@@ -212,6 +213,7 @@ func printFindingsTable(out io.Writer, findings []types.Finding) {
 		})
 	}
 
+	c := paletteFor(out)
 	widths := make([]int, len(rows[0]))
 	for _, row := range rows {
 		for i, cell := range row {
@@ -227,11 +229,11 @@ func printFindingsTable(out io.Writer, findings []types.Finding) {
 				padded += strings.Repeat(" ", widths[i]-utf8.RuneCountInString(cell)+2)
 			}
 			if i == 0 && n >= 2 {
-				colour := "\033[31m"
+				colour := c.red
 				if cell == "PASS" {
-					colour = "\033[32m"
+					colour = c.green
 				}
-				padded = colour + cell + "\033[0m" + padded[len(cell):]
+				padded = colour + cell + c.reset + padded[len(cell):]
 			}
 			line.WriteString(padded)
 		}

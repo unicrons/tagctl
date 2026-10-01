@@ -22,6 +22,7 @@ func TestSpinnerSuspendKeepsLogLineIntact(t *testing.T) {
 
 	s := NewSpinner("working")
 	s.out = &buf
+	s.animate = true
 	s.interval = time.Hour // keep the ticker out of the way
 	s.Start()
 	log.Info("hello")
@@ -33,7 +34,7 @@ func TestSpinnerSuspendKeepsLogLineIntact(t *testing.T) {
 		t.Fatalf("log line missing from %q", out)
 	}
 	// The log line must start on a cleared line and be followed by a redraw.
-	if !strings.HasSuffix(out[:idx], "[INFO] \033[0m ") || !strings.HasPrefix(out[:idx], clearLine) {
+	if !strings.HasSuffix(out[:idx], "[INFO]  ") || !strings.HasPrefix(out[:idx], clearLine) {
 		t.Errorf("log line not written on a cleared line: %q", out)
 	}
 	if !strings.Contains(out[idx:], "working") {
@@ -52,6 +53,7 @@ func TestSpinnerStopReleasesLogLine(t *testing.T) {
 
 	s := NewSpinner("working")
 	s.out = &buf
+	s.animate = true
 	s.interval = time.Hour
 	s.Start()
 	s.Success("done")

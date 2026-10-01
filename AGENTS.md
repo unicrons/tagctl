@@ -40,6 +40,7 @@ internal/
 │   ├── format.go         # -o validation per command (outputFormatFor)
 │   ├── paths.go          # output/ directory and file naming
 │   ├── progress.go       # Progress reporting
+│   ├── color.go          # paletteFor: ANSI codes per stream
 │   ├── auth.go           # AWS auth flags shared by scan/apply/cost
 │   └── providers.go      # Provider initialization
 ├── config/config.go      # YAML config parsing and validation
@@ -151,6 +152,13 @@ stdout carries only the selected output. Banner, spinners, prompts, warnings and
 "wrote X" notices go to stderr (`fmt.Fprint(os.Stderr, ...)`). A gate report on
 `-` replaces the command's stdout output; `gateOptions.stdoutFormat` rejects two
 reports on `-` or one next to an explicit `-o`
+
+Colour is per stream: `log.UseColor(w)` is the single decision (a terminal and
+`NO_COLOR` empty). CLI code takes its codes from `paletteFor(w)`
+(`internal/cli/color.go`), whose fields are empty when colour is off; never
+write a raw ANSI code. Spinners animate only on a terminal. Values from cloud
+data or user files go through `printable()` before reaching a table; log lines
+are sanitised in `log.write`
 
 ## Configuration File (tagctl.yaml)
 

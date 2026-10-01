@@ -39,6 +39,20 @@ and `validate`, and every log line, replace control characters in resource
 names, tag keys and values with `?`, so a hostile tag value cannot send escape
 sequences to your terminal. JSON and CSV output keep the original values.
 
+### Colour
+
+Colour is decided per stream. ANSI colour codes are written to stdout or stderr
+only when that stream is a terminal, so `tagctl scan > report.txt` and CI logs
+get plain text. Setting `NO_COLOR` to any non-empty value turns colour off on a
+terminal too:
+
+```bash
+NO_COLOR=1 tagctl scan
+```
+
+Spinners animate only when stderr is a terminal. Otherwise each step prints its
+message once, followed by its outcome (`✓` or `✗`).
+
 ## Exit codes
 
 Every command exits with one of three codes, so a pipeline can tell a policy

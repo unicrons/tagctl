@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"unicode"
+
+	"golang.org/x/term"
 )
 
 // Level represents a log level.
@@ -32,6 +34,23 @@ const (
 	colorCyan    = "\033[36m"
 	colorMagenta = "\033[35m"
 )
+
+// isTerminal reports whether w is a terminal; tests replace it.
+var isTerminal = func(w io.Writer) bool {
+	f, ok := w.(*os.File)
+	return ok && term.IsTerminal(int(f.Fd()))
+}
+
+// IsTerminal reports whether w is a terminal.
+func IsTerminal(w io.Writer) bool {
+	return isTerminal(w)
+}
+
+// UseColor reports whether ANSI colour may be written to w: only to a
+// terminal, and never when NO_COLOR is set to a non-empty value.
+func UseColor(w io.Writer) bool {
+	return os.Getenv("NO_COLOR") == "" && isTerminal(w)
+}
 
 // LineHolder is a terminal element that owns the current line, such as a
 // spinner. Suspend clears the line, runs fn, then redraws the element.
@@ -114,7 +133,10 @@ func write(level Level, color, tag, format string, args ...interface{}) {
 		return
 	}
 
-	line := fmt.Sprintf("%s%s%s %s\n", color, tag, colorReset, printable(fmt.Sprintf(format, args...)))
+	if UseColor(out) {
+		tag = color + tag + colorReset
+	}
+	line := fmt.Sprintf("%s %s\n", tag, printable(fmt.Sprintf(format, args...)))
 	emit := func() { fmt.Fprint(out, line) }
 
 	if holder != nil {
