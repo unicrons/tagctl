@@ -25,6 +25,7 @@ type RealScanner struct {
 	providers []provider.Provider
 	evaluator *Evaluator
 	ignore    config.IgnoreConfig
+	onlyTypes []string
 }
 
 // NewScanner creates a new Scanner with the given providers and policy.
@@ -44,6 +45,28 @@ func NewScanner(providers []provider.Provider, policy config.PolicyConfig, ignor
 		evaluator: evaluator,
 		ignore:    ignore,
 	}, nil
+}
+
+// OnlyTypes restricts the scan to resource types matching any of the path.Match patterns.
+func (s *RealScanner) OnlyTypes(patterns []string) error {
+	if err := ValidateTypePatterns(patterns); err != nil {
+		return err
+	}
+	s.onlyTypes = patterns
+	return nil
+}
+
+// ValidateTypePatterns rejects resource type patterns that are empty or that path.Match cannot parse.
+func ValidateTypePatterns(patterns []string) error {
+	for _, pattern := range patterns {
+		if pattern == "" {
+			return errors.New("empty resource type pattern")
+		}
+		if _, err := path.Match(pattern, ""); err != nil {
+			return fmt.Errorf("invalid resource type pattern %q: %w", pattern, err)
+		}
+	}
+	return nil
 }
 
 // Scan discovers and evaluates resources; provider errors mark the result partial and are returned joined.
@@ -87,6 +110,8 @@ func (s *RealScanner) Scan(ctx context.Context) (*types.ScanResult, error) {
 
 	log.Info("Scanner: Collected %d total resources from all providers", len(allResources))
 
+	allResources = s.filterTypes(allResources)
+
 	// Filter ignored resources
 	filteredResources := s.filterIgnored(allResources)
 	if len(allResources) != len(filteredResources) {
@@ -113,6 +138,22 @@ func (s *RealScanner) Scan(ctx context.Context) (*types.ScanResult, error) {
 	return result, discoveryErr
 }
 
+// filterTypes keeps the resources whose type matches an OnlyTypes pattern.
+func (s *RealScanner) filterTypes(resources []types.Resource) []types.Resource {
+	if len(s.onlyTypes) == 0 {
+		return resources
+	}
+
+	kept := make([]types.Resource, 0, len(resources))
+	for _, r := range resources {
+		if matchesAnyGlob(s.onlyTypes, r.Type) {
+			kept = append(kept, r)
+		}
+	}
+	log.Debug("Scanner: %d of %d resources match the resource type filter %v", len(kept), len(resources), s.onlyTypes)
+	return kept
+}
+
 // filterIgnored removes resources that should be ignored.
 func (s *RealScanner) filterIgnored(resources []types.Resource) []types.Resource {
 	if len(s.ignore.Resources) == 0 && len(s.ignore.Tags) == 0 {
@@ -136,11 +177,8 @@ func (s *RealScanner) filterIgnored(resources []types.Resource) []types.Resource
 
 // shouldIgnore checks if a resource should be ignored.
 func (s *RealScanner) shouldIgnore(r types.Resource) bool {
-	// Check resource type patterns
-	for _, pattern := range s.ignore.Resources {
-		if matchGlob(pattern, r.Type) {
-			return true
-		}
+	if matchesAnyGlob(s.ignore.Resources, r.Type) {
+		return true
 	}
 
 	// Check tag values
@@ -162,6 +200,16 @@ func (s *RealScanner) shouldIgnore(r types.Resource) bool {
 func matchGlob(pattern, value string) bool {
 	matched, err := path.Match(pattern, value)
 	return err == nil && matched
+}
+
+// matchesAnyGlob reports whether value matches at least one pattern.
+func matchesAnyGlob(patterns []string, value string) bool {
+	for _, pattern := range patterns {
+		if matchGlob(pattern, value) {
+			return true
+		}
+	}
+	return false
 }
 
 // MockScanner is a Scanner implementation that returns mock data.

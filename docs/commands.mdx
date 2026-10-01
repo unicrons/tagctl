@@ -132,6 +132,10 @@ tagctl scan [flags]
   AWS region(s) to scan; overrides `regions` in the config file. If omitted, all available regions are discovered and scanned. Also filters S3 buckets by their region.
 </ParamField>
 
+<ParamField path="--resource-type" type="string[]" default="every type">
+  Only evaluate and report resource types matching this glob (`aws_s3_*`, `aws_instance`); repeat the flag to add more. The syntax is the one `ignore.resources` uses (Go `path.Match`: `*`, `?`, `[a-z]`), a comma is not a separator, and a malformed glob is rejected before anything is scanned. `ignore` rules still apply to what is left. See [Scanning some resource types](#scanning-some-resource-types)
+</ParamField>
+
 <ParamField path="--profile, -p" type="string">
   AWS profile from `~/.aws/config`; overrides `profile` in the config (which must have zero or one AWS entry)
 </ParamField>
@@ -230,6 +234,21 @@ Detailed results saved to:
   • HTML: /path/to/output/scan-20260202-105148.html
 ```
 </Accordion>
+
+### Scanning some resource types
+
+```bash
+tagctl scan --resource-type 'aws_s3_*' --resource-type aws_instance
+```
+
+`--resource-type` filters the resources after discovery: every service is
+still listed, then only the matching types are evaluated, counted and
+reported. It narrows the reports and the gate, not the API calls or the scan
+time (use `--region` for that), and a service that cannot be listed still
+makes the scan [partial](#partial-scans) even when its types are filtered out.
+Quote the glob so the shell does not expand it. When nothing matches, the scan
+reports zero resources and warns on stderr. Demo mode (`--mock`) ignores the
+flag with a warning, since its data is fixed.
 
 ### Output Files
 
