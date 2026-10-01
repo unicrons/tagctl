@@ -1289,7 +1289,7 @@ from a report into a build step.
 | `--baseline <file>` | Baseline scan `--fail-on-new` compares against |
 | `--sarif <path>` | Also write findings as SARIF (`-` for stdout) |
 | `--junit <path>` | Also write findings as JUnit XML (`-` for stdout) |
-| `--ocsf <path>` | Also write findings as OCSF Compliance Finding events (`-` for stdout) |
+| `--ocsf <path>` | Also write findings as OCSF Compliance Finding events: one event per line (NDJSON) when the path ends in `.ndjson` or `.jsonl`, a JSON array otherwise (`-` for stdout, always an array) |
 | `--summary <path>` | Also write a [Markdown summary](#markdown-summary) (`-` for stdout) |
 
 Reports are written **before** the gate runs, so a failing build still uploads
@@ -1383,6 +1383,9 @@ with a standard", which is exactly what a tag policy check is.
   an id.
 - The policy rule travels in `compliance.requirements`; the tag name is the
   `compliance.control`.
+- A path ending in `.ndjson` or `.jsonl` gets **one event per line**, the form
+  log shippers and most OCSF consumers ingest. Any other path, and `-`, gets a
+  pretty-printed JSON array.
 
 The full field mapping, an example event and ingestion notes are in
 [OCSF output](/integrations/ocsf).

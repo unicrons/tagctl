@@ -371,7 +371,8 @@ flag points. SARIF anchors results to the config file read
 (`viper.ConfigFileUsed()`, or `evaluate --policy`) relative to the working
 directory, sets `automationDetails.id` `tagctl/<command>/` and marks a partial
 scan `invocations[0].executionSuccessful: false`. OCSF emits one
-Compliance Finding (class 2003, schema 1.4.0) per finding, passes included;
+Compliance Finding (class 2003, schema 1.4.0) per finding, passes included, as
+NDJSON when the path ends in `.ndjson`/`.jsonl` and as a JSON array otherwise;
 `finding_info.uid` (`<resource identity>#<tag>`) and `analytic.uid` are the
 same ids SARIF uses, keep them aligned. The full mapping is the contract in
 `docs/integrations/ocsf.mdx`; extend it whenever a field changes.

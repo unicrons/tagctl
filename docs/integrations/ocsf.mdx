@@ -12,7 +12,8 @@ with the same account, region and resource fields, and can be queried, joined
 and alerted on with the same tooling.
 
 ```bash
-tagctl scan --ocsf output/tagctl.ocsf.json
+tagctl scan --ocsf output/tagctl.ocsf.json                # JSON array
+tagctl scan --ocsf output/tagctl.ocsf.ndjson              # one event per line
 tagctl evaluate --resources resources.json --ocsf -      # to stdout, instead of the evaluate JSON
 tagctl terraform --plan plan.json --ocsf tagctl.ocsf.json
 ```
@@ -56,9 +57,14 @@ passes a resource that disappears from the feed is indistinguishable from one
 that was deleted, and a compliance percentage cannot be recomputed downstream.
 Filter on `compliance.status_id = 3` if you only want failures.
 
-The output is a JSON array, pretty-printed, so it can be read by a person as
-well as loaded in bulk. For a line-delimited feed, pipe it through `jq -c
-'.[]'`.
+The file extension picks the framing:
+
+| Path | Output |
+|------|--------|
+| ends in `.ndjson` or `.jsonl` (any case) | Newline-delimited JSON: one compact event per line, the form log shippers and most OCSF consumers expect. A scan with no findings writes an empty file |
+| anything else, and `-` (stdout) | A pretty-printed JSON array, readable by a person and loadable in bulk. A scan with no findings writes `[]` |
+
+The events are identical in both; only the framing differs.
 
 ## Field mapping
 
@@ -226,10 +232,14 @@ outcome: `severity_id` 1, `compliance.status` `Pass`, no `remediation`, and
 
 ## Working with the output
 
+The recipes below read the JSON array. For an `.ndjson` file drop the leading
+`.[] |` from each filter.
+
 Failures only, one per line, ready for a log shipper:
 
 ```bash
 jq -c '.[] | select(.compliance.status_id == 3)' tagctl.ocsf.json
+jq -c 'select(.compliance.status_id == 3)' tagctl.ocsf.ndjson
 ```
 
 Failures per control, which is the number a compliance dashboard wants:
@@ -259,7 +269,7 @@ scans, a query grouping by it shows how long each gap has existed.
 ### Anything else that reads OCSF
 
 Any consumer that understands class 2003 will ingest the file as-is. If yours
-expects newline-delimited JSON, the first `jq` recipe above produces it.
+expects newline-delimited JSON, write to a `.ndjson` or `.jsonl` path.
 
 ## Stability
 

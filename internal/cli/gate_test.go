@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -132,6 +133,37 @@ func TestGateOptions_WriteReports(t *testing.T) {
 }
 
 // Asking for no reports must not create any file.
+func TestGateOptions_WriteReports_OCSFFramingFollowsTheExtension(t *testing.T) {
+	scan := failedScan(50)
+	scan.Findings = append(scan.Findings, scan.Findings[0])
+	scan.Findings[1].Resource.ID = "i-2"
+
+	for _, name := range []string{"out.ndjson", "out.JSONL"} {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), name)
+			if err := (gateOptions{ocsfPath: path}).writeReports(scan, "tagctl.yaml"); err != nil {
+				t.Fatalf("writeReports() error = %v", err)
+			}
+			data, err := os.ReadFile(path) // #nosec G304 -- test temp dir
+			if err != nil {
+				t.Fatal(err)
+			}
+			lines := strings.Split(strings.TrimSuffix(string(data), "\n"), "\n")
+			if len(lines) != 2 {
+				t.Fatalf("got %d lines, want one event per finding:\n%s", len(lines), data)
+			}
+			for _, line := range lines {
+				var event struct {
+					ClassUID int `json:"class_uid"`
+				}
+				if err := json.Unmarshal([]byte(line), &event); err != nil || event.ClassUID != 2003 {
+					t.Errorf("line is not one Compliance Finding event (err %v): %s", err, line)
+				}
+			}
+		})
+	}
+}
+
 func TestGateOptions_WriteReports_NoneRequested(t *testing.T) {
 	dir := t.TempDir()
 

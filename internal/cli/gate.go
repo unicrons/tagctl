@@ -21,7 +21,7 @@ func addGateFlags(cmd *cobra.Command) {
 	cmd.Flags().String("baseline", "", "baseline scan file to compare against for --fail-on-new")
 	cmd.Flags().String("sarif", "", "also write findings as SARIF to this path (- for stdout, instead of the command's output)")
 	cmd.Flags().String("junit", "", "also write findings as JUnit XML to this path (- for stdout, instead of the command's output)")
-	cmd.Flags().String("ocsf", "", "also write findings as OCSF Compliance Finding events to this path (- for stdout, instead of the command's output)")
+	cmd.Flags().String("ocsf", "", "also write findings as OCSF Compliance Finding events to this path: one per line for .ndjson or .jsonl, a JSON array otherwise (- for stdout, instead of the command's output)")
 	cmd.Flags().String("summary", "", "also write a Markdown summary to this path, e.g. \"$GITHUB_STEP_SUMMARY\" (- for stdout, instead of the command's output)")
 	cmd.PreRunE = validateGateFlags
 }
@@ -127,7 +127,10 @@ func (o gateOptions) writeReports(scan *types.ScanResult, policyFile string) err
 
 	if o.ocsfPath != "" {
 		if err := writeToPathOrStdout(o.ocsfPath, func(f *os.File) error {
-			return report.WriteOCSF(f, scan, report.OCSFOptions{Version: appVersion})
+			return report.WriteOCSF(f, scan, report.OCSFOptions{
+				Version: appVersion,
+				Lines:   report.OCSFLinesPath(o.ocsfPath),
+			})
 		}); err != nil {
 			return fmt.Errorf("failed to write OCSF report: %w", err)
 		}
