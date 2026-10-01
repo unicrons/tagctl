@@ -11,7 +11,7 @@ These flags work with all commands:
 | Flag | Short | Default | Description |
 |------|-------|---------|-------------|
 | `--config` | `-c` | `./tagctl.yaml` | Path to configuration file |
-| `--output` | `-o` | `table` | Format printed on stdout, case-insensitive: `table`, `json` or `csv` for `scan`; `table` or `json` for `plan`, `diff`, `normalize`, `terraform` and `cost`; `json` for `evaluate`, which is also its default; `table` for the other commands. Any other value exits `2` |
+| `--output` | `-o` | `table` | Format printed on stdout, case-insensitive: `table`, `json` or `csv` for `scan` and `cost`; `table` or `json` for `plan`, `diff`, `normalize` and `terraform`; `json` for `evaluate`, which is also its default; `table` for the other commands. Any other value exits `2` |
 | `--log-level` | `-l` | `error` | Log level: `error`, `info`, `debug`; an unknown value falls back to `info` with a warning |
 | `--version` | - | - | Print the version and exit |
 | `--help` | `-h` | - | Show help for command |
@@ -785,6 +785,9 @@ tagctl cost --days 90
 # Specific tags, whatever the policy says
 tagctl cost --tag owner --tag cost-center
 
+# Is the unattributed spend growing? Per period, with an estimate of the next
+tagctl cost --trend
+
 # Fail when attribution is too low
 tagctl cost --fail-under 80
 ```
@@ -795,10 +798,12 @@ tagctl cost --fail-under 80
 |------|-------------|
 | `--days <n>` | How many days back to report on (default `30`, minimum `1`) |
 | `--tag <tag>` | Tag to report on (repeatable; defaults to the policy's required tags) |
+| `--trend` | Split the window into periods and estimate the next one, see [Trend](#trend) |
 | `--fail-under <pct>` | Exit `1` if any tag accounts for less than this share of spend |
 | `--profile <name>`, `-p` | AWS profile (defaults to the first configured account). Cost Explorer is always called through `us-east-1` |
 | `--role <arn>` | IAM role to assume; `--external-id`, `--session-duration`, `--role-session-name` and `--mfa-serial` refine it |
 | `--output json` | Machine-readable report instead of the table |
+| `--output csv` | One row per tag: `tag,attributed,unattributed,coverage_percent,currency`. With `--trend`, one row per tag and period |
 
 ### Activate your cost allocation tags first
 
@@ -837,7 +842,9 @@ many accounts you scan.
 <Note>
   Cost Explorer charges per paginated API request. `cost` makes one request per
   tag per page of results, so a report over a handful of tags costs cents, not
-  dollars.
+  dollars. `--trend` keeps it at one query per tag, asked by day instead of by
+  month, never one per period; a long window with many tag values can span more
+  pages.
 </Note>
 
 ### Example output
@@ -866,6 +873,73 @@ At this rate that is 1794053.35 USD a year of spend nobody can be billed for.
 ```
 
 Tags are listed worst-attributed first, because that is the one worth fixing.
+
+### Trend
+
+`--trend` answers whether the gap is closing. It splits the window into periods,
+**daily** for windows of up to 14 days and **weekly** beyond, and adds to each
+tag:
+
+- attributed and unattributed spend per period, with the coverage;
+- the change between the first and the last full period, in unattributed spend
+  and in coverage points;
+- an **estimate** of the unattributed spend of the next period.
+
+```
+  owner
+      attributed:      15150.00 USD  (94.7%)
+      unattributed:      850.00 USD  (5.3%)
+      trend (weekly):
+        from        days      attributed    unattributed  coverage
+        2026-01-22     2     1900.00 USD      100.00 USD     95.0%  partial
+        2026-01-24     7     6700.00 USD      300.00 USD     95.7%
+        2026-01-31     7     6550.00 USD      450.00 USD     93.6%
+        change, first to last full period: unattributed +150.00 USD, coverage -2.1 points
+        estimate for the 7 days from 2026-02-07: 600.00 USD unattributed (linear projection, not billed spend)
+```
+
+Weeks are counted back from the end of the window, so a window that is not a
+whole number of weeks starts with a shorter period. It is listed and marked
+`partial`, and left out of the change and the estimate.
+
+<Warning>
+  The estimate is a straight line fitted by least squares through the
+  unattributed spend of the full periods and read one period ahead, never below
+  zero. It knows nothing about seasonality, reservations or what you are about
+  to launch: read it as the direction the gap is heading in, not as a forecast
+  of the bill. With fewer than two full periods there is no change and no
+  estimate. Cost Explorer can also take a day to settle the most recent days.
+</Warning>
+
+In JSON each tag gains a `trend` object; every other key is unchanged, and
+`trend` is absent without the flag:
+
+```json
+"trend": {
+  "granularity": "weekly",
+  "periods": [
+    { "start": "2026-01-22T00:00:00Z", "end": "2026-01-24T00:00:00Z", "attributed": 1900, "unattributed": 100, "partial": true },
+    { "start": "2026-01-24T00:00:00Z", "end": "2026-01-31T00:00:00Z", "attributed": 6700, "unattributed": 300 },
+    { "start": "2026-01-31T00:00:00Z", "end": "2026-02-07T00:00:00Z", "attributed": 6550, "unattributed": 450 }
+  ],
+  "change": { "unattributed": 150, "coverage_points": -2.142857142857139 },
+  "projection": { "start": "2026-02-07T00:00:00Z", "end": "2026-02-14T00:00:00Z", "unattributed": 600, "method": "linear", "estimate": true }
+}
+```
+
+`end` is exclusive, as in the report's own `end`. `change` and `projection`
+are omitted when there are fewer than two full periods.
+
+In CSV the report becomes one row per tag and period. `kind` is `actual`,
+`partial` or `estimate`; the estimate row has no attributed amount or coverage:
+
+```csv
+tag,period_start,period_end,kind,attributed,unattributed,coverage_percent,currency
+owner,2026-01-22,2026-01-24,partial,1900.00,100.00,95.0,USD
+owner,2026-01-24,2026-01-31,actual,6700.00,300.00,95.7,USD
+owner,2026-01-31,2026-02-07,actual,6550.00,450.00,93.6,USD
+owner,2026-02-07,2026-02-14,estimate,,600.00,,USD
+```
 
 ### How the numbers are derived
 

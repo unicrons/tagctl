@@ -93,7 +93,7 @@ internal/
     ├── plan.go           # Plan, TagChange, PlanSummary
     ├── diff.go           # DiffResult, TagDelta, AccountDelta
     ├── normalize.go      # NormalizeResult, ValueCluster
-    └── cost.go           # CostReport, TagCost
+    └── cost.go           # CostReport, TagCost, CostTrend (periods, projection)
 test/
 ├── testdata/             # Config and fixture files
 └── testutil/             # Shared test helpers
@@ -142,7 +142,7 @@ go test -v -run TestEvaluate ./internal/engine/
 - `-c, --config` — config file (default `./tagctl.yaml`)
 - `-o, --output` — stdout format, case-insensitive, checked by each command with
   `outputFormatFor` (first listed is the default when unset): scan
-  `table|json|csv`; plan, diff, normalize, terraform, cost `table|json`;
+  `table|json|csv`; cost `table|json|csv`; plan, diff, normalize, terraform `table|json`;
   evaluate `json`; apply, init, validate, version `table`. Anything else exits 2
 - `-l, --log-level` — `error`, `info`, `debug`
 
@@ -494,3 +494,10 @@ Install with: `make hooks`
     `lightsailRegions`; both are addressed by their own tag API, not the
     Tagging API. `idAddressedTypes` in the applier is the short list of types
     tagged by ID (EC2 family, S3); everything else is tagged by ARN
+
+12. **Cost Explorer bills per request**: `cost` runs one `GetCostAndUsage`
+    query per tag (plus its pages). `--trend` switches that query to `DAILY`
+    and buckets the days in `types.CostPeriods` (daily up to 14 days, weekly
+    beyond; periods align to the window end, a leading remainder is `Partial`
+    and excluded from `CostChange`/`CostProjection`). Never add a call per
+    period. `cost` has no mock mode; `costExplorerAPI` is mocked in tests
