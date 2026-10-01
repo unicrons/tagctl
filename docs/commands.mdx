@@ -609,8 +609,8 @@ Resources must be provided as a JSON array:
 ### Output Format
 
 The command prints JSON with findings and summary; `json` is the only `--output`
-format it accepts. A report sent to stdout with `--sarif -`, `--junit -` or
-`--ocsf -` takes its place.
+format it accepts. A report sent to stdout with `--sarif -`, `--junit -`,
+`--ocsf -` or `--summary -` takes its place.
 
 ```json
 {
@@ -1193,6 +1193,7 @@ from a report into a build step.
 | `--sarif <path>` | Also write findings as SARIF (`-` for stdout) |
 | `--junit <path>` | Also write findings as JUnit XML (`-` for stdout) |
 | `--ocsf <path>` | Also write findings as OCSF Compliance Finding events (`-` for stdout) |
+| `--summary <path>` | Also write a [Markdown summary](#markdown-summary) (`-` for stdout) |
 
 Reports are written **before** the gate runs, so a failing build still uploads
 its findings. Report files are created readable only by the current user
@@ -1287,6 +1288,32 @@ with a standard", which is exactly what a tag policy check is.
 The full field mapping, an example event and ingestion notes are in
 [OCSF output](/integrations/ocsf).
 
+### Markdown summary
+
+`--summary` writes a GitHub-flavoured Markdown digest of the run, meant for a
+job summary or a pull request comment:
+
+- the overall compliance, and a notice when the scan is partial
+- one row per policy tag, worst first
+- the 10 resource types with the most failing resources
+- the first 25 failed findings: resource, type, tag and reason (with the
+  offending value when there is one). The full list stays in the scan files
+  and the other reports
+
+Resource names and tag values come from the account, so every table cell is
+escaped (pipes, backticks, emphasis, links, HTML), line breaks become spaces
+and control characters are removed.
+
+In GitHub Actions, point it at the step summary file:
+
+```bash
+tagctl scan --summary "$GITHUB_STEP_SUMMARY"
+```
+
+tagctl never writes there on its own: without `--summary` the variable is
+ignored. The file is replaced, not appended to. A step that already wrote to
+its summary can append instead with `tagctl scan --summary - >> "$GITHUB_STEP_SUMMARY"`.
+
 ### GitHub Actions
 
 ```yaml
@@ -1321,6 +1348,7 @@ jobs:
             --sarif tagctl.sarif \
             --junit tagctl-junit.xml \
             --ocsf tagctl.ocsf.json \
+            --summary "$GITHUB_STEP_SUMMARY" \
             --fail-on-new --baseline .tagctl/baseline-scan.json
 
       # Runs even when the gate failed, so findings are always visible.

@@ -54,6 +54,7 @@ internal/
 │   ├── sarif.go          # SARIF 2.1.0 for GitHub code scanning
 │   ├── junit.go          # JUnit XML
 │   ├── ocsf.go           # OCSF 1.4 Compliance Finding events (class 2003)
+│   ├── markdown.go       # Markdown summary for CI job summaries
 │   ├── gate.go           # Compliance thresholds
 │   ├── findings.go       # findingMessage helper, tool name
 │   ├── html.go           # HTML report view model (templates/scan.html)
@@ -344,6 +345,12 @@ Compliance Finding (class 2003, schema 1.4.0) per finding, passes included;
 `finding_info.uid` (`<resource identity>#<tag>`) and `analytic.uid` are the
 same ids SARIF uses, keep them aligned. The full mapping is the contract in
 `docs/integrations/ocsf.mdx`; extend it whenever a field changes.
+
+`--summary` (same commands) writes `report.WriteMarkdown`: headline, per-tag
+table, top failing resource types (distinct `Identity()`) and the first 25
+failed findings. Every cell goes through `markdownCell`, since names and tag
+values are account-controlled. `GITHUB_STEP_SUMMARY` is never read: the user
+passes it to the flag.
 
 ## Common Patterns
 
