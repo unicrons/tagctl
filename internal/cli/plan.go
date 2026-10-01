@@ -70,13 +70,16 @@ func runPlan(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	// Check if we should use mock mode
 	if !hasConfiguredProviders(cfg) {
 		printDemoModeWarning()
 		fmt.Fprint(os.Stderr, "Analyzing resources for auto-fix opportunities (demo mode)...\n\n")
 
-		plan := getMockPlan()
-		return savePlanAndOutput(plan, outputDir, outFile, format)
+		// A demo plan on disk would be picked up by apply as a real one.
+		if err = printPlan(getMockPlan(), format); err != nil {
+			return err
+		}
+		fmt.Fprint(os.Stderr, "\nDemo plan: example data only, not saved.\n")
+		return nil
 	}
 
 	// Load scan results from file with spinner
@@ -206,12 +209,8 @@ func savePlanAndOutput(plan *types.Plan, outputDir, outFile, format string) erro
 		return fmt.Errorf("failed to write plan file: %w", err)
 	}
 
-	if format == formatJSON {
-		if err := outputPlanJSON(plan); err != nil {
-			return err
-		}
-	} else {
-		outputPlanTable(plan)
+	if err := printPlan(plan, format); err != nil {
+		return err
 	}
 
 	if !plan.IsEmpty() {
@@ -220,8 +219,16 @@ func savePlanAndOutput(plan *types.Plan, outputDir, outFile, format string) erro
 	return nil
 }
 
-// getMockPlan returns a mock plan for demonstration purposes.
-// TODO: Remove this when real planner is implemented.
+// printPlan renders a plan to stdout in format.
+func printPlan(plan *types.Plan, format string) error {
+	if format == formatJSON {
+		return outputPlanJSON(plan)
+	}
+	outputPlanTable(plan)
+	return nil
+}
+
+// getMockPlan returns the example plan shown when no provider is configured.
 func getMockPlan() *types.Plan {
 	plan := &types.Plan{
 		ID:        fmt.Sprintf("plan-%s", time.Now().Format("20060102-150405")),

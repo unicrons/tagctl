@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -153,14 +154,14 @@ func TestApply_OutputDirSuppliesTheLatestPlan(t *testing.T) {
 	dir := t.TempDir()
 	policy := writeFixture(t, dir, "tagctl.yaml", demoPolicy)
 	reports := filepath.Join(dir, "reports")
-
-	if run := execute(t, "-c", policy, "plan", "--output-dir", reports); run.err != nil {
-		t.Fatalf("plan error = %v", run.err)
+	if err := os.Mkdir(reports, 0o750); err != nil {
+		t.Fatal(err)
 	}
-	plan, err := FindLatestPlanInDir(reports)
+	data, err := json.Marshal(getMockPlan())
 	if err != nil {
 		t.Fatal(err)
 	}
+	plan := writeFixture(t, reports, "plan-20260101-100000.json", string(data))
 
 	run := execute(t, "-c", policy, "apply", "--mock", "--auto-approve", "--output-dir", reports)
 	if run.err != nil {

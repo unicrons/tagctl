@@ -425,6 +425,10 @@ Run 'tagctl apply' to execute this plan.
 ```
 </Accordion>
 
+When the config has no cloud provider, `plan` prints an example plan (demo
+mode) and writes no file, `--out` and `--output-dir` included, so `apply` can
+never pick up example data as a real plan.
+
 ### Change Symbols
 
 | Symbol | Meaning |
