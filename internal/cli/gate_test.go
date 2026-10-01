@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"encoding/xml"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -19,7 +20,7 @@ func commandWithGateFlags(t *testing.T, args ...string) *cobra.Command {
 	cmd := &cobra.Command{Use: "test", RunE: func(*cobra.Command, []string) error { return nil }}
 	addGateFlags(cmd)
 	cmd.SetArgs(args)
-	cmd.SetOut(os.NewFile(0, os.DevNull))
+	cmd.SetOut(io.Discard)
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("parsing flags %v: %v", args, err)
 	}
