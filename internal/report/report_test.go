@@ -529,12 +529,19 @@ func TestGate_FailOnNew(t *testing.T) {
 	}
 }
 
-// Without a baseline there is nothing to compare against, so the check is
-// skipped rather than silently passing on a scan that may have regressed.
-func TestGate_FailOnNewWithoutBaseline(t *testing.T) {
-	result := Gate{FailOnNew: true}.Evaluate(&types.ScanResult{CompliancePct: 10}, nil)
-	if !result.Passed {
-		t.Errorf("gate failed with no baseline to compare against: %v", result.Reasons)
+func TestGate_FailOnNewWithoutBaselineFailsClosed(t *testing.T) {
+	result := Gate{FailOnNew: true}.Evaluate(&types.ScanResult{CompliancePct: 100}, nil)
+	if result.Passed {
+		t.Fatal("gate passed with no baseline to compare against")
+	}
+	if err := result.Error(); err == nil || !strings.Contains(err.Error(), "no baseline") {
+		t.Errorf("Error() = %v, want it to name the missing baseline", err)
+	}
+}
+
+func TestGate_NilDiffIsIgnoredWithoutFailOnNew(t *testing.T) {
+	if result := (Gate{FailUnder: 50}).Evaluate(&types.ScanResult{CompliancePct: 80}, nil); !result.Passed {
+		t.Errorf("gate failed without FailOnNew: %v", result.Reasons)
 	}
 }
 

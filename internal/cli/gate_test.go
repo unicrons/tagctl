@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"encoding/xml"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/unicrons/tagctl/internal/report"
 	"github.com/unicrons/tagctl/internal/types"
 )
 
@@ -160,10 +162,33 @@ func TestGateOptions_Evaluate_FailUnder(t *testing.T) {
 
 // --fail-on-new without a baseline is a usage error, not a silent pass.
 func TestGateOptions_Evaluate_FailOnNewNeedsBaseline(t *testing.T) {
-	opts := gateOptions{gate: readGateFlags(commandWithGateFlags(t, "--fail-on-new")).gate}
+	opts := gateOptions{gate: report.Gate{FailOnNew: true}}
 
 	if _, err := opts.evaluate(failedScan(50)); err == nil {
 		t.Fatal("evaluate() with --fail-on-new and no baseline returned nil error")
+	}
+}
+
+func TestExecute_FailOnNewWithoutBaselineFailsBeforeRunning(t *testing.T) {
+	policy := writeFixture(t, t.TempDir(), "tagctl.yaml", "policy:\n  required:\n    - name: owner\n")
+
+	for _, args := range [][]string{
+		{"-c", policy, "scan", "--mock", "--fail-on-new"},
+		{"-c", policy, "evaluate", "--resources", "unused.json", "--fail-on-new"},
+		{"-c", policy, "terraform", "--plan", "unused.json", "--fail-on-new"},
+	} {
+		t.Run(args[2], func(t *testing.T) {
+			run := execute(t, args...)
+			if !errors.Is(run.err, errFailOnNewNeedsBaseline) {
+				t.Fatalf("err = %v, want the missing baseline usage error", run.err)
+			}
+			if ExitCode(run.err) != exitError {
+				t.Errorf("exit code = %d, want %d", ExitCode(run.err), exitError)
+			}
+			if run.stdout != "" {
+				t.Errorf("command produced output before rejecting the flags: %q", run.stdout)
+			}
+		})
 	}
 }
 
@@ -185,7 +210,7 @@ func TestGateOptions_Evaluate_FailOnNewAgainstBaseline(t *testing.T) {
 	baselinePath := writeScan(t, dir, "baseline.json", baseline)
 
 	opts := gateOptions{
-		gate:     readGateFlags(commandWithGateFlags(t, "--fail-on-new")).gate,
+		gate:     report.Gate{FailOnNew: true},
 		baseline: baselinePath,
 	}
 
@@ -211,7 +236,7 @@ func TestGateOptions_Evaluate_FailOnNewAgainstBaseline(t *testing.T) {
 
 func TestGateOptions_Evaluate_MissingBaselineFile(t *testing.T) {
 	opts := gateOptions{
-		gate:     readGateFlags(commandWithGateFlags(t, "--fail-on-new")).gate,
+		gate:     report.Gate{FailOnNew: true},
 		baseline: filepath.Join(t.TempDir(), "does-not-exist.json"),
 	}
 

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -22,6 +23,19 @@ func addGateFlags(cmd *cobra.Command) {
 	cmd.Flags().String("junit", "", "also write findings as JUnit XML to this path (- for stdout, instead of the command's output)")
 	cmd.Flags().String("ocsf", "", "also write findings as OCSF Compliance Finding events to this path (- for stdout, instead of the command's output)")
 	cmd.Flags().String("summary", "", "also write a Markdown summary to this path, e.g. \"$GITHUB_STEP_SUMMARY\" (- for stdout, instead of the command's output)")
+	cmd.PreRunE = validateGateFlags
+}
+
+// errFailOnNewNeedsBaseline is the usage error for --fail-on-new on its own.
+var errFailOnNewNeedsBaseline = errors.New("--fail-on-new needs a --baseline scan to compare against")
+
+// validateGateFlags rejects gate flag combinations before the command does any work.
+func validateGateFlags(cmd *cobra.Command, _ []string) error {
+	opts := readGateFlags(cmd)
+	if opts.gate.FailOnNew && opts.baseline == "" {
+		return errFailOnNewNeedsBaseline
+	}
+	return nil
 }
 
 // gateOptions holds the parsed gate flags for one command run.
@@ -136,7 +150,7 @@ func (o gateOptions) evaluate(scan *types.ScanResult) (*report.GateResult, error
 
 	if o.gate.FailOnNew {
 		if o.baseline == "" {
-			return nil, fmt.Errorf("--fail-on-new needs a --baseline scan to compare against")
+			return nil, errFailOnNewNeedsBaseline
 		}
 		baseline, err := LoadScanFile(o.baseline)
 		if err != nil {
