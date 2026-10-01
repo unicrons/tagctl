@@ -329,6 +329,14 @@ func TestLoad_ValidatesKubernetesResourceTypes(t *testing.T) {
 	}
 }
 
+func TestLoad_RejectsRepeatedKubernetesClusterName(t *testing.T) {
+	body := "clouds:\n  kubernetes:\n    - name: prod\n      context: a\n    - name: prod\n      context: b\n"
+	_, err := Load(writeConfig(t, body))
+	if err == nil || !strings.Contains(err.Error(), `kubernetes[1]: name "prod" is used by another cluster`) {
+		t.Fatalf("Load() = %v, want the repeated cluster name rejection", err)
+	}
+}
+
 func TestLoad_EmptyFileIsEmptyConfig(t *testing.T) {
 	cfg, err := Load(writeConfig(t, "# nothing configured yet\n"))
 	if err != nil {
