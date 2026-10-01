@@ -2,7 +2,7 @@ package aws
 
 import (
 	"context"
-	"strings"
+	"errors"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
@@ -162,88 +162,39 @@ func (p *Provider) listEBSSnapshotsFrom(ctx context.Context, client ebsSnapshots
 	return resources, nil
 }
 
-// applyEC2Tags applies tags to an EC2 resource (instance or volume).
-// It tries to find the correct region for the resource by attempting each configured region.
-func (p *Provider) applyEC2Tags(ctx context.Context, resourceID string, tags map[string]string) error {
-	log.Debug("AWS EC2: Applying tags to resource %s", resourceID)
-
-	// If the resourceID is an ARN, extract the region
-	if strings.HasPrefix(resourceID, "arn:") {
-		if region, err := regionForARN(resourceID); err == nil {
-			log.Debug("AWS EC2: Extracted region %s from ARN", region)
-			return p.applyEC2TagsInRegion(ctx, resourceID, region, tags)
-		}
-	}
-
-	// For resource IDs (i-xxx, vol-xxx), we need to find the correct region
-	// Try each configured region until we succeed
-	ec2Tags := make([]ec2types.Tag, 0, len(tags))
-	for k, v := range tags {
-		ec2Tags = append(ec2Tags, ec2types.Tag{
-			Key:   aws.String(k),
-			Value: aws.String(v),
-		})
-	}
-
-	var lastErr error
-	for _, region := range p.regions {
-		log.Debug("AWS EC2: Trying to apply tags in region %s...", region)
-		client := p.getEC2Client(region)
-
-		_, err := client.CreateTags(ctx, &ec2.CreateTagsInput{
-			Resources: []string{resourceID},
-			Tags:      ec2Tags,
-		})
-
-		if err == nil {
-			log.Debug("AWS EC2: Successfully applied %d tags to %s in %s", len(tags), resourceID, region)
-			return nil
-		}
-
-		// Check if error indicates the resource doesn't exist in this region
-		errMsg := err.Error()
-		if strings.Contains(errMsg, "InvalidInstanceID.NotFound") ||
-			strings.Contains(errMsg, "InvalidVolume.NotFound") ||
-			strings.Contains(errMsg, "does not exist") {
-			log.Debug("AWS EC2: Resource %s not found in %s, trying next region...", resourceID, region)
-			lastErr = err
-			continue
-		}
-
-		// For other errors (permissions, etc.), fail immediately
-		log.Error("AWS EC2: Failed to apply tags to %s in %s: %v", resourceID, region, err)
-		return provider.NewProviderError(providerName, "create_tags", resourceID, err)
-	}
-
-	// If we tried all regions and none worked
-	log.Error("AWS EC2: Could not find resource %s in any configured region", resourceID)
-	return provider.NewProviderError(providerName, "create_tags", resourceID, lastErr)
+// ec2CreateTagsAPI is the subset of the EC2 API used to tag a resource.
+type ec2CreateTagsAPI interface {
+	CreateTags(ctx context.Context, params *ec2.CreateTagsInput, optFns ...func(*ec2.Options)) (*ec2.CreateTagsOutput, error)
 }
 
-// applyEC2TagsInRegion applies tags to an EC2 resource in a specific region.
-func (p *Provider) applyEC2TagsInRegion(ctx context.Context, resourceID, region string, tags map[string]string) error {
-	log.Debug("AWS EC2: Applying %d tags to %s in region %s", len(tags), resourceID, region)
-	client := p.getEC2Client(region)
+// applyEC2Tags tags an EC2 resource addressed by bare ID in the region the
+// plan recorded for it.
+func (p *Provider) applyEC2Tags(ctx context.Context, resourceID, region string, tags map[string]string) error {
+	return applyEC2TagsWith(ctx, func(region string) ec2CreateTagsAPI { return p.getEC2Client(region) }, resourceID, region, tags)
+}
+
+// applyEC2TagsWith makes the single CreateTags call. An ID says nothing about
+// its region, so a missing one is an error, never a search across regions.
+func applyEC2TagsWith(ctx context.Context, clientFor func(region string) ec2CreateTagsAPI, resourceID, region string, tags map[string]string) error {
+	if region == "" || region == regionGlobal {
+		return provider.NewProviderError(providerName, "create_tags", resourceID,
+			errors.New("EC2 resources are tagged by ID and need the region of the resource"))
+	}
 
 	ec2Tags := make([]ec2types.Tag, 0, len(tags))
 	for k, v := range tags {
-		ec2Tags = append(ec2Tags, ec2types.Tag{
-			Key:   aws.String(k),
-			Value: aws.String(v),
-		})
+		ec2Tags = append(ec2Tags, ec2types.Tag{Key: aws.String(k), Value: aws.String(v)})
 	}
-
-	_, err := client.CreateTags(ctx, &ec2.CreateTagsInput{
+	_, err := clientFor(region).CreateTags(ctx, &ec2.CreateTagsInput{
 		Resources: []string{resourceID},
 		Tags:      ec2Tags,
 	})
-
 	if err != nil {
 		log.Error("AWS EC2: Failed to apply tags to %s in %s: %v", resourceID, region, err)
 		return provider.NewProviderError(providerName, "create_tags", resourceID, err)
 	}
 
-	log.Debug("AWS EC2: Successfully applied tags to %s", resourceID)
+	log.Debug("AWS EC2: Applied %d tags to %s in %s", len(tags), resourceID, region)
 	return nil
 }
 

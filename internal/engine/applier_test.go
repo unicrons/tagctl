@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -287,5 +288,41 @@ func TestRealApplier_RoutesChangesToTheirOwnAccount(t *testing.T) {
 	}
 	if result.ErrorCount != 1 || !strings.Contains(result.Errors[0].Error, `account "333333333333"`) {
 		t.Errorf("unconfigured account must fail, got %+v", result)
+	}
+}
+
+type regionRecorder struct {
+	funcProvider
+	mu      sync.Mutex
+	regions map[string]string
+}
+
+func (p *regionRecorder) ApplyTagsInRegion(_ context.Context, id, region string, _ map[string]string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.regions[id] = region
+	return nil
+}
+
+func TestRealApplier_PassesTheResourceRegionToRegionalTaggers(t *testing.T) {
+	p := &regionRecorder{
+		funcProvider: func(id string) error { return fmt.Errorf("ApplyTags called for %s without its region", id) },
+		regions:      map[string]string{},
+	}
+	plan := &types.Plan{Changes: []types.TagChange{
+		{Resource: types.Resource{ID: "i-1", Provider: "aws", Type: "aws_instance", Region: "eu-west-1"}, Tag: "owner", NewValue: "x", Action: types.ActionAdd},
+		{Resource: types.Resource{ID: "vol-1", Provider: "aws", Type: "aws_ebs_volume", Region: "ap-south-1"}, Tag: "owner", NewValue: "x", Action: types.ActionAdd},
+	}}
+
+	result, err := NewApplier([]provider.Provider{p}).Apply(context.Background(), plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.ErrorCount != 0 {
+		t.Fatalf("errors = %+v", result.Errors)
+	}
+	want := map[string]string{"i-1": "eu-west-1", "vol-1": "ap-south-1"}
+	if !maps.Equal(p.regions, want) {
+		t.Errorf("regions = %v, want %v", p.regions, want)
 	}
 }

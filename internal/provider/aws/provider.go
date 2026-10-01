@@ -585,8 +585,9 @@ const routeLightsail = "lightsail"
 type tagApplier func(ctx context.Context, resourceID string, tags map[string]string) error
 
 // tagAppliers maps the tagging route returned by getResourceType to the
-// service-specific applier.
-func (p *Provider) tagAppliers() map[string]tagApplier {
+// service-specific applier. region is the resource's region as the plan
+// recorded it, for the routes whose identifier does not carry one.
+func (p *Provider) tagAppliers(region string) map[string]tagApplier {
 	appliers := map[string]tagApplier{
 		"classic_load_balancer": p.applyClassicELBTags,
 		"target_group":          p.applyELBv2Tags,
@@ -613,14 +614,23 @@ func (p *Provider) tagAppliers() map[string]tagApplier {
 	}
 	for _, t := range []string{"ec2_instance", "ebs_volume", "ebs_snapshot", "security_group", "vpc", "subnet",
 		"ami", "elastic_ip", "nat_gateway", "internet_gateway", "vpc_endpoint", "launch_template"} {
-		appliers[t] = p.applyEC2Tags
+		appliers[t] = func(ctx context.Context, resourceID string, tags map[string]string) error {
+			return p.applyEC2Tags(ctx, resourceID, region, tags)
+		}
 	}
 	return appliers
 }
 
-// ApplyTags applies tags to an AWS resource.
+// ApplyTags applies tags to an AWS resource addressed by ARN.
 func (p *Provider) ApplyTags(ctx context.Context, resourceID string, tags map[string]string) error {
-	apply, ok := p.tagAppliers()[p.getResourceType(resourceID)]
+	return p.ApplyTagsInRegion(ctx, resourceID, "", tags)
+}
+
+// ApplyTagsInRegion applies tags to an AWS resource. region is where the
+// resource lives; EC2 resources, addressed by bare ID, cannot be tagged
+// without it.
+func (p *Provider) ApplyTagsInRegion(ctx context.Context, resourceID, region string, tags map[string]string) error {
+	apply, ok := p.tagAppliers(region)[p.getResourceType(resourceID)]
 	if !ok {
 		return provider.NewProviderError(providerName, "apply_tags", resourceID,
 			errors.New("unknown resource type: expected an ARN or an EC2 resource ID"))

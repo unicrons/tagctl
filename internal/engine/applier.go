@@ -55,6 +55,12 @@ type accountProvider interface {
 	AccountID() string
 }
 
+// regionalTagger is implemented by providers that need a resource's region to
+// address it, because the tagging identifier alone does not carry one.
+type regionalTagger interface {
+	ApplyTagsInRegion(ctx context.Context, resourceID, region string, tags map[string]string) error
+}
+
 // providerKey addresses a provider by name and, when known, account, so a
 // plan entry is only ever applied through the credentials of its own account.
 func providerKey(name, account string) string {
@@ -180,6 +186,9 @@ func (a *RealApplier) applyResourceChanges(ctx context.Context, changes []types.
 	tags := make(map[string]string, len(changes))
 	for _, change := range changes {
 		tags[change.Tag] = change.NewValue
+	}
+	if regional, ok := p.(regionalTagger); ok {
+		return regional.ApplyTagsInRegion(ctx, taggingIdentifier(resource), resource.Region, tags)
 	}
 	return p.ApplyTags(ctx, taggingIdentifier(resource), tags)
 }

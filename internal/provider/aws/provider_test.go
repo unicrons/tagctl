@@ -396,7 +396,7 @@ func TestGetResourceType_AllSupportedServices(t *testing.T) {
 		{"arn:aws:s3:::my-bucket-name", "s3_bucket"},
 	}
 
-	appliers := p.tagAppliers()
+	appliers := p.tagAppliers("")
 	for _, tt := range tests {
 		t.Run(tt.expectedType, func(t *testing.T) {
 			if result := p.getResourceType(tt.resourceID); result != tt.expectedType {

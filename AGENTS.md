@@ -341,6 +341,10 @@ Each provider implements the `provider.Provider` interface (`Name`,
 Kubernetes cluster name): the applier routes a change to the provider whose
 `AccountID()` equals the resource's `Account`, so a provider that can be
 configured more than once must implement it.
+A provider that also implements `ApplyTagsInRegion` (engine `regionalTagger`)
+receives `Resource.Region` from the plan: AWS needs it for EC2 resources,
+tagged by bare ID with one `CreateTags` call in that region, and fails without
+it instead of probing regions.
 
 Provider status has one table, "Provider Status" in `docs/development.mdx`.
 README, CONTRIBUTING, `tagctl.yaml.example`, the `init` templates and the docs
