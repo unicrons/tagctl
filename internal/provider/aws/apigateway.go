@@ -66,11 +66,10 @@ func (p *Provider) listHTTPAPIs(ctx context.Context, region string) ([]types.Res
 
 func (p *Provider) listHTTPAPIsFrom(ctx context.Context, client httpAPIsAPI, region string) ([]types.Resource, error) {
 	var resources []types.Resource
-	var next *string
-	for {
-		output, err := client.GetApis(ctx, &apigatewayv2.GetApisInput{NextToken: next})
+	err := paginate(func(token *string) (*string, error) {
+		output, err := client.GetApis(ctx, &apigatewayv2.GetApisInput{NextToken: token})
 		if err != nil {
-			return nil, provider.NewProviderError(providerName, "list_http_apis", "", err)
+			return nil, err
 		}
 		for _, api := range output.Items {
 			id := aws.ToString(api.ApiId)
@@ -90,10 +89,10 @@ func (p *Provider) listHTTPAPIsFrom(ctx context.Context, client httpAPIsAPI, reg
 				CreatedAt: api.CreatedDate,
 			})
 		}
-		if output.NextToken == nil || len(output.Items) == 0 {
-			break
-		}
-		next = output.NextToken
+		return output.NextToken, nil
+	})
+	if err != nil {
+		return nil, provider.NewProviderError(providerName, "list_http_apis", "", err)
 	}
 	log.Debug("AWS API Gateway: Found %d HTTP/WebSocket APIs in %s", len(resources), region)
 	return resources, nil

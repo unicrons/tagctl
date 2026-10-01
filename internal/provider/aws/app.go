@@ -219,11 +219,10 @@ func (p *Provider) listEventRulesFrom(ctx context.Context, client eventBridgeAPI
 		return nil, nil
 	}
 	var resources []types.Resource
-	var next *string
-	for {
-		output, err := client.ListRules(ctx, &eventbridge.ListRulesInput{NextToken: next})
+	err := paginate(func(token *string) (*string, error) {
+		output, err := client.ListRules(ctx, &eventbridge.ListRulesInput{NextToken: token})
 		if err != nil {
-			return nil, provider.NewProviderError(providerName, "list_event_rules", "", err)
+			return nil, err
 		}
 		for _, r := range output.Rules {
 			name := aws.ToString(r.Name)
@@ -234,10 +233,10 @@ func (p *Provider) listEventRulesFrom(ctx context.Context, client eventBridgeAPI
 				Tags: p.bulkTags(region, arn),
 			})
 		}
-		if output.NextToken == nil || len(output.Rules) == 0 {
-			break
-		}
-		next = output.NextToken
+		return output.NextToken, nil
+	})
+	if err != nil {
+		return nil, provider.NewProviderError(providerName, "list_event_rules", "", err)
 	}
 	log.Debug("AWS EventBridge: Found %d rules in %s", len(resources), region)
 	return resources, nil
@@ -402,11 +401,10 @@ func (p *Provider) listBeanstalkEnvironmentsFrom(ctx context.Context, client bea
 		return nil, nil
 	}
 	var resources []types.Resource
-	var next *string
-	for {
-		output, err := client.DescribeEnvironments(ctx, &elasticbeanstalk.DescribeEnvironmentsInput{NextToken: next})
+	err := paginate(func(token *string) (*string, error) {
+		output, err := client.DescribeEnvironments(ctx, &elasticbeanstalk.DescribeEnvironmentsInput{NextToken: token})
 		if err != nil {
-			return nil, provider.NewProviderError(providerName, "list_beanstalk_environments", "", err)
+			return nil, err
 		}
 		for _, e := range output.Environments {
 			name := aws.ToString(e.EnvironmentName)
@@ -417,10 +415,10 @@ func (p *Provider) listBeanstalkEnvironmentsFrom(ctx context.Context, client bea
 				Tags: p.bulkTags(region, arn), CreatedAt: e.DateCreated,
 			})
 		}
-		if output.NextToken == nil || len(output.Environments) == 0 {
-			break
-		}
-		next = output.NextToken
+		return output.NextToken, nil
+	})
+	if err != nil {
+		return nil, provider.NewProviderError(providerName, "list_beanstalk_environments", "", err)
 	}
 	log.Debug("AWS Elastic Beanstalk: Found %d environments in %s", len(resources), region)
 	return resources, nil

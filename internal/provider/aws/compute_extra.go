@@ -85,35 +85,31 @@ func (p *Provider) listAppStreamResourcesFrom(ctx context.Context, client appStr
 		return nil, nil
 	}
 	var resources []types.Resource
-	var next *string
-	for {
-		output, err := client.DescribeFleets(ctx, &appstream.DescribeFleetsInput{NextToken: next})
+	if err := paginate(func(token *string) (*string, error) {
+		output, err := client.DescribeFleets(ctx, &appstream.DescribeFleetsInput{NextToken: token})
 		if err != nil {
-			return nil, provider.NewProviderError(providerName, "list_appstream_fleets", "", err)
+			return nil, err
 		}
 		for _, f := range output.Fleets {
 			name := aws.ToString(f.Name)
 			resources = append(resources, p.bulkResource(region, "aws_appstream_fleet", name, name, aws.ToString(f.Arn), f.CreatedTime))
 		}
-		if output.NextToken == nil || len(output.Fleets) == 0 {
-			break
-		}
-		next = output.NextToken
+		return output.NextToken, nil
+	}); err != nil {
+		return nil, provider.NewProviderError(providerName, "list_appstream_fleets", "", err)
 	}
-	next = nil
-	for {
-		output, err := client.DescribeStacks(ctx, &appstream.DescribeStacksInput{NextToken: next})
+	if err := paginate(func(token *string) (*string, error) {
+		output, err := client.DescribeStacks(ctx, &appstream.DescribeStacksInput{NextToken: token})
 		if err != nil {
-			return nil, provider.NewProviderError(providerName, "list_appstream_stacks", "", err)
+			return nil, err
 		}
 		for _, s := range output.Stacks {
 			name := aws.ToString(s.Name)
 			resources = append(resources, p.bulkResource(region, "aws_appstream_stack", name, name, aws.ToString(s.Arn), s.CreatedTime))
 		}
-		if output.NextToken == nil || len(output.Stacks) == 0 {
-			break
-		}
-		next = output.NextToken
+		return output.NextToken, nil
+	}); err != nil {
+		return nil, provider.NewProviderError(providerName, "list_appstream_stacks", "", err)
 	}
 	log.Debug("AWS AppStream: Found %d fleets and stacks in %s", len(resources), region)
 	return resources, nil
@@ -238,11 +234,10 @@ func (p *Provider) listLightsailInstances(ctx context.Context, region string) ([
 
 func (p *Provider) listLightsailInstancesFrom(ctx context.Context, client lightsailAPI, region string) ([]types.Resource, error) {
 	var resources []types.Resource
-	var next *string
-	for {
-		output, err := client.GetInstances(ctx, &lightsail.GetInstancesInput{PageToken: next})
+	err := paginate(func(token *string) (*string, error) {
+		output, err := client.GetInstances(ctx, &lightsail.GetInstancesInput{PageToken: token})
 		if err != nil {
-			return nil, provider.NewProviderError(providerName, "list_lightsail_instances", "", err)
+			return nil, err
 		}
 		for _, inst := range output.Instances {
 			name := aws.ToString(inst.Name)
@@ -251,10 +246,10 @@ func (p *Provider) listLightsailInstancesFrom(ctx context.Context, client lights
 				func(t lightsailtypes.Tag) *string { return t.Value })
 			resources = append(resources, p.resource(region, "aws_lightsail_instance", name, name, aws.ToString(inst.Arn), tags, inst.CreatedAt))
 		}
-		if output.NextPageToken == nil || len(output.Instances) == 0 {
-			break
-		}
-		next = output.NextPageToken
+		return output.NextPageToken, nil
+	})
+	if err != nil {
+		return nil, provider.NewProviderError(providerName, "list_lightsail_instances", "", err)
 	}
 	log.Debug("AWS Lightsail: Found %d instances in %s", len(resources), region)
 	return resources, nil
