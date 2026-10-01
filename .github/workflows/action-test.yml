@@ -31,7 +31,7 @@ jobs:
 
       - name: Mock scan
         id: scan
-        uses: ./
+        uses: ./ # zizmor: ignore[self-repository] tests the action from this checkout
         with:
           args: scan --mock --sarif "${{ runner.temp }}/tagctl.sarif"
           working-directory: ${{ runner.temp }}
@@ -39,7 +39,7 @@ jobs:
       - name: Mock scan under an unreachable gate
         id: gate
         continue-on-error: true
-        uses: ./
+        uses: ./ # zizmor: ignore[self-repository] tests the action from this checkout
         with:
           args: scan --mock --fail-under 100
           working-directory: ${{ runner.temp }}
