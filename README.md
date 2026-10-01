@@ -201,8 +201,8 @@ Run 'tagctl apply' to execute this plan.
 | `tagctl cost` | Spend your tags fail to account for |
 | `tagctl evaluate` | Evaluate resources from external JSON (Prowler integration) |
 
-Each command feeds the next through `output/`; `--scan` and `--plan` pick a
-specific file instead of the latest. Flags, exit codes and CI gates are in the
+Each command feeds the next through `output/` (`--output-dir` names another
+directory); `--scan` and `--plan` pick a specific file instead of the latest. Flags, exit codes and CI gates are in the
 [command reference](docs/commands.mdx).
 
 ## Documentation

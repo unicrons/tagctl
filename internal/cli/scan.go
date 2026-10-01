@@ -48,7 +48,11 @@ Examples:
   tagctl scan --output json
 
   # Accept a scan where some regions or services could not be listed
-  tagctl scan --allow-partial`,
+  tagctl scan --allow-partial
+
+  # Write the reports somewhere else, or not at all
+  tagctl scan --output-dir reports
+  tagctl scan --no-files --sarif tagctl.sarif`,
 	RunE: runScan,
 }
 
@@ -57,9 +61,14 @@ func init() {
 	scanCmd.Flags().Bool("mock", false, "use mock data for demonstration")
 	scanCmd.Flags().Bool("allow-partial", false, "succeed with a warning when discovery failed for part of the estate")
 	scanCmd.Flags().StringSlice("region", nil, "AWS region(s) to scan (default: all available regions)")
+	addOutputDirFlag(scanCmd, "directory to write the JSON, CSV and HTML reports to")
+	scanCmd.Flags().Bool(flagNoFiles, false, "write no JSON, CSV or HTML report files")
+	scanCmd.MarkFlagsMutuallyExclusive(flagOutputDir, flagNoFiles)
 	addAWSAuthFlags(scanCmd)
 	addGateFlags(scanCmd)
 }
+
+const flagNoFiles = "no-files"
 
 // scanProviders builds the providers a real scan runs against; tests replace it.
 var scanProviders = initProviders
@@ -69,6 +78,11 @@ func runScan(cmd *cobra.Command, args []string) error {
 	useMock, _ := cmd.Flags().GetBool("mock")
 	allowPartial, _ := cmd.Flags().GetBool("allow-partial")
 	regions, _ := cmd.Flags().GetStringSlice("region")
+	noFiles, _ := cmd.Flags().GetBool(flagNoFiles)
+	outputDir, err := outputDirFor(cmd)
+	if err != nil {
+		return err
+	}
 	gateOpts := readGateFlags(cmd)
 	format, err := gateOpts.stdoutFormat(cmd, formatTable, formatJSON, formatCSV)
 	if err != nil {
@@ -112,7 +126,10 @@ func runScan(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	outputPaths := writeScanReports(result)
+	var outputPaths *ScanOutputPaths
+	if !noFiles {
+		outputPaths = writeScanReports(result, outputDir)
+	}
 
 	if err := printScanResult(result, format, verbose); err != nil {
 		return err
@@ -260,12 +277,12 @@ func getAbsolutePath(path string) string {
 	return abs
 }
 
-// writeScanReports writes the JSON, CSV and HTML reports for a scan. A report
+// writeScanReports writes the JSON, CSV and HTML reports for a scan to dir. A report
 // that cannot be written is logged and skipped rather than failing the scan,
 // since the results are already in hand. Returns nil when the output directory
 // could not be resolved.
-func writeScanReports(result *types.ScanResult) *ScanOutputPaths {
-	outputPaths, err := GetScanOutputPaths()
+func writeScanReports(result *types.ScanResult, dir string) *ScanOutputPaths {
+	outputPaths, err := GetScanOutputPaths(dir)
 	if err != nil {
 		log.Error("Failed to get output paths: %v", err)
 		return nil

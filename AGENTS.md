@@ -316,7 +316,11 @@ and providers/kubernetes summarize it and link there: change them together.
 
 ## Output Files
 
-Scan and plan commands write to the `output/` directory (see `internal/cli/paths.go`):
+Scan and plan commands write to the `output/` directory (see `internal/cli/paths.go`).
+`--output-dir` on `scan`, `plan` and `apply` names another one (`outputDirFor`
+resolves it and the path helpers take it as an argument; `OutputDir` is only the
+default); `scan --no-files` writes no report files. `diff` and `normalize` still
+look up the latest scan in the default directory:
 
 - `scan-YYYYMMDD-HHMMSS.json` — full scan results with all findings
 - `scan-YYYYMMDD-HHMMSS.csv` — findings CSV

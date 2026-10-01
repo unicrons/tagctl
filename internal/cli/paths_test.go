@@ -36,9 +36,9 @@ func TestEnsureOutputDir(t *testing.T) {
 	t.Chdir(tempDir)
 
 	// Test creating output directory
-	err := EnsureOutputDir()
+	err := EnsureOutputDir(OutputDir)
 	if err != nil {
-		t.Fatalf("EnsureOutputDir() error = %v", err)
+		t.Fatalf("EnsureOutputDir(OutputDir) error = %v", err)
 	}
 
 	// Verify directory exists
@@ -51,9 +51,9 @@ func TestEnsureOutputDir(t *testing.T) {
 	}
 
 	// Test calling again (should not error)
-	err = EnsureOutputDir()
+	err = EnsureOutputDir(OutputDir)
 	if err != nil {
-		t.Errorf("EnsureOutputDir() second call error = %v", err)
+		t.Errorf("EnsureOutputDir(OutputDir) second call error = %v", err)
 	}
 }
 
@@ -61,7 +61,7 @@ func TestGetPlanPath_EmptyFilename(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Chdir(tempDir)
 
-	path, err := GetPlanPath("")
+	path, err := GetPlanPath(OutputDir, "")
 	if err != nil {
 		t.Fatalf("GetPlanPath('') error = %v", err)
 	}
@@ -93,7 +93,7 @@ func TestGetPlanPath_SimpleFilename(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Chdir(tempDir)
 
-	path, err := GetPlanPath("my-plan.json")
+	path, err := GetPlanPath(OutputDir, "my-plan.json")
 	if err != nil {
 		t.Fatalf("GetPlanPath('my-plan.json') error = %v", err)
 	}
@@ -108,7 +108,7 @@ func TestGetPlanPath_AbsolutePath(t *testing.T) {
 	tempDir := t.TempDir()
 	absPath := filepath.Join(tempDir, "custom-plan.json")
 
-	path, err := GetPlanPath(absPath)
+	path, err := GetPlanPath(OutputDir, absPath)
 	if err != nil {
 		t.Fatalf("GetPlanPath(absolute) error = %v", err)
 	}
@@ -125,7 +125,7 @@ func TestGetPlanPath_RelativePathWithDir(t *testing.T) {
 	// Create the custom directory
 	mustMkdirAll(t, "custom/dir")
 
-	path, err := GetPlanPath("custom/dir/plan.json")
+	path, err := GetPlanPath(OutputDir, "custom/dir/plan.json")
 	if err != nil {
 		t.Fatalf("GetPlanPath('custom/dir/plan.json') error = %v", err)
 	}
@@ -140,9 +140,9 @@ func TestFindLatestPlanInDir_NoDirectory(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Chdir(tempDir)
 
-	_, err := FindLatestPlanInDir()
+	_, err := FindLatestPlanInDir(OutputDir)
 	if err == nil {
-		t.Error("FindLatestPlanInDir() should error when no directory exists")
+		t.Error("FindLatestPlanInDir(OutputDir) should error when no directory exists")
 	}
 }
 
@@ -152,9 +152,9 @@ func TestFindLatestPlanInDir_EmptyDirectory(t *testing.T) {
 
 	mustMkdirAll(t, OutputDir)
 
-	_, err := FindLatestPlanInDir()
+	_, err := FindLatestPlanInDir(OutputDir)
 	if err == nil {
-		t.Error("FindLatestPlanInDir() should error when no plan files exist")
+		t.Error("FindLatestPlanInDir(OutputDir) should error when no plan files exist")
 	}
 }
 
@@ -167,13 +167,13 @@ func TestFindLatestPlanInDir_SinglePlan(t *testing.T) {
 	planFile := filepath.Join(OutputDir, "plan-20240101-120000.json")
 	mustWriteFile(t, planFile)
 
-	found, err := FindLatestPlanInDir()
+	found, err := FindLatestPlanInDir(OutputDir)
 	if err != nil {
-		t.Fatalf("FindLatestPlanInDir() error = %v", err)
+		t.Fatalf("FindLatestPlanInDir(OutputDir) error = %v", err)
 	}
 
 	if found != planFile {
-		t.Errorf("FindLatestPlanInDir() = %q, want %q", found, planFile)
+		t.Errorf("FindLatestPlanInDir(OutputDir) = %q, want %q", found, planFile)
 	}
 }
 
@@ -194,13 +194,13 @@ func TestFindLatestPlanInDir_MultiplePlans(t *testing.T) {
 	newPlan := filepath.Join(OutputDir, "plan-20240101-120000.json")
 	mustWriteFile(t, newPlan)
 
-	found, err := FindLatestPlanInDir()
+	found, err := FindLatestPlanInDir(OutputDir)
 	if err != nil {
-		t.Fatalf("FindLatestPlanInDir() error = %v", err)
+		t.Fatalf("FindLatestPlanInDir(OutputDir) error = %v", err)
 	}
 
 	if found != newPlan {
-		t.Errorf("FindLatestPlanInDir() = %q, want %q (newest)", found, newPlan)
+		t.Errorf("FindLatestPlanInDir(OutputDir) = %q, want %q (newest)", found, newPlan)
 	}
 }
 
@@ -219,13 +219,13 @@ func TestFindLatestPlanInDir_IgnoresNonPlanFiles(t *testing.T) {
 	planFile := filepath.Join(OutputDir, "plan-20240101-120000.json")
 	mustWriteFile(t, planFile)
 
-	found, err := FindLatestPlanInDir()
+	found, err := FindLatestPlanInDir(OutputDir)
 	if err != nil {
-		t.Fatalf("FindLatestPlanInDir() error = %v", err)
+		t.Fatalf("FindLatestPlanInDir(OutputDir) error = %v", err)
 	}
 
 	if found != planFile {
-		t.Errorf("FindLatestPlanInDir() = %q, want %q", found, planFile)
+		t.Errorf("FindLatestPlanInDir(OutputDir) = %q, want %q", found, planFile)
 	}
 }
 
@@ -242,13 +242,13 @@ func TestFindLatestPlanInDir_IgnoresDirectories(t *testing.T) {
 	planFile := filepath.Join(OutputDir, "plan-20240101-120000.json")
 	mustWriteFile(t, planFile)
 
-	found, err := FindLatestPlanInDir()
+	found, err := FindLatestPlanInDir(OutputDir)
 	if err != nil {
-		t.Fatalf("FindLatestPlanInDir() error = %v", err)
+		t.Fatalf("FindLatestPlanInDir(OutputDir) error = %v", err)
 	}
 
 	if found != planFile {
-		t.Errorf("FindLatestPlanInDir() = %q, want %q", found, planFile)
+		t.Errorf("FindLatestPlanInDir(OutputDir) = %q, want %q", found, planFile)
 	}
 }
 
@@ -258,7 +258,7 @@ func TestPlanSavedToOutputDir(t *testing.T) {
 	t.Chdir(tempDir)
 
 	// Get a plan path
-	planPath, err := GetPlanPath("")
+	planPath, err := GetPlanPath(OutputDir, "")
 	if err != nil {
 		t.Fatalf("GetPlanPath() error = %v", err)
 	}
@@ -287,11 +287,11 @@ func TestPlanSavedToOutputDir(t *testing.T) {
 	}
 
 	// Verify FindLatestPlanInDir can find it
-	found, err := FindLatestPlanInDir()
+	found, err := FindLatestPlanInDir(OutputDir)
 	if err != nil {
-		t.Fatalf("FindLatestPlanInDir() error = %v", err)
+		t.Fatalf("FindLatestPlanInDir(OutputDir) error = %v", err)
 	}
 	if found != planPath {
-		t.Errorf("FindLatestPlanInDir() = %q, want %q", found, planPath)
+		t.Errorf("FindLatestPlanInDir(OutputDir) = %q, want %q", found, planPath)
 	}
 }

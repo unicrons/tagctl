@@ -152,6 +152,14 @@ tagctl scan [flags]
   Succeed with a warning on stderr when discovery failed for part of the estate. Without it a [partial scan](#partial-scans) writes its reports and then fails
 </ParamField>
 
+<ParamField path="--output-dir" type="string" default="output">
+  Directory the JSON, CSV and HTML reports are written to; created when missing. See [Output Files](#output-files)
+</ParamField>
+
+<ParamField path="--no-files" type="boolean" default="false">
+  Write no JSON, CSV or HTML report. The stdout output and the [CI gate](#ci-gates) reports are unaffected. Cannot be combined with `--output-dir`
+</ParamField>
+
 <CodeGroup>
 ```bash Scan all regions (default)
 tagctl scan
@@ -225,7 +233,8 @@ Detailed results saved to:
 
 ### Output Files
 
-Every scan automatically generates reports in the `output/` directory:
+Every scan generates reports in the `output/` directory, or in the one
+`--output-dir` names. `--no-files` writes none of them.
 
 | Format | File | Description |
 |--------|------|-------------|
@@ -239,7 +248,7 @@ Each finding includes:
 - **Reason**: Why the finding was generated
 
 <Tip>
-The `--output` flag controls what's printed to stdout. Output files are **always** generated regardless of this flag.
+The `--output` flag controls what's printed to stdout. Output files are generated regardless of it, unless `--no-files` is set. `tagctl diff` and `tagctl normalize` look for the latest scan in `output/`: with another `--output-dir`, pass them the scan files (`tagctl diff reports/scan-A.json reports/scan-B.json`, `tagctl normalize --scan reports/scan-A.json`).
 </Tip>
 
 <Accordion title="JSON output example">
@@ -346,12 +355,16 @@ Generate a plan to fix tag violations based on scan results.
 tagctl plan [flags]
 ```
 
-<ParamField path="--scan" type="string" default="latest in output/">
+<ParamField path="--scan" type="string" default="latest in --output-dir">
   Path to scan results file to use. If not specified, uses the most recent scan. A [partial scan](#partial-scans) prints a warning: resources it missed get no changes.
 </ParamField>
 
 <ParamField path="--out" type="string" default="output/plan-TIMESTAMP.json">
   Save plan to specific file
+</ParamField>
+
+<ParamField path="--output-dir" type="string" default="output">
+  Directory the latest scan is read from and the plan is written to. Use the one given to `tagctl scan --output-dir`
 </ParamField>
 
 <CodeGroup>
@@ -363,7 +376,7 @@ tagctl plan
 tagctl plan --scan output/scan-20260202-143052.json
 ```
 
-```bash Custom output file (a bare name lands in output/, a path is used as is)
+```bash Custom output file (a bare name lands in --output-dir, a path is used as is)
 tagctl plan --out fixes.json
 ```
 
@@ -426,8 +439,12 @@ a hand-edited `remove`) is rejected when it is loaded, before the confirmation
 prompt, and nothing is written. Interrupting a run (Ctrl-C) stops sending
 changes: the ones not sent yet are reported as failed with `context canceled`.
 
-<ParamField path="--plan" type="string" default="latest in output/">
+<ParamField path="--plan" type="string" default="latest in --output-dir">
   Plan file to apply. If not specified, uses the most recent plan.
+</ParamField>
+
+<ParamField path="--output-dir" type="string" default="output">
+  Directory the latest plan is looked up in
 </ParamField>
 
 <ParamField path="--profile, -p" type="string">

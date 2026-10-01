@@ -35,13 +35,17 @@ Examples:
   tagctl plan --output json
 
   # Save plan to specific file
-  tagctl plan --out my-plan.json`,
+  tagctl plan --out my-plan.json
+
+  # Read the latest scan from, and write the plan to, another directory
+  tagctl plan --output-dir reports`,
 	RunE: runPlan,
 }
 
 func init() {
 	planCmd.Flags().String("out", "", "save plan to specific file")
-	planCmd.Flags().String("scan", "", "path to scan results file (default: latest in output/)")
+	planCmd.Flags().String("scan", "", "path to scan results file (default: latest in --output-dir)")
+	addOutputDirFlag(planCmd, "directory to read the latest scan from and write the plan to")
 }
 
 func runPlan(cmd *cobra.Command, args []string) error {
@@ -50,6 +54,11 @@ func runPlan(cmd *cobra.Command, args []string) error {
 	ctx := context.Background()
 
 	format, err := outputFormatFor(cmd, formatTable, formatJSON)
+	if err != nil {
+		return err
+	}
+
+	outputDir, err := outputDirFor(cmd)
 	if err != nil {
 		return err
 	}
@@ -67,14 +76,14 @@ func runPlan(cmd *cobra.Command, args []string) error {
 		fmt.Fprint(os.Stderr, "Analyzing resources for auto-fix opportunities (demo mode)...\n\n")
 
 		plan := getMockPlan()
-		return savePlanAndOutput(plan, outFile, format)
+		return savePlanAndOutput(plan, outputDir, outFile, format)
 	}
 
 	// Load scan results from file with spinner
 	spinner := NewSpinner("Loading scan results...")
 	spinner.Start()
 
-	scanResult, scanPath, err := loadScanResults(scanFile)
+	scanResult, scanPath, err := loadScanResults(outputDir, scanFile)
 	if err != nil {
 		spinner.Fail("Failed to load scan results")
 		return fmt.Errorf("failed to load scan results: %w", err)
@@ -102,19 +111,19 @@ func runPlan(cmd *cobra.Command, args []string) error {
 	}
 	spinner.Success(fmt.Sprintf("Generated plan with %d changes", len(plan.Changes)))
 
-	return savePlanAndOutput(plan, outFile, format)
+	return savePlanAndOutput(plan, outputDir, outFile, format)
 }
 
 // loadScanResults loads scan results from a file.
-// If scanFile is empty, it loads the latest scan from the output directory.
-func loadScanResults(scanFile string) (*types.ScanResult, string, error) {
+// If scanFile is empty, it loads the latest scan in dir.
+func loadScanResults(dir, scanFile string) (*types.ScanResult, string, error) {
 	var scanPath string
 
 	if scanFile != "" {
 		scanPath = scanFile
 	} else {
 		// Find the latest scan file
-		latest, err := findLatestScan()
+		latest, err := findLatestScanIn(dir)
 		if err != nil {
 			return nil, "", fmt.Errorf("no scan results found. Run 'tagctl scan' first: %w", err)
 		}
@@ -136,12 +145,17 @@ func loadScanResults(scanFile string) (*types.ScanResult, string, error) {
 	return &result, scanPath, nil
 }
 
-// findLatestScan finds the most recent scan JSON file in the output directory.
+// findLatestScan finds the most recent scan JSON file in the default output directory.
 func findLatestScan() (string, error) {
-	entries, err := os.ReadDir(OutputDir)
+	return findLatestScanIn(OutputDir)
+}
+
+// findLatestScanIn finds the most recent scan JSON file in dir.
+func findLatestScanIn(dir string) (string, error) {
+	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return "", fmt.Errorf("no output directory found. Run 'tagctl scan' first")
+			return "", fmt.Errorf("output directory %s not found. Run 'tagctl scan' first", dir)
 		}
 		return "", fmt.Errorf("failed to read output directory: %w", err)
 	}
@@ -170,15 +184,15 @@ func findLatestScan() (string, error) {
 	}
 
 	if latestFile == "" {
-		return "", fmt.Errorf("no scan files found in %s. Run 'tagctl scan' first", OutputDir)
+		return "", fmt.Errorf("no scan files found in %s. Run 'tagctl scan' first", dir)
 	}
 
-	return OutputDir + "/" + latestFile, nil
+	return filepath.Join(dir, latestFile), nil
 }
 
-func savePlanAndOutput(plan *types.Plan, outFile, format string) error {
+func savePlanAndOutput(plan *types.Plan, outputDir, outFile, format string) error {
 	// Save plan to file
-	planFile, err := GetPlanPath(outFile)
+	planFile, err := GetPlanPath(outputDir, outFile)
 	if err != nil {
 		return err
 	}
