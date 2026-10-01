@@ -23,7 +23,7 @@ func validateConfig(t *testing.T, body string) (string, error) {
 }
 
 func TestRunValidate_ValidConfigPrintsSummary(t *testing.T) {
-	out, err := validateConfig(t, defaultConfig)
+	out, err := validateConfig(t, defaultTemplateText(t))
 	if err != nil {
 		t.Fatalf("runValidate() = %v, want nil\n%s", err, out)
 	}
