@@ -297,7 +297,12 @@ func writeScanHTML(result *types.ScanResult, path string) error {
 // outputPlanTable prints plan in table format.
 func outputPlanTable(plan *types.Plan) {
 	if plan.IsEmpty() {
-		fmt.Println("No changes needed. All resources are compliant!")
+		if len(plan.Conflicts) == 0 {
+			fmt.Println("No changes needed. All resources are compliant!")
+		} else {
+			fmt.Println("No changes planned.")
+			printPlanConflicts(os.Stdout, plan)
+		}
 		return
 	}
 
@@ -332,7 +337,11 @@ func outputPlanTable(plan *types.Plan) {
 				source = fmt.Sprintf("(%s)", c.Reason)
 			}
 
-			fmt.Fprintf(w, "  %s %s:\t\"%s\"\t%s\n", actionSymbol, printable(c.Tag), printable(c.NewValue), printable(source))
+			value := c.NewValue
+			if c.Action == types.ActionRemove {
+				value = c.OldValue
+			}
+			fmt.Fprintf(w, "  %s %s:\t\"%s\"\t%s\n", actionSymbol, printable(c.Tag), printable(value), printable(source))
 		}
 		_ = w.Flush()
 		fmt.Println()
@@ -345,6 +354,19 @@ func outputPlanTable(plan *types.Plan) {
 	fmt.Printf("         %d tags will be added\n", plan.Summary.TagsAdded)
 	fmt.Printf("         %d tags will be updated\n", plan.Summary.TagsUpdated)
 	fmt.Printf("         %d tags will be removed\n", plan.Summary.TagsRemoved)
+	printPlanConflicts(os.Stdout, plan)
+}
+
+// printPlanConflicts lists the renames the planner skipped.
+func printPlanConflicts(w io.Writer, plan *types.Plan) {
+	if len(plan.Conflicts) == 0 {
+		return
+	}
+	fmt.Fprintf(w, "\nConflicts: %d rename(s) skipped, the target tag holds another value\n", len(plan.Conflicts))
+	for i := range plan.Conflicts {
+		c := &plan.Conflicts[i]
+		fmt.Fprintf(w, "  ! %s (%s): %s\n", printable(c.Resource.Type), printable(c.Resource.DisplayName()), printable(c.Message()))
+	}
 }
 
 // outputPlanJSON prints plan in JSON format.

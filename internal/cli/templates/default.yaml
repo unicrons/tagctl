@@ -58,6 +58,15 @@ policy:
     - name: project
     - name: team
 
+  # Forbidden tags - a resource carrying one is non-compliant and
+  # 'tagctl plan' proposes removing it
+  # forbidden:
+  #   - name: Env                  # the key itself
+  #   - name: environment          # or only some values
+  #     values: [test]
+  #   - name: owner
+  #     pattern: "^(unknown|tbd)"
+
 # Auto-fix rules
 rules:
   # Infer tags from resource naming conventions
@@ -76,6 +85,12 @@ rules:
   #   - resource: aws_ebs_volume
   #     from: attached_instance   # or source_volume, vpc
   #     tags: [environment, cost-center, owner]
+
+  # Rename a tag key: adds the new key with the old value, removes the old key.
+  # Skipped as a conflict when the new key already holds another value
+  # rename:
+  #   - from: Env
+  #     to: environment
 
   # Default values for untagged resources
   defaults:

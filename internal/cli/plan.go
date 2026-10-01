@@ -18,14 +18,19 @@ var planCmd = &cobra.Command{
 	Use:   "plan",
 	Short: "Generate a plan to fix tag violations",
 	Long: `Plan analyzes resources and generates smart fixes using
-inference rules, inheritance, and defaults.
+rename, inference, inheritance and default rules.
 
 The plan will:
   • Analyze current tag violations
-  • Apply inference rules (from naming conventions)
+  • Apply rename rules (move a value to the right key, remove the old key)
+  • Apply inference rules (from other tags and naming conventions)
   • Apply inheritance rules (from the parent resources the scan recorded)
   • Apply default values for untagged resources
+  • Remove the tags policy.forbidden forbids
   • Generate a detailed plan file
+
+A rename whose target key already holds another value is reported as a
+conflict and left out of the plan.
 
 Examples:
   # Generate a plan

@@ -31,6 +31,12 @@ const (
 
 	// ReasonManual indicates the change was manually specified.
 	ReasonManual ChangeReason = "manual"
+
+	// ReasonRenamed indicates the tag key is being renamed.
+	ReasonRenamed ChangeReason = "renamed"
+
+	// ReasonForbiddenTag indicates the policy forbids the tag being removed.
+	ReasonForbiddenTag ChangeReason = "forbidden"
 )
 
 // TagChange represents a planned tag modification.
@@ -73,6 +79,30 @@ type Plan struct {
 
 	// Warnings explains rules the planner could not apply.
 	Warnings []string `json:"warnings,omitempty"`
+
+	// Conflicts lists the renames skipped because the target key already
+	// holds a different value.
+	Conflicts []RenameConflict `json:"conflicts,omitempty"`
+}
+
+// RenameConflict is a rename the planner refused to plan.
+type RenameConflict struct {
+	// Resource is the resource carrying both keys.
+	Resource Resource `json:"resource"`
+
+	// From is the key that was to be renamed and Value what it holds.
+	From  string `json:"from"`
+	Value string `json:"value"`
+
+	// To is the target key and ExistingValue what it already holds.
+	To            string `json:"to"`
+	ExistingValue string `json:"existing_value"`
+}
+
+// Message returns a human-readable description of the conflict.
+func (c *RenameConflict) Message() string {
+	return "cannot rename '" + c.From + "' to '" + c.To + "': '" + c.To + "' is already '" +
+		c.ExistingValue + "', not '" + c.Value + "'"
 }
 
 // PlanSummary contains aggregate plan statistics.
@@ -91,6 +121,9 @@ type PlanSummary struct {
 
 	// TagsRemoved is the number of tags being removed.
 	TagsRemoved int `json:"tags_removed"`
+
+	// Conflicts is the number of renames skipped as conflicts.
+	Conflicts int `json:"conflicts,omitempty"`
 }
 
 // IsEmpty returns true if the plan has no changes.
@@ -102,7 +135,7 @@ func (p *Plan) IsEmpty() bool {
 // plan file claims.
 func (p *Plan) Summarize() PlanSummary {
 	resources := make(map[string]bool, len(p.Changes))
-	summary := PlanSummary{TotalChanges: len(p.Changes)}
+	summary := PlanSummary{TotalChanges: len(p.Changes), Conflicts: len(p.Conflicts)}
 	for _, c := range p.Changes {
 		resources[c.Resource.Identity()] = true
 		switch c.Action {

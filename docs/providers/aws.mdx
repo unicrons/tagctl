@@ -348,7 +348,7 @@ CloudFormation templates under
 | Role | Policies | Commands | Hand it to |
 |------|----------|----------|------------|
 | `TagctlScan` | `TagctlScan` | `scan`, `plan`, `diff`, `normalize`, `terraform`, `cost` | Scheduled jobs, CI, auditors. It cannot write a tag. |
-| `TagctlApply` | `TagctlScan` + `TagctlApply`, plus `TagctlApplyCodeBuild` and `TagctlProtectedTagKeys` when enabled | `apply` | People and pipelines that remediate, behind MFA or an external id. |
+| `TagctlApply` | `TagctlScan` + `TagctlApply`, plus `TagctlApplyCodeBuild`, the tag removal policy and `TagctlProtectedTagKeys` when enabled | `apply` | People and pipelines that remediate, behind MFA or an external id. |
 
 The apply policy is additive: it holds only the tag write actions and always
 sits next to the scan policy, which is where `sts:GetCallerIdentity`, the
@@ -368,14 +368,16 @@ an Identity Center permission set. `ExternalId`, `RequireMFA` (default `true`
 on the apply template), `OrgId`, `MaxSessionDuration` and
 `PermissionsBoundaryArn` are optional. `OrgId` adds `aws:PrincipalOrgID` to the
 trust policy, so the caller must also belong to that organization. The apply
-template adds `AllowCodeBuildTagging` and `ProtectedTagKeys`, described below.
+template adds `AllowCodeBuildTagging`, `AllowTagRemoval` and `ProtectedTagKeys`,
+described below.
 The `TagctlConfig` output is the entry to paste under `clouds.aws`; the base
 identity only needs `sts:AssumeRole` on the role. For many accounts, deploy the
 same template as a StackSet.
 
 The policy documents are also available on their own as
-`tagctl-scan-policy.json`, `tagctl-apply-policy.json` and
-`tagctl-apply-codebuild-policy.json`, for Terraform or a role you already have.
+`tagctl-scan-policy.json`, `tagctl-apply-policy.json`,
+`tagctl-apply-codebuild-policy.json` and `tagctl-apply-untag-policy.json`, for
+Terraform or a role you already have.
 Every copy on this page is checked against those files by
 `go test ./internal/provider/aws/`.
 
@@ -830,6 +832,235 @@ template with `AllowCodeBuildTagging=true`, or attach this policy yourself:
   ]
 }
 ```
+
+### Tag Removal (Opt-In)
+
+`tagctl apply` removes a tag only when the plan says so: the old key of a
+[`rules.rename`](/rules#rename-rules) and the tags
+[`policy.forbidden`](/configuration#forbidden-tags) forbids. The apply policy
+grants no untag action, so by default those removals are reported as failed
+and the rest of the plan is applied. Deploy the apply template with
+`AllowTagRemoval=true`, or attach this policy yourself. The template attaches
+it as a managed policy, because the inline policies of the role have no room
+left for it.
+
+Removal goes through `ec2:DeleteTags` for the EC2 family (by ID, in the
+resource's region), the Auto Scaling, Lightsail and Global Accelerator APIs
+for their resources and `tag:UntagResources` by ARN for every other type,
+which also needs the untag action of the service that owns the resource. S3
+is the exception: its untag action is `s3:PutBucketTagging`, already in the
+apply policy.
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ServiceUntagAPIs",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:DeleteTags",
+        "rds:RemoveTagsFromResource",
+        "lambda:UntagResource",
+        "sns:UntagResource",
+        "sqs:UntagQueue",
+        "elasticloadbalancing:RemoveTags",
+        "autoscaling:DeleteTags",
+        "dynamodb:UntagResource",
+        "ecs:UntagResource",
+        "eks:UntagResource",
+        "elasticache:RemoveTagsFromResource",
+        "elasticfilesystem:UntagResource",
+        "ecr:UntagResource",
+        "kms:UntagResource",
+        "kinesis:RemoveTagsFromStream",
+        "logs:UntagResource",
+        "lightsail:UntagResource",
+        "globalaccelerator:UntagResource"
+      ],
+      "Resource": [
+        "arn:aws:ec2:*:*:instance/*",
+        "arn:aws:ec2:*::image/*",
+        "arn:aws:ec2:*:*:volume/*",
+        "arn:aws:ec2:*::snapshot/*",
+        "arn:aws:ec2:*:*:launch-template/*",
+        "arn:aws:ec2:*:*:security-group/*",
+        "arn:aws:ec2:*:*:vpc/*",
+        "arn:aws:ec2:*:*:subnet/*",
+        "arn:aws:ec2:*:*:internet-gateway/*",
+        "arn:aws:ec2:*:*:natgateway/*",
+        "arn:aws:ec2:*:*:vpc-endpoint/*",
+        "arn:aws:ec2:*:*:elastic-ip/*",
+        "arn:aws:rds:*:*:db:*",
+        "arn:aws:rds:*:*:cluster:*",
+        "arn:aws:rds:*:*:snapshot:*",
+        "arn:aws:lambda:*:*:function:*",
+        "arn:aws:sns:*:*:*",
+        "arn:aws:sqs:*:*:*",
+        "arn:aws:elasticloadbalancing:*:*:loadbalancer/*",
+        "arn:aws:elasticloadbalancing:*:*:targetgroup/*",
+        "arn:aws:autoscaling:*:*:autoScalingGroup:*:autoScalingGroupName/*",
+        "arn:aws:dynamodb:*:*:table/*",
+        "arn:aws:ecs:*:*:cluster/*",
+        "arn:aws:ecs:*:*:service/*",
+        "arn:aws:eks:*:*:cluster/*",
+        "arn:aws:elasticache:*:*:cluster:*",
+        "arn:aws:elasticfilesystem:*:*:file-system/*",
+        "arn:aws:ecr:*:*:repository/*",
+        "arn:aws:kms:*:*:key/*",
+        "arn:aws:kinesis:*:*:stream/*",
+        "arn:aws:logs:*:*:log-group:*",
+        "arn:aws:lightsail:*:*:Instance/*",
+        "arn:aws:globalaccelerator::*:accelerator/*"
+      ]
+    },
+    {
+      "Sid": "UntaggingAPI",
+      "Effect": "Allow",
+      "Action": [
+        "tag:UntagResources",
+        "workspaces:DeleteTags"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "UntaggingAPIServices",
+      "Effect": "Allow",
+      "Action": [
+        "elasticbeanstalk:RemoveTags",
+        "apigateway:DELETE",
+        "cloudfront:UntagResource",
+        "fsx:UntagResource",
+        "backup:UntagResource",
+        "redshift:DeleteTags",
+        "es:RemoveTags",
+        "firehose:UntagDeliveryStream",
+        "kafka:UntagResource",
+        "glue:UntagResource",
+        "sagemaker:DeleteTags",
+        "events:UntagResource",
+        "states:UntagResource",
+        "cognito-idp:UntagResource",
+        "cloudwatch:UntagResource",
+        "cloudformation:UntagResource",
+        "secretsmanager:UntagResource",
+        "acm:RemoveTagsFromCertificate",
+        "iam:UntagRole",
+        "access-analyzer:UntagResource",
+        "acm-pca:UntagCertificateAuthority",
+        "cloudtrail:RemoveTags",
+        "config:UntagResource",
+        "ds:RemoveTagsFromResource",
+        "fms:UntagResource",
+        "guardduty:UntagResource",
+        "network-firewall:UntagResource",
+        "rolesanywhere:UntagResource",
+        "waf-regional:UntagResource",
+        "waf:UntagResource",
+        "wafv2:UntagResource",
+        "shield:UntagResource",
+        "amplify:UntagResource",
+        "appsync:UntagResource",
+        "bedrock:UntagResource",
+        "codeartifact:UntagResource",
+        "codecommit:UntagResource",
+        "codepipeline:UntagResource",
+        "wellarchitected:UntagResource",
+        "athena:UntagResource",
+        "dms:RemoveTagsFromResource",
+        "datapipeline:RemoveTags",
+        "datasync:UntagResource",
+        "elasticmapreduce:RemoveTags",
+        "glacier:RemoveTagsFromVault",
+        "memorydb:UntagResource",
+        "mq:DeleteTags",
+        "ses:UntagResource",
+        "storagegateway:RemoveTagsFromResource",
+        "transfer:UntagResource",
+        "appstream:UntagResource",
+        "batch:UntagResource",
+        "directconnect:UntagResource",
+        "dlm:UntagResource",
+        "drs:UntagResource",
+        "ssm:RemoveTagsFromResource",
+        "ssm-incidents:UntagResource"
+      ],
+      "Resource": [
+        "arn:aws:elasticbeanstalk:*:*:environment/*",
+        "arn:aws:apigateway:*::/tags/*",
+        "arn:aws:cloudfront::*:distribution/*",
+        "arn:aws:fsx:*:*:file-system/*",
+        "arn:aws:backup:*:*:backup-vault:*",
+        "arn:aws:redshift:*:*:cluster:*",
+        "arn:aws:es:*:*:domain/*",
+        "arn:aws:firehose:*:*:deliverystream/*",
+        "arn:aws:kafka:*:*:cluster/*",
+        "arn:aws:glue:*:*:job/*",
+        "arn:aws:sagemaker:*:*:endpoint/*",
+        "arn:aws:sagemaker:*:*:notebook-instance/*",
+        "arn:aws:events:*:*:rule/*",
+        "arn:aws:states:*:*:stateMachine:*",
+        "arn:aws:cognito-idp:*:*:userpool/*",
+        "arn:aws:cloudwatch:*:*:alarm:*",
+        "arn:aws:cloudformation:*:*:stack/*",
+        "arn:aws:secretsmanager:*:*:secret:*",
+        "arn:aws:acm:*:*:certificate/*",
+        "arn:aws:iam::*:role/*",
+        "arn:aws:access-analyzer:*:*:analyzer/*",
+        "arn:aws:acm-pca:*:*:certificate-authority/*",
+        "arn:aws:cloudtrail:*:*:trail/*",
+        "arn:aws:config:*:*:config-rule/*",
+        "arn:aws:ds:*:*:directory/*",
+        "arn:aws:fms:*:*:policy/*",
+        "arn:aws:guardduty:*:*:detector/*",
+        "arn:aws:network-firewall:*:*:firewall/*",
+        "arn:aws:rolesanywhere:*:*:trust-anchor/*",
+        "arn:aws:waf-regional:*:*:webacl/*",
+        "arn:aws:waf::*:webacl/*",
+        "arn:aws:wafv2:*:*:*/webacl/*",
+        "arn:aws:shield::*:protection/*",
+        "arn:aws:amplify:*:*:apps/*",
+        "arn:aws:appsync:*:*:apis/*",
+        "arn:aws:bedrock:*:*:guardrail/*",
+        "arn:aws:codeartifact:*:*:domain/*",
+        "arn:aws:codeartifact:*:*:repository/*",
+        "arn:aws:codecommit:*:*:*",
+        "arn:aws:codepipeline:*:*:*",
+        "arn:aws:wellarchitected:*:*:workload/*",
+        "arn:aws:athena:*:*:workgroup/*",
+        "arn:aws:dms:*:*:rep:*",
+        "arn:aws:datapipeline:*:*:pipeline/*",
+        "arn:aws:datasync:*:*:task/*",
+        "arn:aws:elasticmapreduce:*:*:cluster/*",
+        "arn:aws:glacier:*:*:vaults/*",
+        "arn:aws:memorydb:*:*:cluster/*",
+        "arn:aws:mq:*:*:broker:*",
+        "arn:aws:ses:*:*:identity/*",
+        "arn:aws:ses:*:*:configuration-set/*",
+        "arn:aws:storagegateway:*:*:gateway/*",
+        "arn:aws:transfer:*:*:server/*",
+        "arn:aws:appstream:*:*:fleet/*",
+        "arn:aws:appstream:*:*:stack/*",
+        "arn:aws:batch:*:*:compute-environment/*",
+        "arn:aws:batch:*:*:job-queue/*",
+        "arn:aws:directconnect:*:*:dxcon/*",
+        "arn:aws:dlm:*:*:policy/*",
+        "arn:aws:drs:*:*:source-server/*",
+        "arn:aws:ssm:*:*:parameter/*",
+        "arn:aws:ssm:*:*:document/*",
+        "arn:aws:ssm-incidents::*:response-plan/*"
+      ]
+    }
+  ]
+}
+```
+
+<Note>
+  `tag:UntagResources` and `workspaces:DeleteTags` stay on `"*"` for the same
+  reason as their tagging counterparts. The action names mirror the tag write
+  actions of the apply policy one to one; they have not been exercised against
+  every service.
+</Note>
 
 ### Protected Tag Keys
 

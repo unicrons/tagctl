@@ -259,7 +259,7 @@ func parseResourceID(resourceID string) (resourceType, namespace, name string, e
 }
 
 // buildLabelPatch builds a JSON merge patch for labels.
-func buildLabelPatch(labels map[string]string) ([]byte, error) {
+func buildLabelPatch[V any](labels map[string]V) ([]byte, error) {
 	patch := map[string]any{
 		"metadata": map[string]any{
 			"labels": labels,

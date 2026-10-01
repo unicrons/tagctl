@@ -23,6 +23,7 @@ const (
 	scanPolicyFile      = "tagctl-scan-policy.json"
 	applyPolicyFile     = "tagctl-apply-policy.json"
 	codeBuildPolicyFile = "tagctl-apply-codebuild-policy.json"
+	untagPolicyFile     = "tagctl-apply-untag-policy.json"
 )
 
 type policyDocument struct {
@@ -88,8 +89,11 @@ type cfnPolicy struct {
 type cfnTemplate struct {
 	Resources map[string]struct {
 		Type       string `yaml:"Type"`
+		Condition  string `yaml:"Condition"`
 		Properties struct {
-			Policies []cfnPolicy `yaml:"Policies"`
+			Policies          []cfnPolicy    `yaml:"Policies"`
+			ManagedPolicyArns yaml.Node      `yaml:"ManagedPolicyArns"`
+			PolicyDocument    policyDocument `yaml:"PolicyDocument"`
 		} `yaml:"Properties"`
 	} `yaml:"Resources"`
 }
@@ -194,6 +198,8 @@ var (
 	unscopedWriteActions = map[string]string{
 		"tag:TagResources":      "lists no resource type",
 		"workspaces:CreateTags": "lists no resource type",
+		"tag:UntagResources":    "lists no resource type",
+		"workspaces:DeleteTags": "lists no resource type",
 	}
 )
 
@@ -203,7 +209,7 @@ func actionService(action string) string {
 }
 
 func TestPermissionPolicies_WellFormed(t *testing.T) {
-	for _, name := range []string{scanPolicyFile, applyPolicyFile, codeBuildPolicyFile} {
+	for _, name := range []string{scanPolicyFile, applyPolicyFile, codeBuildPolicyFile, untagPolicyFile} {
 		doc := loadPolicyFile(t, name)
 		if doc.Version != "2012-10-17" {
 			t.Errorf("%s: Version = %q", name, doc.Version)
@@ -269,7 +275,7 @@ func TestPermissionPolicies_ScanIsReadOnly(t *testing.T) {
 	if !actionSet(apply)["tag:TagResources"] {
 		t.Error("apply policy lacks tag:TagResources, the Tagging API fallback")
 	}
-	for a := range actionSet(apply, loadPolicyFile(t, codeBuildPolicyFile)) {
+	for a := range actionSet(apply, loadPolicyFile(t, codeBuildPolicyFile), loadPolicyFile(t, untagPolicyFile)) {
 		if actionSet(scan)[a] {
 			t.Errorf("%s is in both policies; the apply role already attaches the scan policy", a)
 		}
@@ -310,6 +316,56 @@ func TestPermissionPolicies_TemplatesMatchFiles(t *testing.T) {
 	}
 }
 
+var removeAction = regexp.MustCompile(`^[a-z0-9-]+:(Untag|Remove|Delete|DELETE)`)
+
+func TestPermissionPolicies_TagRemovalIsOptIn(t *testing.T) {
+	for a := range actionSet(loadPolicyFile(t, applyPolicyFile)) {
+		if removeAction.MatchString(a) {
+			t.Errorf("the default apply policy grants %s; removals belong in %s", a, untagPolicyFile)
+		}
+	}
+	untag := loadPolicyFile(t, untagPolicyFile)
+	for a := range actionSet(untag) {
+		if !removeAction.MatchString(a) {
+			t.Errorf("%s grants %s, which is not a tag removal", untagPolicyFile, a)
+		}
+	}
+	for _, a := range []string{"tag:UntagResources", "ec2:DeleteTags"} {
+		if !actionSet(untag)[a] {
+			t.Errorf("%s lacks %s", untagPolicyFile, a)
+		}
+	}
+
+	var tpl cfnTemplate
+	if err := yaml.Unmarshal(readFile(t, "permissions", "aws", "tagctl-apply-role.yaml"), &tpl); err != nil {
+		t.Fatal(err)
+	}
+	managed := tpl.Resources["UntagPolicy"]
+	if managed.Type != "AWS::IAM::ManagedPolicy" || managed.Condition != "TagRemoval" {
+		t.Fatalf("UntagPolicy = %s under condition %q, want a managed policy under TagRemoval", managed.Type, managed.Condition)
+	}
+	if !reflect.DeepEqual(managed.Properties.PolicyDocument, untag) {
+		t.Errorf("UntagPolicy differs from permissions/aws/%s; regenerate the template", untagPolicyFile)
+	}
+	var attach struct {
+		If []yaml.Node `yaml:"Fn::If"`
+	}
+	arns := tpl.Resources["Role"].Properties.ManagedPolicyArns
+	if err := arns.Decode(&attach); err != nil || len(attach.If) != 3 || attach.If[0].Value != "TagRemoval" {
+		t.Errorf("Role.ManagedPolicyArns must attach UntagPolicy only under TagRemoval")
+	}
+
+	size := 0
+	for _, r := range string(readFile(t, "permissions", "aws", untagPolicyFile)) {
+		if !unicode.IsSpace(r) {
+			size++
+		}
+	}
+	if size > managedPolicyLimit {
+		t.Errorf("%s uses %d characters; IAM allows %d in a managed policy", untagPolicyFile, size, managedPolicyLimit)
+	}
+}
+
 func checkProtectedTagKeysPolicy(t *testing.T, p templatePolicy) {
 	t.Helper()
 	if p.condition != "HasProtectedTagKeys" || len(p.document.Statement) != 1 {
@@ -329,6 +385,7 @@ func TestPermissionPolicies_DocsMatchFiles(t *testing.T) {
 		"### Read-Only (Scan)":           scanPolicyFile,
 		"### Read-Write (Apply)":         applyPolicyFile,
 		"### CodeBuild Tagging (Opt-In)": codeBuildPolicyFile,
+		"### Tag Removal (Opt-In)":       untagPolicyFile,
 	}
 	for heading, file := range cases {
 		if got, want := loadDocsPolicy(t, heading), loadPolicyFile(t, file); !reflect.DeepEqual(got, want) {
@@ -343,6 +400,8 @@ const (
 	roleInlinePolicyLimit = 10240
 	// protectedTagKeysReserve keeps room for the template-only deny.
 	protectedTagKeysReserve = 768
+	// managedPolicyLimit is IAM's cap on one managed policy, whitespace excluded.
+	managedPolicyLimit = 6144
 )
 
 func TestPermissionPolicies_ApplyRoleFitsInlineLimit(t *testing.T) {
@@ -362,13 +421,15 @@ func TestPermissionPolicies_ApplyRoleFitsInlineLimit(t *testing.T) {
 
 var (
 	paginatorCall = regexp.MustCompile(`New([A-Z][A-Za-z0-9]+)Paginator\(`)
-	directCall    = regexp.MustCompile(`\.((?:List|Describe|Get|Batch|Tag|Untag|Add|Create|Put|Change)[A-Za-z0-9]*)\(ctx`)
+	directCall    = regexp.MustCompile(`\.((?:List|Describe|Get|Batch|Tag|Untag|Add|Create|Put|Change|Delete)[A-Za-z0-9]*)\(ctx`)
 
 	// SDK operations whose IAM action has a different name.
 	actionAliases = map[string]string{
 		"GetApis":     "GET",
 		"GetRestApis": "GET",
 		"ListBuckets": "ListAllMyBuckets",
+		// S3 authorizes dropping the tag set with the action that writes it.
+		"DeleteBucketTagging": "PutBucketTagging",
 	}
 	// Exported methods of this package that the regexp would mistake for SDK calls.
 	notSDKCalls = map[string]bool{"ListResources": true}
@@ -377,7 +438,8 @@ var (
 // Every SDK operation the provider calls must be allowed by one of the
 // policies, so adding a lister without extending the policy fails here.
 func TestPermissionPolicies_CoverProviderCalls(t *testing.T) {
-	allowed := actionSet(loadPolicyFile(t, scanPolicyFile), loadPolicyFile(t, applyPolicyFile), loadPolicyFile(t, codeBuildPolicyFile))
+	allowed := actionSet(loadPolicyFile(t, scanPolicyFile), loadPolicyFile(t, applyPolicyFile),
+		loadPolicyFile(t, codeBuildPolicyFile), loadPolicyFile(t, untagPolicyFile))
 	suffixes := map[string]bool{}
 	for a := range allowed {
 		suffixes[a[strings.Index(a, ":")+1:]] = true

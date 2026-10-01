@@ -10,32 +10,47 @@ import (
 
 // Evaluator evaluates resources against tag policies.
 type Evaluator struct {
-	policy   config.PolicyConfig
-	compiled map[string]*regexp.Regexp // keyed by pattern text
+	policy    config.PolicyConfig
+	compiled  map[string]*regexp.Regexp // keyed by pattern text
+	forbidden map[string]config.ForbiddenTag
+	checked   map[string]bool // tags with a required or optional requirement
 }
 
 // NewEvaluator creates a new Evaluator with the given policy.
 func NewEvaluator(policy config.PolicyConfig) (*Evaluator, error) {
 	e := &Evaluator{
-		policy:   policy,
-		compiled: make(map[string]*regexp.Regexp),
+		policy:    policy,
+		compiled:  make(map[string]*regexp.Regexp),
+		forbidden: make(map[string]config.ForbiddenTag, len(policy.Forbidden)),
+		checked:   make(map[string]bool),
 	}
 
 	for _, req := range slices.Concat(policy.Required, policy.Optional) {
-		if req.Pattern == "" || e.compiled[req.Pattern] != nil {
-			continue
+		if err := e.compile(req.Name, req.Pattern); err != nil {
+			return nil, err
 		}
-		re, err := regexp.Compile(req.Pattern)
-		if err != nil {
-			return nil, &EvaluatorError{
-				Tag:     req.Name,
-				Message: "invalid pattern: " + err.Error(),
-			}
+		e.checked[req.Name] = true
+	}
+	for _, tag := range policy.Forbidden {
+		if err := e.compile(tag.Name, tag.Pattern); err != nil {
+			return nil, err
 		}
-		e.compiled[req.Pattern] = re
+		e.forbidden[tag.Name] = tag
 	}
 
 	return e, nil
+}
+
+func (e *Evaluator) compile(tag, pattern string) error {
+	if pattern == "" || e.compiled[pattern] != nil {
+		return nil
+	}
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		return &EvaluatorError{Tag: tag, Message: "invalid pattern: " + err.Error()}
+	}
+	e.compiled[pattern] = re
+	return nil
 }
 
 // EvaluatorError represents an error in the evaluator.
@@ -49,7 +64,8 @@ func (e *EvaluatorError) Error() string {
 }
 
 // EvaluateResourceFindings evaluates a single resource and returns all findings
-// (PASS and FAILED). An optional tag is only checked when the resource carries it.
+// (PASS and FAILED). An optional tag is only checked when the resource carries
+// it, and a forbidden tag only produces a finding when it is violated.
 func (e *Evaluator) EvaluateResourceFindings(resource types.Resource) []types.Finding {
 	findings := make([]types.Finding, 0, len(e.policy.Required)+len(e.policy.Optional))
 
@@ -61,12 +77,53 @@ func (e *Evaluator) EvaluateResourceFindings(resource types.Resource) []types.Fi
 			findings = append(findings, e.evaluateRequirement(resource, req))
 		}
 	}
+	for _, tag := range e.policy.Forbidden {
+		if e.checked[tag.Name] {
+			continue // reported by evaluateRequirement, one finding per tag
+		}
+		if finding, violated := e.forbiddenFinding(resource, tag); violated {
+			findings = append(findings, finding)
+		}
+	}
 
 	return findings
 }
 
+// forbiddenFinding returns the FAILED finding for a forbidden tag the
+// resource carries. A value only known after apply cannot match a value rule.
+func (e *Evaluator) forbiddenFinding(resource types.Resource, tag config.ForbiddenTag) (types.Finding, bool) {
+	finding := types.Finding{Resource: resource, Tag: tag.Name, Status: types.StatusFailed, Reason: types.ReasonForbidden}
+
+	value, present := resource.Tags[tag.Name]
+	unknown := valueUnknown(resource, tag.Name)
+	if tag.Unconditional() {
+		finding.Actual = value
+		return finding, present || unknown
+	}
+	if !present || unknown {
+		return finding, false
+	}
+
+	finding.Actual = value
+	switch {
+	case slices.Contains(tag.Values, value):
+		finding.Expected = "not one of: " + formatAllowedValues(tag.Values)
+	case tag.Pattern != "" && e.compiled[tag.Pattern].MatchString(value):
+		finding.Expected = "not matching: " + tag.Pattern
+	default:
+		return finding, false
+	}
+	return finding, true
+}
+
 // evaluateRequirement checks one tag requirement: presence, then allowed values, then pattern.
 func (e *Evaluator) evaluateRequirement(resource types.Resource, req config.TagRequirement) types.Finding {
+	if tag, ok := e.forbidden[req.Name]; ok {
+		if finding, violated := e.forbiddenFinding(resource, tag); violated {
+			return finding
+		}
+	}
+
 	finding := types.Finding{Resource: resource, Tag: req.Name, Status: types.StatusFailed}
 
 	value, ok := resource.Tags[req.Name]
@@ -111,6 +168,12 @@ func (e *Evaluator) EvaluateResources(resources []types.Resource) *types.ScanRes
 	for _, req := range e.policy.Optional {
 		result.ByTag[req.Name] = &types.TagStats{Tag: req.Name}
 	}
+	for _, tag := range e.policy.Forbidden {
+		if result.ByTag[tag.Name] == nil {
+			result.ByTag[tag.Name] = &types.TagStats{Tag: tag.Name}
+		}
+		result.ByTag[tag.Name].Forbidden = true
+	}
 
 	nonCompliant := make(map[string]bool)
 	for _, resource := range resources {
@@ -151,13 +214,13 @@ func (e *Evaluator) EvaluateResources(resources []types.Resource) *types.ScanRes
 	return result
 }
 
-// countFinding adds a finding to its tag's stats. Optional tags only produce
-// findings when present, so they never count as missing.
+// countFinding adds a finding to its tag's stats. Optional and forbidden tags
+// only produce findings when present, so they never count as missing.
 func countFinding(stats *types.TagStats, f types.Finding) {
 	switch f.Reason {
 	case types.ReasonMissing:
 		stats.Missing++
-	case types.ReasonInvalidValue, types.ReasonInvalidFormat:
+	case types.ReasonInvalidValue, types.ReasonInvalidFormat, types.ReasonForbidden:
 		stats.Present++
 		stats.Invalid++
 	default:

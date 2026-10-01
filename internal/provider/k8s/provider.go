@@ -227,7 +227,33 @@ func (p *Provider) ApplyTags(ctx context.Context, resourceID string, tags map[st
 	if err != nil {
 		return provider.NewProviderError(providerName, "apply_labels", resourceID, err)
 	}
+	return p.patchLabels(ctx, "apply_labels", resourceID, resourceType, namespace, name, patch)
+}
 
+// RemoveTags deletes labels from a Kubernetes resource.
+func (p *Provider) RemoveTags(ctx context.Context, resource types.Resource, keys []string) error {
+	if len(keys) == 0 {
+		return nil
+	}
+	resourceType, namespace, name, err := parseResourceID(resource.ID)
+	if err != nil {
+		return provider.NewProviderError(providerName, "remove_labels", resource.ID, err)
+	}
+
+	// A null value in a JSON merge patch deletes the key.
+	labels := make(map[string]any, len(keys))
+	for _, key := range keys {
+		labels[key] = nil
+	}
+	patch, err := buildLabelPatch(labels)
+	if err != nil {
+		return provider.NewProviderError(providerName, "remove_labels", resource.ID, err)
+	}
+	return p.patchLabels(ctx, "remove_labels", resource.ID, resourceType, namespace, name, patch)
+}
+
+// patchLabels sends a label merge patch to the resource a parsed ID names.
+func (p *Provider) patchLabels(ctx context.Context, operation, resourceID, resourceType, namespace, name string, patch []byte) error {
 	switch resourceType {
 	case ResourceTypePod:
 		return p.patchPodLabels(ctx, namespace, name, patch)
@@ -242,7 +268,7 @@ func (p *Provider) ApplyTags(ctx context.Context, resourceID string, tags map[st
 	case ResourceTypeSecret:
 		return p.patchSecretLabels(ctx, namespace, name, patch)
 	default:
-		return provider.NewProviderError(providerName, "apply_labels", resourceID,
+		return provider.NewProviderError(providerName, operation, resourceID,
 			&UnsupportedResourceError{ResourceType: resourceType})
 	}
 }

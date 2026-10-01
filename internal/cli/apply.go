@@ -24,8 +24,8 @@ var applyCmd = &cobra.Command{
 	Long: `Apply executes the changes from a previously generated plan.
 
 Before applying, it will:
-  • Load the plan file and reject any change other than add or update
-  • Show a summary of changes
+  • Load the plan file and reject any change it cannot perform
+  • Show a summary of changes, with every tag it will remove listed apart
   • Ask for confirmation (unless --auto-approve is set), or about each
     resource with --interactive
 
@@ -107,7 +107,7 @@ func runApply(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	printPlanSummary(planFile, plan)
+	printPlanSummary(os.Stderr, planFile, plan)
 
 	skipped := 0
 	switch {
@@ -149,10 +149,10 @@ func runApply(cmd *cobra.Command, args []string) error {
 	// The mock applier has no callback, so its progress is printed afterwards.
 	if simulated {
 		for i, change := range plan.Changes {
-			fmt.Printf("  [%d/%d] %s.%s (%s: %s) ✓\n",
+			fmt.Printf("  [%d/%d] %s.%s (%s) ✓\n",
 				i+1, len(plan.Changes),
 				change.Resource.Type, change.Resource.ID,
-				change.Tag, change.NewValue)
+				describeChange(change))
 		}
 	}
 
@@ -209,15 +209,48 @@ func approveWhole(ctx context.Context, plan *types.Plan) (*types.Plan, error) {
 	return plan, nil
 }
 
-// printPlanSummary describes the plan about to be applied on stderr.
-func printPlanSummary(planFile string, plan *types.Plan) {
+// maxListedRemovals caps the removals spelled out before the prompt.
+const maxListedRemovals = 20
+
+// printPlanSummary describes the plan about to be applied. It goes to stderr,
+// next to the confirmation prompt, so both stay visible when stdout is
+// redirected. Removals cannot be undone from the plan, so they are listed.
+func printPlanSummary(w io.Writer, planFile string, plan *types.Plan) {
 	summary := plan.Summarize()
-	fmt.Fprintf(os.Stderr, "Applying plan from %s\n", planFile)
-	fmt.Fprintf(os.Stderr, "Plan created at: %s\n\n", plan.CreatedAt.Format("2006-01-02 15:04:05"))
-	fmt.Fprintf(os.Stderr, "Changes to apply:\n")
-	fmt.Fprintf(os.Stderr, "  • %d resources will be modified\n", summary.TotalResources)
-	fmt.Fprintf(os.Stderr, "  • %d tags will be added\n", summary.TagsAdded)
-	fmt.Fprintf(os.Stderr, "  • %d tags will be updated\n\n", summary.TagsUpdated)
+	fmt.Fprintf(w, "Applying plan from %s\n", planFile)
+	fmt.Fprintf(w, "Plan created at: %s\n\n", plan.CreatedAt.Format("2006-01-02 15:04:05"))
+	fmt.Fprintf(w, "Changes to apply:\n")
+	fmt.Fprintf(w, "  • %d resources will be modified\n", summary.TotalResources)
+	fmt.Fprintf(w, "  • %d tags will be added\n", summary.TagsAdded)
+	fmt.Fprintf(w, "  • %d tags will be updated\n", summary.TagsUpdated)
+	if summary.TagsRemoved == 0 {
+		fmt.Fprintln(w)
+		return
+	}
+
+	fmt.Fprintf(w, "  • %d tags will be REMOVED:\n", summary.TagsRemoved)
+	listed := 0
+	for _, c := range plan.Changes {
+		if c.Action != types.ActionRemove {
+			continue
+		}
+		if listed == maxListedRemovals {
+			fmt.Fprintf(w, "      ... and %d more, see %s\n", summary.TagsRemoved-listed, planFile)
+			break
+		}
+		fmt.Fprintf(w, "      - %s=%q on %s %s (%s)\n", printable(c.Tag), printable(c.OldValue),
+			printable(c.Resource.Type), printable(c.Resource.ID), printable(string(c.Reason)))
+		listed++
+	}
+	fmt.Fprintln(w)
+}
+
+// describeChange names the tag and what happens to it in a progress line.
+func describeChange(c types.TagChange) string {
+	if c.Action == types.ActionRemove {
+		return "remove " + printable(c.Tag)
+	}
+	return printable(c.Tag) + ": " + printable(c.NewValue)
 }
 
 // confirmApply asks the operator to confirm before any tag is written. Ctrl-C
@@ -274,10 +307,10 @@ func buildApplier(ctx context.Context, cfg *config.Config, plan *types.Plan, sim
 		if !success {
 			status = "✗"
 		}
-		fmt.Printf("  [%d/%d] %s.%s (%s: %s) %s\n",
+		fmt.Printf("  [%d/%d] %s.%s (%s) %s\n",
 			changeIndex, len(plan.Changes),
 			change.Resource.Type, change.Resource.ID,
-			change.Tag, change.NewValue, status)
+			describeChange(change), status)
 		if err != nil {
 			fmt.Printf("         Error: %v\n", err)
 		}

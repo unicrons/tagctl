@@ -12,8 +12,9 @@ func TestPlanSummarize_IgnoresStoredSummary(t *testing.T) {
 			{Resource: Resource{ID: "i-2", Provider: "aws", Account: "1", Region: "us-east-1"}, Tag: "c", Action: ActionRemove},
 		},
 	}
+	p.Conflicts = []RenameConflict{{Resource: r, From: "Env", Value: "prod", To: "environment", ExistingValue: "dev"}}
 	got := p.Summarize()
-	want := PlanSummary{TotalResources: 2, TotalChanges: 3, TagsAdded: 1, TagsUpdated: 1, TagsRemoved: 1}
+	want := PlanSummary{TotalResources: 2, TotalChanges: 3, TagsAdded: 1, TagsUpdated: 1, TagsRemoved: 1, Conflicts: 1}
 	if got != want {
 		t.Errorf("Summarize() = %+v, want %+v", got, want)
 	}

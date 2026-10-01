@@ -1,12 +1,15 @@
 ---
 title: 'Auto-Fix Rules'
-description: 'Inference, inheritance and default rules'
+description: 'Rename, inference, inheritance and default rules'
 icon: 'wand-magic-sparkles'
 ---
 
-tagctl can automatically generate tag values using three types of rules:
+tagctl can automatically fix tags using four types of rules:
 
-<CardGroup cols={3}>
+<CardGroup cols={2}>
+  <Card title="Rename" icon="right-left">
+    Move a value to the right tag key
+  </Card>
   <Card title="Inference" icon="magnifying-glass">
     Derive tags from resource names or other tags
   </Card>
@@ -19,6 +22,100 @@ tagctl can automatically generate tag values using three types of rules:
 </CardGroup>
 
 Rules are applied in this order during `tagctl plan`.
+
+## Rename Rules
+
+Rename rules fix a tag that has the right value under the wrong key: `Env`
+instead of `environment`, `CostCentre` instead of `cost-center`.
+
+### How It Works
+
+```
+Resource: web-1, tags Env = "prod"
+           ↓
+Rename rule: Env → environment
+           ↓
+Plan:  + environment = "prod"   (renamed: renamed from 'Env')
+       - Env = "prod"           (renamed: renamed to 'environment')
+```
+
+### Configuration
+
+```yaml
+rules:
+  rename:
+    - from: Env
+      to: environment
+
+    - from: env
+      to: environment
+
+    # Only on some resource types
+    - resource: "aws_s3_*"
+      from: CostCentre
+      to: cost-center
+```
+
+| Field | Meaning |
+|-------|---------|
+| `from` | Tag key to remove. Required, case-sensitive |
+| `to` | Tag key that receives the value. Required, different from `from` |
+| `resource` | Optional glob for the resource types the rule applies to (same syntax as [Resource Patterns](#resource-patterns)). Defaults to every type |
+
+Rename rules run on every resource in the scan that carries `from`, whether or
+not the resource has a failed finding, and before the other rules: a tag a
+rename sets is not inferred, inherited or defaulted as well.
+
+| Resource carries | Plan |
+|------------------|------|
+| `from` only | Add `to` with the value, remove `from` |
+| `from` and `to` with the same value | Remove `from` |
+| `from` and `to` with different values | **Conflict**: nothing is planned, both tags stay |
+
+### Conflicts
+
+A rename never overwrites. When the target key already holds another value,
+or two rules would write different values into it, the plan leaves the
+resource alone and reports the conflict after its summary:
+
+```
+Conflicts: 1 rename(s) skipped, the target tag holds another value
+  ! aws_instance (web-1): cannot rename 'Env' to 'environment': 'environment' is already 'dev', not 'prod'
+```
+
+The same list is in the plan JSON under `conflicts`. Decide which value is
+right, fix the tag by hand and plan again. A conflicting `from` key is kept
+even when `policy.forbidden` forbids it, so its value is not lost.
+
+The value is moved as is. If it does not satisfy the policy of the new key
+(`production` where `prod` is required), the next scan reports it as
+`invalid_value`; use [`from_tag`](#from-another-tag) with a `values` map when
+the values need translating too.
+
+Chains are rejected when the config loads: with `Env → env` and
+`env → environment`, write `Env → environment` instead.
+
+## Removing Tags
+
+Two things make `tagctl plan` propose a removal (`-` in the plan):
+
+- a rename rule, for the old key;
+- a tag [`policy.forbidden`](/configuration#forbidden-tags) forbids, with the
+  reason `forbidden`. No rule is needed: forbidding a tag is asking for it to
+  go.
+
+<Warning>
+  Removing a tag cannot be undone from the plan: the plan file keeps the old
+  value (`old_value`), tagctl does not put it back. `tagctl apply` lists every
+  removal before asking for confirmation, and the shipped apply role cannot
+  remove tags until it is deployed with `AllowTagRemoval=true`
+  ([Tag Removal](/providers/aws#tag-removal-opt-in)). Review plans with
+  removals before using `--auto-approve`.
+</Warning>
+
+A forbidden value on a required tag (`environment: test`) is removed like any
+other forbidden tag, which leaves the tag missing: the next scan reports it
+and the next plan fills it from your inference, inheritance or default rules.
 
 ## Inference Rules
 
@@ -285,11 +382,13 @@ When multiple rules could apply:
 ```
 1. Existing tags (never overwritten)
         ↓
-2. Inference rules (from another tag, then from the resource name)
+2. Rename rules (value moved from another key)
         ↓
-3. Inheritance rules (from the parent resource)
+3. Inference rules (from another tag, then from the resource name)
         ↓
-4. Default rules (fallback values)
+4. Inheritance rules (from the parent resource)
+        ↓
+5. Default rules (fallback values)
 ```
 
 ### Example Flow
@@ -349,6 +448,12 @@ tagctl scan --verbose
     - Order matters—put specific patterns first
     - Test with `tagctl plan` before applying
     - Document naming conventions for your team
+  </Accordion>
+
+  <Accordion title="Rename rules">
+    - Resolve conflicts by hand; tagctl never picks one of two values
+    - Forbid the old key in `policy.forbidden` so it does not come back
+    - Deploy the apply role with `AllowTagRemoval=true`, or the old keys stay
   </Accordion>
 
   <Accordion title="Inheritance rules">

@@ -167,9 +167,13 @@ func (p *Provider) getBucketRegion(ctx context.Context, client s3API, bucketName
 	return string(output.LocationConstraint)
 }
 
+type s3TagReader interface {
+	GetBucketTagging(ctx context.Context, params *s3.GetBucketTaggingInput, optFns ...func(*s3.Options)) (*s3.GetBucketTaggingOutput, error)
+}
+
 // getBucketTags reads a bucket's tags. A bucket without a tag set yields an
 // empty map; any other failure is returned so the caller can skip the bucket.
-func getBucketTags(ctx context.Context, client s3API, bucketName string) (map[string]string, error) {
+func getBucketTags(ctx context.Context, client s3TagReader, bucketName string) (map[string]string, error) {
 	output, err := client.GetBucketTagging(ctx, &s3.GetBucketTaggingInput{
 		Bucket: aws.String(bucketName),
 	})

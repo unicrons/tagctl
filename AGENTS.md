@@ -105,8 +105,8 @@ test/
 permissions/aws/          # IAM policies (JSON, source of truth) and the
                           # TagctlScan / TagctlApply CloudFormation roles
                           # rendered from them by scripts/render-iam-templates.py
-                          # (CodeBuild tagging and the protected tag key deny
-                          # are opt-in apply template parameters)
+                          # (CodeBuild tagging, tag removal and the protected
+                          # tag key deny are opt-in apply template parameters)
 ```
 
 ## Key Commands
@@ -182,8 +182,16 @@ policy:
       values: [dev, staging, prod]
     - name: owner
       pattern: "^.+@.+$"
+  forbidden:                  # Keys, or values of a key, that must not exist
+    - name: Env
+    - name: environment
+      values: [test]
 
 rules:
+  rename:                     # Move a value to another key, remove the old one
+    - from: Env
+      to: environment
+
   infer:                      # Infer tags from other tags, then resource names
     - tag: environment
       from_tag:
@@ -219,12 +227,22 @@ ignore:
    types after discovery, before `ignore`: listers do not declare their
    resource types, so no API call is saved
 2. **Evaluate**: `engine.Evaluator` → `[]types.Finding` (PASS or FAILED)
-3. **Plan**: `engine.Planner` → filters FAILED findings with `missing` reason → `[]types.TagChange`.
-   Each missing tag tries infer (`from_tag`, then `from_name`), then inherit, then
-   defaults. Inherit resolves `Resource.Parents` (relation → parent `Identity()`,
-   set by the provider) against the resources in the scan; a scan with no
-   parents at all adds a `Plan.Warnings` entry that `plan` prints
-4. **Apply**: `engine.ValidatePlan` (add/update only) → `engine.Applier` → `provider.Provider.ApplyTags()` → cloud API calls
+3. **Plan**: `engine.Planner` → `[]types.TagChange`. `rules.rename` runs first, on
+   every resource in the scan carrying `from`: an `add` of `to` plus a `remove`
+   of `from`, only the `remove` when `to` already holds the value, and a
+   `Plan.Conflicts` entry (nothing planned, `from` kept even if forbidden) when
+   `to` holds another one. Then the FAILED findings: a `missing` tag tries infer
+   (`from_tag`, then `from_name`), then inherit, then defaults; a `forbidden`
+   one becomes a `remove`; other reasons are left alone. A tag a rename settled
+   is skipped. Inherit resolves `Resource.Parents` (relation → parent
+   `Identity()`, set by the provider) against the resources in the scan; a
+   scan with no parents at all adds a `Plan.Warnings` entry that `plan` prints
+4. **Apply**: `engine.ValidatePlan` (add/update/remove, a named tag, never set
+   and removed on one resource) → `engine.Applier` → per resource
+   `Provider.ApplyTags()` for the tags to set, then `provider.TagRemover.RemoveTags()`
+   for the keys to remove. A failed set skips the removals of that resource; a
+   provider without `TagRemover` fails them with a clear error. `apply` lists
+   removals apart before the prompt (`printPlanSummary`)
 
 `apply --interactive` runs `reviewChanges` between loading the plan and the
 applier: one prompt per `Resource.Identity()` on stderr, answers read from
@@ -256,9 +274,18 @@ const (
     ReasonMissing       ViolationReason = "missing"
     ReasonInvalidValue  ViolationReason = "invalid_value"
     ReasonInvalidFormat ViolationReason = "invalid_format"
+    ReasonForbidden     ViolationReason = "forbidden"
     ReasonCompliant     ViolationReason = "compliant"
 )
 ```
+
+`policy.forbidden` produces `forbidden`: a finding only when the resource
+carries the key (or, with `values`/`pattern`, a matching value), never a PASS
+for its absence. A tag that is also required or optional keeps one finding per
+resource, so `finding_info.uid` stays unique: `evaluateRequirement` reports
+`forbidden` before its own checks. Every report writer has a default branch for
+reasons it does not know; `forbidden` has its own HTML label, SARIF/OCSF rule
+id (`tagctl/forbidden-tag/<tag>`, `ruleID`) and OCSF remediation text.
 
 `ScanResult` carries both `Violations` (deprecated, removed in `v1.0.0`) and `Findings`; new code should
 use `Findings`. The `violations` JSON key is kept for backwards compatibility. The
@@ -356,6 +383,18 @@ A provider that also implements `ApplyTagsInRegion` (engine `regionalTagger`)
 receives `Resource.Region` from the plan: AWS needs it for EC2 resources,
 tagged by bare ID with one `CreateTags` call in that region, and fails without
 it instead of probing regions.
+Tag removal is the optional
+`provider.TagRemover` (`RemoveTags(ctx, resource, keys)`), which takes the
+whole resource so the provider knows its region. AWS
+(`internal/provider/aws/untag.go`, `untagRouteFor`) uses `ec2:DeleteTags` by
+ID in the resource's region, the Auto Scaling, Lightsail and Global
+Accelerator APIs, and `tag:UntagResources` by ARN for everything else (a
+bucket without an ARN gets its tag set rewritten); Kubernetes sends a merge
+patch with null labels. The untag IAM actions live in
+`permissions/aws/tagctl-apply-untag-policy.json`, an opt-in managed policy of
+the apply template (`AllowTagRemoval`): the role's inline policies have no
+room for them. `TestUntagPolicy_MirrorsEveryApplyAction` fails when a service
+gains a tag write action without its untag counterpart.
 
 Provider status has one table, "Provider Status" in `docs/development.mdx`.
 README, CONTRIBUTING, `tagctl.yaml.example`, the `init` templates and the docs
@@ -448,7 +487,8 @@ Checklist:
 6. Pinned tests: `TestRegionalListers`/`TestGlobalListers`,
    `TestGetResourceType_AllSupportedServices`, `TestTaggingIdentifier`
 7. IAM: read actions in `tagctl-scan-policy.json`, write action in
-   `tagctl-apply-policy.json` on the Service Authorization Reference ARN
+   `tagctl-apply-policy.json` and its untag counterpart in
+   `tagctl-apply-untag-policy.json`, on the Service Authorization Reference ARN
    pattern (`"*"` only via `unscopedWriteActions`), `make iam-templates`, same
    JSON in `docs/providers/aws.mdx`. `TestPermissionPolicies_*` pins the
    copies, API coverage and the 10,240-character inline limit
@@ -478,8 +518,13 @@ Checklist:
 2. Add parsing and validation for it (`RulesConfig.validate`), with cases in
    `TestValidate_PolicyRulesAndIgnore`
 3. Add processing in `internal/engine/planner.go`
-4. Document it in `docs/rules.mdx`, `docs/configuration.mdx` and
-   `tagctl.yaml.example`
+4. Document it in `docs/rules.mdx`, `docs/configuration.mdx`,
+   `tagctl.yaml.example` and the `init` template
+   (`internal/cli/templates/default.yaml`), and count it in
+   `validationReport.checkRules`
+5. A rule that removes tags emits `types.ActionRemove` with `OldValue` set and
+   never overwrites: report what it cannot do in `Plan.Conflicts` or
+   `Plan.Warnings` instead of guessing
 
 A new `rules.inherit` relation is a constant in `types.ParentRelations`
 (`internal/types/resource.go`), set by the provider from a field the list call

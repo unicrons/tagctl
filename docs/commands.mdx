@@ -491,7 +491,8 @@ never pick up example data as a real plan.
 |--------|---------|
 | `+` | Tag will be added |
 | `~` | Tag will be updated |
-| `-` | Tag will be removed (`apply` rejects plans with removals) |
+| `-` | Tag will be removed; the value shown is the one it holds today |
+| `!` | Rename skipped as a conflict: the target key already holds another value. Listed under `Conflicts`, after the summary |
 
 ### Change Reasons
 
@@ -500,6 +501,12 @@ never pick up example data as a real plan.
 | `inferred` | Value derived from the resource name or from another tag on it |
 | `inherited` | Value copied from the parent resource by `rules.inherit` |
 | `default` | Default value applied |
+| `renamed` | Key renamed by `rules.rename`: an `add` of the new key and a `remove` of the old one |
+| `forbidden` | Tag removed because `policy.forbidden` forbids it |
+
+The plan JSON carries the skipped renames under `conflicts` (resource, `from`,
+`value`, `to`, `existing_value`), their count in `summary.conflicts`, and the
+rules that could not be applied under `warnings`.
 
 ## tagctl apply
 
@@ -513,10 +520,30 @@ This is the only command that writes to the cloud. The shipped `TagctlScan`
 role cannot run it; assume `TagctlApply` for this run with `--role` (see
 [Scan role vs apply role](/credentials#scan-role-vs-apply-role)).
 
-`apply` only adds and updates tags. A plan with any other action (for example
-a hand-edited `remove`) is rejected when it is loaded, before the confirmation
-prompt, and nothing is written. Interrupting a run (Ctrl-C) stops sending
-changes: the ones not sent yet are reported as failed with `context canceled`.
+`apply` adds, updates and removes tags. A plan with any other action, a change
+without a tag name or a tag that one resource both sets and removes is
+rejected when it is loaded, before the confirmation prompt, and nothing is
+written. Interrupting a run (Ctrl-C) stops sending changes: the ones not sent
+yet are reported as failed with `context canceled`.
+
+Removals cannot be undone from the plan, so the summary before the prompt
+counts them apart and lists the first 20 with the value each tag holds:
+
+```
+Changes to apply:
+  • 2 resources will be modified
+  • 1 tags will be added
+  • 0 tags will be updated
+  • 2 tags will be REMOVED:
+      - Env="prod" on aws_instance i-0abc123 (renamed)
+      - temp="1" on aws_s3_bucket legacy-data-2019 (forbidden)
+```
+
+On each resource the tags to set are written first; if that fails nothing is
+removed from it, so a rename never drops the old key without the new one in
+place. Removing needs the untag permissions, which the `TagctlApply` role only
+has with [`AllowTagRemoval=true`](/providers/aws#tag-removal-opt-in); without
+them the removals fail and the additions are still applied.
 
 <ParamField path="--plan" type="string" default="latest in --output-dir">
   Plan file to apply. If not specified, uses the most recent plan.
@@ -782,6 +809,7 @@ format it accepts. A report sent to stdout with `--sarif -`, `--junit -`,
 | `missing` | Required tag not present |
 | `invalid_value` | Tag value not in allowed list |
 | `invalid_format` | Tag value doesn't match pattern |
+| `forbidden` | Tag, or the value it carries, is listed in `policy.forbidden` |
 
 ### Integration Examples
 

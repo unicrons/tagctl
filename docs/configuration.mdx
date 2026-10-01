@@ -195,6 +195,54 @@ statistics an optional tag counts only the resources that carry it: `missing`
 stays 0 and `compliance_percent` is the share of those values that are valid
 (100 when no resource carries the tag).
 
+### Forbidden Tags
+
+Tag keys that must not exist, or values a tag must not hold:
+
+```yaml
+policy:
+  forbidden:
+    # The key itself
+    - name: Env
+      description: Legacy key, replaced by environment
+
+    # Only some values
+    - name: environment
+      values: [test, sandbox]
+
+    # Only values matching a regex
+    - name: owner
+      pattern: "^(unknown|tbd)"
+```
+
+<ParamField path="name" type="string" required>
+  Tag key name, case-sensitive
+</ParamField>
+
+<ParamField path="description" type="string">
+  Human-readable description
+</ParamField>
+
+<ParamField path="values" type="string[]">
+  Forbidden values. With `values` or `pattern` the key is allowed and only a
+  matching value fails.
+</ParamField>
+
+<ParamField path="pattern" type="string">
+  Regex matching the forbidden values. A value fails when it is in `values`
+  or matches `pattern`.
+</ParamField>
+
+A resource carrying a forbidden tag gets a `FAILED` finding with reason
+`forbidden`; a resource without it gets no finding for that tag. A tag that is
+also in `required` or `optional` keeps one finding per resource: `forbidden`
+when the value is forbidden, the usual check otherwise. Forbidding such a tag
+without `values` or `pattern` is a contradiction and is rejected, as is a tag
+listed twice.
+
+`tagctl plan` proposes removing every forbidden tag it finds, and
+`tagctl apply` removes them. See [Removing Tags](/rules#removing-tags).
+
 ## Section: `rules`
 
 Defines auto-fix rules for the `plan` command. See [Rules Documentation](/rules) for details.
@@ -265,6 +313,27 @@ rules:
 with `absent` or the exact value the tag must have. Tag names keep their case
 (`tag:CostCenter` and `tag:costcenter` are different tags). See
 [Conditions](/rules#conditions).
+
+### Rename Rules
+
+Move a tag value to another key and remove the old key:
+
+```yaml
+rules:
+  rename:
+    - from: Env
+      to: environment
+
+    # Only on some resource types
+    - resource: "aws_s3_*"
+      from: CostCentre
+      to: cost-center
+```
+
+`from` and `to` are required and must differ; `resource` is an optional glob
+(see [By Resource Type](#by-resource-type)) and defaults to every type. A `to`
+that another rule renames again, or that `policy.forbidden` forbids outright,
+is rejected. See [Rename Rules](/rules#rename-rules).
 
 ## Section: `ignore`
 

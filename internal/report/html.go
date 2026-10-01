@@ -514,6 +514,8 @@ func failureLabel(reason types.ViolationReason) string {
 		return "invalid value"
 	case types.ReasonInvalidFormat:
 		return "invalid format"
+	case types.ReasonForbidden:
+		return "forbidden"
 	default:
 		return "failed"
 	}

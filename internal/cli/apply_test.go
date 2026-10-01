@@ -19,7 +19,7 @@ func TestLoadPlan_RejectsActionsApplyCannotPerform(t *testing.T) {
 	}{
 		{"add", types.ActionAdd, false},
 		{"update", types.ActionUpdate, false},
-		{"remove", types.ActionRemove, true},
+		{"remove", types.ActionRemove, false},
 		{"empty action", "", true},
 	}
 

@@ -72,42 +72,117 @@ func (p *RealPlanner) Plan(ctx context.Context, scanResult *types.ScanResult) (*
 		plan.Warnings = append(plan.Warnings, noParentsWarning)
 	}
 
-	// Track unique resources for summary
-	resourcesWithChanges := make(map[string]bool)
+	// Renames go first: a key they add or remove is settled.
+	planned := p.planRenames(plan, index)
 
 	for _, finding := range failures {
-		// Only try to fix missing tags (not invalid values for now)
-		if finding.Reason != types.ReasonMissing {
+		key := plannedKey{finding.Resource.Identity(), finding.Tag}
+		if planned[key] {
+			continue
+		}
+
+		var change *types.TagChange
+		switch finding.Reason {
+		case types.ReasonMissing:
+			change = p.tryFix(finding, index)
+		case types.ReasonForbidden:
+			change = removeForbidden(finding)
+		default:
 			log.Debug("Planner: Skipping violation for %s.%s (reason: %s)",
 				finding.Resource.ID, finding.Tag, finding.Reason)
 			continue
 		}
 
-		change := p.tryFix(finding, index)
 		if change != nil {
 			plan.Changes = append(plan.Changes, *change)
-			resourcesWithChanges[finding.Resource.Identity()] = true
-			log.Debug("Planner: Found fix for %s.%s: %s=%s (%s)",
-				finding.Resource.ID, finding.Tag, change.Tag, change.NewValue, change.Reason)
+			planned[key] = true
+			log.Debug("Planner: Found fix for %s.%s: %s %s=%s (%s)",
+				finding.Resource.ID, finding.Tag, change.Action, change.Tag, change.NewValue, change.Reason)
 		} else {
 			log.Debug("Planner: No auto-fix available for %s.%s",
 				finding.Resource.ID, finding.Tag)
 		}
 	}
 
-	// Calculate summary
-	plan.Summary = types.PlanSummary{
-		TotalResources: len(resourcesWithChanges),
-		TotalChanges:   len(plan.Changes),
-		TagsAdded:      len(plan.Changes), // All changes are additions for now
-		TagsUpdated:    0,
-		TagsRemoved:    0,
-	}
+	plan.Summary = plan.Summarize()
 
 	log.Info("Planner: Generated plan with %d changes for %d resources",
 		plan.Summary.TotalChanges, plan.Summary.TotalResources)
 
 	return plan, nil
+}
+
+// plannedKey identifies a tag of a resource that already has a change.
+type plannedKey struct{ identity, tag string }
+
+// planRenames adds the changes of every rename rule to the plan and returns
+// the tags they settle. A target key holding another value is a conflict:
+// nothing is planned for it and the old key stays.
+func (p *RealPlanner) planRenames(plan *types.Plan, index *scanIndex) map[plannedKey]bool {
+	planned := make(map[plannedKey]bool)
+	if len(p.rules.Rename) == 0 {
+		return planned
+	}
+
+	identities := make([]string, 0, len(index.resources))
+	for identity := range index.resources {
+		identities = append(identities, identity)
+	}
+	slices.Sort(identities)
+
+	targets := make(map[plannedKey]string) // value each planned add sets
+	for _, identity := range identities {
+		resource := index.resources[identity]
+		for _, rule := range p.rules.Rename {
+			value, carried := resource.Tags[rule.From]
+			from := plannedKey{identity, rule.From}
+			if !carried || planned[from] || (rule.Resource != "" && !matchGlob(rule.Resource, resource.Type)) {
+				continue
+			}
+
+			to := plannedKey{identity, rule.To}
+			existing, present := resource.Tags[rule.To]
+			if !present {
+				existing, present = targets[to]
+			}
+			if present && existing != value {
+				plan.Conflicts = append(plan.Conflicts, types.RenameConflict{
+					Resource: resource, From: rule.From, Value: value, To: rule.To, ExistingValue: existing,
+				})
+				// Settled as well: a forbidden old key keeps its value until
+				// the conflict is resolved by hand.
+				planned[from] = true
+				continue
+			}
+
+			if !present {
+				plan.Changes = append(plan.Changes, types.TagChange{
+					Resource: resource, Tag: rule.To, Action: types.ActionAdd, NewValue: value,
+					Reason: types.ReasonRenamed, Source: fmt.Sprintf("renamed from '%s'", rule.From),
+				})
+				targets[to] = value
+				planned[to] = true
+			}
+			plan.Changes = append(plan.Changes, types.TagChange{
+				Resource: resource, Tag: rule.From, Action: types.ActionRemove, OldValue: value,
+				Reason: types.ReasonRenamed, Source: fmt.Sprintf("renamed to '%s'", rule.To),
+			})
+			planned[from] = true
+		}
+	}
+	return planned
+}
+
+// removeForbidden plans the removal of a tag the policy forbids.
+func removeForbidden(finding types.Finding) *types.TagChange {
+	return &types.TagChange{
+		Resource: finding.Resource,
+		Tag:      finding.Tag,
+		Action:   types.ActionRemove,
+		OldValue: finding.Actual,
+		Reason:   types.ReasonForbiddenTag,
+		Source:   "forbidden by policy",
+	}
 }
 
 // tryFix attempts to find a fix for a missing tag finding.

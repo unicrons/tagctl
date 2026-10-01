@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -100,14 +101,30 @@ func (a *RealApplier) SetCallback(cb ApplyCallback) {
 	a.callback = cb
 }
 
-// ValidatePlan returns an error for the first change that is not an add or an
-// update, the only actions the applier performs.
+// ValidatePlan returns an error for the first change the applier cannot
+// perform: an unknown action, a tag without a name, or a tag that one
+// resource is asked to both set and remove.
 func ValidatePlan(plan *types.Plan) error {
+	type key struct{ identity, tag string }
+	removed := make(map[key]bool, len(plan.Changes))
 	for _, c := range plan.Changes {
-		if c.Action != types.ActionAdd && c.Action != types.ActionUpdate {
-			return fmt.Errorf("unsupported action %q for tag %q on %s: apply only adds and updates tags",
-				c.Action, c.Tag, c.Resource.Identity())
+		identity := c.Resource.Identity()
+		switch c.Action {
+		case types.ActionAdd, types.ActionUpdate, types.ActionRemove:
+		default:
+			return fmt.Errorf("unsupported action %q for tag %q on %s: apply only adds, updates and removes tags",
+				c.Action, c.Tag, identity)
 		}
+		if c.Tag == "" {
+			return fmt.Errorf("%s change without a tag name on %s", c.Action, identity)
+		}
+
+		k := key{identity, c.Tag}
+		removing := c.Action == types.ActionRemove
+		if previous, seen := removed[k]; seen && previous != removing {
+			return fmt.Errorf("tag %q on %s is both set and removed by the plan", c.Tag, identity)
+		}
+		removed[k] = removing
 	}
 	return nil
 }
@@ -136,10 +153,14 @@ func (a *RealApplier) Apply(ctx context.Context, plan *types.Plan) (*ApplyResult
 	sem := make(chan struct{}, a.concurrency)
 	var wg sync.WaitGroup
 	var mu sync.Mutex
-	record := func(changes []types.TagChange, err error) {
+	record := func(changes []types.TagChange, setErr, removeErr error) {
 		mu.Lock()
 		defer mu.Unlock()
 		for _, change := range changes {
+			err := setErr
+			if change.Action == types.ActionRemove {
+				err = removeErr
+			}
 			if err != nil {
 				result.Errors = append(result.Errors, ApplyError{Change: change, Error: err.Error()})
 			}
@@ -153,12 +174,13 @@ func (a *RealApplier) Apply(ctx context.Context, plan *types.Plan) (*ApplyResult
 		select {
 		case sem <- struct{}{}:
 		case <-ctx.Done():
-			record(changes, ctx.Err())
+			record(changes, ctx.Err(), ctx.Err())
 			continue
 		}
 		wg.Go(func() {
 			defer func() { <-sem }()
-			record(changes, a.applyResourceChanges(ctx, changes))
+			setErr, removeErr := a.applyResourceChanges(ctx, changes)
+			record(changes, setErr, removeErr)
 		})
 	}
 	wg.Wait()
@@ -169,24 +191,51 @@ func (a *RealApplier) Apply(ctx context.Context, plan *types.Plan) (*ApplyResult
 	return result, nil
 }
 
-// applyResourceChanges applies every tag change for a single resource in one
-// provider call.
-func (a *RealApplier) applyResourceChanges(ctx context.Context, changes []types.TagChange) error {
+// applyResourceChanges applies every tag change for a single resource: one
+// provider call for the tags to set, then one for the keys to remove. It
+// returns the error of each half. Nothing is removed when setting failed, so
+// a rename never drops the old key without the new one in place.
+func (a *RealApplier) applyResourceChanges(ctx context.Context, changes []types.TagChange) (setErr, removeErr error) {
 	// select picks at random, so a slot can still be handed out after cancel.
 	if err := ctx.Err(); err != nil {
-		return err
+		return err, err
 	}
 
 	resource := changes[0].Resource
 	p, ok := a.providers[providerKey(resource.Provider, resource.Account)]
 	if !ok {
-		return fmt.Errorf("no %s provider configured for account %q", resource.Provider, resource.Account)
+		err := fmt.Errorf("no %s provider configured for account %q", resource.Provider, resource.Account)
+		return err, err
 	}
 
 	tags := make(map[string]string, len(changes))
+	var remove []string
 	for _, change := range changes {
-		tags[change.Tag] = change.NewValue
+		if change.Action == types.ActionRemove {
+			remove = append(remove, change.Tag)
+		} else {
+			tags[change.Tag] = change.NewValue
+		}
 	}
+
+	if len(tags) > 0 {
+		if setErr = setTags(ctx, p, resource, tags); setErr != nil {
+			return setErr, fmt.Errorf("not removed: setting the other tags of the resource failed: %w", setErr)
+		}
+	}
+	if len(remove) == 0 {
+		return nil, nil
+	}
+	remover, ok := p.(provider.TagRemover)
+	if !ok {
+		return nil, fmt.Errorf("the %s provider cannot remove tags", resource.Provider)
+	}
+	slices.Sort(remove)
+	return nil, remover.RemoveTags(ctx, resource, remove)
+}
+
+// setTags hands the plan's region to the providers that need one.
+func setTags(ctx context.Context, p provider.Provider, resource types.Resource, tags map[string]string) error {
 	if regional, ok := p.(regionalTagger); ok {
 		return regional.ApplyTagsInRegion(ctx, taggingIdentifier(resource), resource.Region, tags)
 	}
