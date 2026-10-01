@@ -43,7 +43,7 @@ func (p *Provider) listSNSTopicsFrom(ctx context.Context, client snsAPI, region 
 		}
 	}
 
-	resources := forEachConcurrently(arns, func(arn string) []types.Resource {
+	resources := forEachConcurrently(ctx, arns, func(arn string) []types.Resource {
 		name := nameFromARN(arn)
 		tags, err := p.resourceTags(ctx, region, arn, func() (map[string]string, error) {
 			return getSNSTags(ctx, client, arn)

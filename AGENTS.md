@@ -295,7 +295,8 @@ a scan file counts resources but has neither (written before the inventory).
   runs at most `maxConcurrentListers` (32) listers at once and starts none
   once the context is cancelled (that one context error per account counts
   the listers not started); each per-resource fan-out has its own
-  `maxConcurrentAPICalls` (16) pool (ECS nests two, up to 256 calls on one
+  `maxConcurrentAPICalls` (16) pool that takes the scan `ctx` and dispatches
+  no further item once it is cancelled (ECS nests two, up to 256 calls on one
   client) and the tag sweeps run outside both, so never take a lister slot
   from inside a lister.
 - **AWS auth**: `aws.New` relies on `config.LoadDefaultConfig` (SDK chain);

@@ -47,7 +47,7 @@ func (p *Provider) listSQSQueuesFrom(ctx context.Context, client sqsAPI, region 
 		}
 	}
 
-	resources := forEachConcurrently(queueURLs, func(queueURL string) []types.Resource {
+	resources := forEachConcurrently(ctx, queueURLs, func(queueURL string) []types.Resource {
 		name := nameFromARN(queueURL)
 		arn, err := getSQSQueueARN(ctx, client, queueURL)
 		if err != nil {

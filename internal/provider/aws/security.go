@@ -307,7 +307,7 @@ func (p *Provider) listDetectorsFrom(ctx context.Context, client guardDutyAPI, r
 		ids = append(ids, output.DetectorIds...)
 	}
 
-	resources := forEachConcurrently(ids, func(id string) []types.Resource {
+	resources := forEachConcurrently(ctx, ids, func(id string) []types.Resource {
 		detector, err := client.GetDetector(ctx, &guardduty.GetDetectorInput{DetectorId: aws.String(id)})
 		if err != nil {
 			p.skipResource(ctx, "GuardDuty", region, "detector "+id, err)

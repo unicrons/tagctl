@@ -130,7 +130,7 @@ func (p *Provider) listAcceleratorsFrom(ctx context.Context, client globalAccele
 		accelerators = append(accelerators, output.Accelerators...)
 	}
 
-	resources := forEachConcurrently(accelerators, func(a gatypes.Accelerator) []types.Resource {
+	resources := forEachConcurrently(ctx, accelerators, func(a gatypes.Accelerator) []types.Resource {
 		arn := aws.ToString(a.AcceleratorArn)
 		output, err := client.ListTagsForResource(ctx, &globalaccelerator.ListTagsForResourceInput{ResourceArn: aws.String(arn)})
 		if err != nil {

@@ -150,7 +150,7 @@ func (p *Provider) listDataPipelinesFrom(ctx context.Context, client dataPipelin
 		marker = output.Marker
 	}
 
-	resources := forEachConcurrently(chunk(ids, dataPipelineDescribeBatch), func(batch []string) []types.Resource {
+	resources := forEachConcurrently(ctx, chunk(ids, dataPipelineDescribeBatch), func(batch []string) []types.Resource {
 		return p.describePipelines(ctx, client, region, batch)
 	})
 	log.Debug("AWS Data Pipeline: Found %d pipelines in %s", len(resources), region)

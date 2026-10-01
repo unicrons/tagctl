@@ -52,7 +52,7 @@ func (p *Provider) listECRRepositoriesFrom(ctx context.Context, client ecrAPI, r
 		}
 	}
 
-	resources := forEachConcurrently(repos, func(r ecrRepository) []types.Resource {
+	resources := forEachConcurrently(ctx, repos, func(r ecrRepository) []types.Resource {
 		tags, err := p.resourceTags(ctx, region, r.arn, func() (map[string]string, error) {
 			output, err := client.ListTagsForResource(ctx, &ecr.ListTagsForResourceInput{ResourceArn: aws.String(r.arn)})
 			if err != nil {

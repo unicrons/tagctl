@@ -71,7 +71,7 @@ func (p *Provider) listECSResourcesFrom(ctx context.Context, client ecsAPI, regi
 	}
 	clusterCount := len(resources)
 
-	resources = append(resources, forEachConcurrently(clusterARNs, func(clusterARN string) []types.Resource {
+	resources = append(resources, forEachConcurrently(ctx, clusterARNs, func(clusterARN string) []types.Resource {
 		svcs, err := p.listECSServices(ctx, client, region, clusterARN)
 		if err != nil {
 			p.skipResource(ctx, "ECS", region, "services of cluster "+nameFromARN(clusterARN), err)
@@ -97,7 +97,7 @@ func (p *Provider) listECSServices(ctx context.Context, client ecsAPI, region, c
 	}
 
 	clusterName := nameFromARN(clusterARN)
-	resources := forEachConcurrently(chunk(serviceARNs, ecsServicesPerDescribe), func(batch []string) []types.Resource {
+	resources := forEachConcurrently(ctx, chunk(serviceARNs, ecsServicesPerDescribe), func(batch []string) []types.Resource {
 		output, err := client.DescribeServices(ctx, &ecs.DescribeServicesInput{
 			Cluster:  aws.String(clusterARN),
 			Services: batch,

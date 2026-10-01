@@ -42,7 +42,7 @@ func (p *Provider) listKMSKeysFrom(ctx context.Context, client kmsAPI, region st
 		}
 	}
 
-	resources := forEachConcurrently(keyIDs, func(keyID string) []types.Resource {
+	resources := forEachConcurrently(ctx, keyIDs, func(keyID string) []types.Resource {
 		desc, err := client.DescribeKey(ctx, &kms.DescribeKeyInput{KeyId: aws.String(keyID)})
 		if err != nil || desc.KeyMetadata == nil {
 			p.skipResource(ctx, "KMS", region, "key "+keyID, err)

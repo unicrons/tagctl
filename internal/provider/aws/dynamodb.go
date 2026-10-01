@@ -38,7 +38,7 @@ func (p *Provider) listDynamoDBTablesFrom(ctx context.Context, client dynamoDBAP
 		names = append(names, output.TableNames...)
 	}
 
-	resources := forEachConcurrently(names, func(name string) []types.Resource {
+	resources := forEachConcurrently(ctx, names, func(name string) []types.Resource {
 		arn := p.buildARN("dynamodb", region, p.accountID, "table/"+name)
 
 		tags, err := p.resourceTags(ctx, region, arn, func() (map[string]string, error) {

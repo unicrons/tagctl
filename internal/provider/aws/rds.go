@@ -39,7 +39,7 @@ func (p *Provider) listRDSInstancesFrom(ctx context.Context, client rdsInstanceA
 		instances = append(instances, output.DBInstances...)
 	}
 
-	resources := forEachConcurrently(instances, func(inst rdstypes.DBInstance) []types.Resource {
+	resources := forEachConcurrently(ctx, instances, func(inst rdstypes.DBInstance) []types.Resource {
 		id, arn := aws.ToString(inst.DBInstanceIdentifier), aws.ToString(inst.DBInstanceArn)
 		tags, err := p.resourceTags(ctx, region, arn, func() (map[string]string, error) {
 			return getRDSTags(ctx, client, arn)

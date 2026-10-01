@@ -120,7 +120,7 @@ func TestDiscover_BoundsListersAcrossRegionsAndFinishesTheirFanOuts(t *testing.T
 			return nil, errors.New("lister slots never filled")
 		}
 		time.Sleep(time.Millisecond)
-		return forEachConcurrently(items, func(int) []types.Resource { return one(types.Resource{}) }), nil
+		return forEachConcurrently(context.Background(), items, func(int) []types.Resource { return one(types.Resource{}) }), nil
 	}
 
 	var globals []globalLister
@@ -183,6 +183,61 @@ func TestDiscover_StartsNoQueuedListerOnceCancelled(t *testing.T) {
 	want := []string{fmt.Sprintf("account 123456789012: discovery interrupted, %d lister(s) not started: context canceled", maxConcurrentListers)}
 	if !slices.Equal(accountErrs, want) {
 		t.Errorf("account-level errors = %q\nwant one context error %q", accountErrs, want)
+	}
+}
+
+func TestForEachConcurrently_StopsDispatchingOnceCancelled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	items := make([]int, 10*maxConcurrentAPICalls)
+
+	var started atomic.Int64
+	resources := forEachConcurrently(ctx, items, func(int) []types.Resource {
+		if started.Add(1) == maxConcurrentAPICalls {
+			cancel()
+		}
+		<-ctx.Done()
+		return one(types.Resource{})
+	})
+
+	if got := started.Load(); got != maxConcurrentAPICalls {
+		t.Errorf("%d items dispatched, want only the %d in flight at the cancel", got, maxConcurrentAPICalls)
+	}
+	if len(resources) != maxConcurrentAPICalls {
+		t.Errorf("got %d resources, want the %d the in-flight calls returned", len(resources), maxConcurrentAPICalls)
+	}
+}
+
+func TestForEachConcurrently_CancelledBeforeTheFirstItemRunsNothing(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	resources := forEachConcurrently(ctx, []int{1, 2, 3}, func(int) []types.Resource {
+		t.Error("item dispatched after the cancel")
+		return nil
+	})
+
+	if len(resources) != 0 {
+		t.Errorf("got %d resources, want none", len(resources))
+	}
+}
+
+func TestForEachConcurrently_BoundsCallsInFlightAndReturnsEveryResult(t *testing.T) {
+	items := make([]int, 5*maxConcurrentAPICalls)
+	var inFlight, peak atomic.Int64
+
+	resources := forEachConcurrently(context.Background(), items, func(int) []types.Resource {
+		raiseTo(&peak, inFlight.Add(1))
+		defer inFlight.Add(-1)
+		time.Sleep(time.Millisecond)
+		return one(types.Resource{})
+	})
+
+	if len(resources) != len(items) {
+		t.Errorf("got %d resources, want %d", len(resources), len(items))
+	}
+	if got := peak.Load(); got > maxConcurrentAPICalls {
+		t.Errorf("peak of %d calls in flight, want at most %d", got, maxConcurrentAPICalls)
 	}
 }
 

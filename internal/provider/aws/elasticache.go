@@ -52,7 +52,7 @@ func (p *Provider) listElastiCacheClustersFrom(ctx context.Context, client elast
 		}
 	}
 
-	resources := forEachConcurrently(clusters, func(c elastiCacheCluster) []types.Resource {
+	resources := forEachConcurrently(ctx, clusters, func(c elastiCacheCluster) []types.Resource {
 		tags, err := p.resourceTags(ctx, region, c.arn, func() (map[string]string, error) {
 			output, err := client.ListTagsForResource(ctx, &elasticache.ListTagsForResourceInput{ResourceName: aws.String(c.arn)})
 			if err != nil {
