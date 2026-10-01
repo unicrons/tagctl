@@ -262,7 +262,9 @@ Inputs, the `exit-code` output, OIDC setup and SARIF upload are in the
 Bug reports and pull requests are welcome. The [contributing guide](CONTRIBUTING.md)
 and [development docs](docs/development.mdx) cover the setup (`make setup`, or
 the dev container in `.devcontainer/`), the checks CI runs (`make check`) and
-the commit conventions. Participation follows the
+the commit conventions. Looking for somewhere to start? Pick a
+[good first issue](https://github.com/unicrons/tagctl/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22).
+Participation follows the
 [Code of Conduct](CODE_OF_CONDUCT.md); report vulnerabilities privately as
 [SECURITY.md](SECURITY.md) describes, not in a public issue.
 
