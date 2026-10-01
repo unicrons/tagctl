@@ -135,6 +135,7 @@ func (s *Spinner) Fail(message string) {
 
 // ProgressBar provides a terminal progress bar.
 type ProgressBar struct {
+	out       io.Writer
 	total     int
 	current   int
 	message   string
@@ -154,6 +155,7 @@ func NewProgressBar(total int, message string) *ProgressBar {
 	}
 
 	return &ProgressBar{
+		out:       os.Stderr,
 		total:     total,
 		message:   message,
 		width:     width,
@@ -193,19 +195,24 @@ func (p *ProgressBar) SetMessage(message string) {
 	p.render()
 }
 
+// percent is the completed share, 0 to 100. A bar with nothing to do is at 0.
+func (p *ProgressBar) percent() float64 {
+	if p.total <= 0 {
+		return 0
+	}
+	return min(max(float64(p.current)/float64(p.total)*100, 0), 100)
+}
+
 // render draws the progress bar to the terminal.
 func (p *ProgressBar) render() {
-	percent := float64(p.current) / float64(p.total) * 100
-	if percent > 100 {
-		percent = 100
-	}
+	percent := p.percent()
 
 	filled := int(float64(p.width) * percent / 100)
 	empty := p.width - filled
 
 	bar := strings.Repeat("█", filled) + strings.Repeat("░", empty)
 
-	fmt.Fprintf(os.Stderr, "\r%s%s%s %s[%s]%s %s%.0f%%%s (%d/%d)",
+	fmt.Fprintf(p.out, "\r%s%s%s %s[%s]%s %s%.0f%%%s (%d/%d)",
 		colorCyan, p.message, colorReset,
 		colorDim, bar, colorReset,
 		colorBold, percent, colorReset,
@@ -218,12 +225,12 @@ func (p *ProgressBar) Finish() {
 	defer p.mu.Unlock()
 	p.current = p.total
 	p.render()
-	fmt.Fprintln(os.Stderr)
+	fmt.Fprintln(p.out)
 }
 
 // Clear removes the progress bar from the terminal.
 func (p *ProgressBar) Clear() {
-	fmt.Fprintf(os.Stderr, "\r%s\r", strings.Repeat(" ", 100))
+	fmt.Fprintf(p.out, "\r%s\r", strings.Repeat(" ", 100))
 }
 
 // StatusLine provides a simple status line that can be updated.

@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -60,4 +61,40 @@ func TestSpinnerStopReleasesLogLine(t *testing.T) {
 	if strings.Contains(buf.String(), "working") {
 		t.Errorf("spinner still redrawn after Stop: %q", buf.String())
 	}
+}
+
+func TestProgressBar_RendersWithoutWorkOrOutOfRange(t *testing.T) {
+	tests := []struct {
+		name           string
+		total, current int
+		want           string
+	}{
+		{name: "nothing to do", total: 0, current: 0, want: "0% "},
+		{name: "advanced with nothing to do", total: 0, current: 3, want: "0% "},
+		{name: "negative total", total: -1, current: 1, want: "0% "},
+		{name: "negative progress", total: 4, current: -2, want: "0% "},
+		{name: "half way", total: 4, current: 2, want: "50% "},
+		{name: "past the end", total: 4, current: 9, want: "100% "},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			bar := &ProgressBar{out: &buf, total: tt.total, width: 10}
+			bar.SetCurrent(tt.current)
+
+			out := stripANSI(buf.String())
+			if !strings.Contains(out, "] "+tt.want) {
+				t.Errorf("rendered %q, want it to show %q", out, tt.want)
+			}
+			if got := strings.Count(out, "█") + strings.Count(out, "░"); got != 10 {
+				t.Errorf("bar is %d cells wide, want 10: %q", got, out)
+			}
+		})
+	}
+}
+
+// stripANSI removes SGR colour sequences.
+func stripANSI(s string) string {
+	return regexp.MustCompile("\x1b\\[[0-9;]*m").ReplaceAllString(s, "")
 }
