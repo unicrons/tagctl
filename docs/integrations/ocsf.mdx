@@ -118,7 +118,7 @@ class, or carries information a consumer would otherwise have to reconstruct.
 |-----------|-------|
 | `metadata.version` | `1.4.0` |
 | `metadata.product` | `name` `tagctl`, `vendor_name` `tagctl`, `version` the tagctl build, `url_string` the repository |
-| `metadata.profiles` | `["cloud"]`, since every event carries the `cloud` object |
+| `metadata.profiles` | `["cloud", "datetime"]`, since every event carries the `cloud` object and `time_dt` |
 | `osint` | `[]`. The schema marks it required for this class; tagctl has no threat intelligence to attach, so it is present and empty rather than missing |
 
 ### Not mapped
@@ -187,7 +187,7 @@ them `owner`:
       "version": "0.4.0",
       "url_string": "https://github.com/unicrons/tagctl"
     },
-    "profiles": ["cloud"]
+    "profiles": ["cloud", "datetime"]
   },
   "observables": [
     {

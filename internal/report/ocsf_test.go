@@ -3,6 +3,7 @@ package report
 import (
 	"bytes"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/unicrons/tagctl/internal/types"
@@ -48,6 +49,15 @@ func TestWriteOCSF_ClassIdentity(t *testing.T) {
 		if e.Time != scanOf().ScannedAt.UnixMilli() {
 			t.Errorf("time = %d, want the scan time in epoch milliseconds", e.Time)
 		}
+	}
+}
+
+func TestWriteOCSF_DeclaresTheProfilesItsFieldsUse(t *testing.T) {
+	events := decodeOCSF(t, scanOf(passed("i-1", "aws_instance", "111", tagOwner)))
+
+	got := strings.Join(events[0].Metadata.Profiles, ",")
+	if got != "cloud,datetime" {
+		t.Errorf("metadata.profiles = %q, want cloud,datetime (cloud object and time_dt)", got)
 	}
 }
 

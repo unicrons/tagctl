@@ -27,8 +27,29 @@ type SARIFLog struct {
 
 // SARIFRun is a single tool invocation.
 type SARIFRun struct {
-	Tool    SARIFTool     `json:"tool"`
-	Results []SARIFResult `json:"results"`
+	Tool              SARIFTool               `json:"tool"`
+	AutomationDetails *SARIFAutomationDetails `json:"automationDetails,omitempty"`
+	Invocations       []SARIFInvocation       `json:"invocations"`
+	Results           []SARIFResult           `json:"results"`
+}
+
+// SARIFAutomationDetails names the analysis a run belongs to. Code scanning
+// uses the id as the category, so runs of different commands do not close
+// each other's alerts.
+type SARIFAutomationDetails struct {
+	ID string `json:"id"`
+}
+
+// SARIFInvocation records whether the run covered everything it was asked to.
+type SARIFInvocation struct {
+	ExecutionSuccessful        bool                `json:"executionSuccessful"`
+	ToolExecutionNotifications []SARIFNotification `json:"toolExecutionNotifications,omitempty"`
+}
+
+// SARIFNotification is a problem the tool hit while running.
+type SARIFNotification struct {
+	Level   string    `json:"level"`
+	Message SARIFText `json:"message"`
 }
 
 // SARIFTool identifies the tool that produced the run.
@@ -119,6 +140,10 @@ type SARIFOptions struct {
 	// PolicyFile is the path results are anchored to. Defaults to tagctl.yaml.
 	PolicyFile string
 
+	// Command is the tagctl command that produced the run, recorded as
+	// automationDetails.id tagctl/<command>/. Empty omits it.
+	Command string
+
 	// Version is the tagctl version recorded in the document.
 	Version string
 }
@@ -150,7 +175,9 @@ func WriteSARIF(w io.Writer, scan *types.ScanResult, opts SARIFOptions) error {
 						Rules:          rulesFor(failures),
 					},
 				},
-				Results: resultsFor(failures, policyFile),
+				AutomationDetails: automationDetails(opts.Command),
+				Invocations:       []SARIFInvocation{invocationOf(scan)},
+				Results:           resultsFor(failures, policyFile),
 			},
 		},
 	}
@@ -158,6 +185,26 @@ func WriteSARIF(w io.Writer, scan *types.ScanResult, opts SARIFOptions) error {
 	encoder := json.NewEncoder(w)
 	encoder.SetIndent("", "  ")
 	return encoder.Encode(log)
+}
+
+func automationDetails(command string) *SARIFAutomationDetails {
+	if command == "" {
+		return nil
+	}
+	return &SARIFAutomationDetails{ID: toolName + "/" + command + "/"}
+}
+
+// invocationOf marks a partial scan unsuccessful, so code scanning does not
+// treat the alerts missing from it as fixed.
+func invocationOf(scan *types.ScanResult) SARIFInvocation {
+	invocation := SARIFInvocation{ExecutionSuccessful: !scan.Partial}
+	for _, scanErr := range scan.Errors {
+		invocation.ToolExecutionNotifications = append(invocation.ToolExecutionNotifications, SARIFNotification{
+			Level:   "error",
+			Message: SARIFText{Text: scanErr},
+		})
+	}
+	return invocation
 }
 
 // ruleID is the stable SARIF rule identifier for a tag.

@@ -59,7 +59,7 @@ func runEvaluate(cmd *cobra.Command, args []string) error {
 	log.Debug("Evaluate: Loaded %d resources from %s", len(resources), resourcesPath)
 
 	// 2. Load configuration/policy
-	cfg, err := loadConfigFromPath(policyPath)
+	cfg, policyPath, err := loadConfigFromPath(policyPath)
 	if err != nil {
 		return fmt.Errorf("failed to load policy: %w", err)
 	}
@@ -150,27 +150,27 @@ func loadResourcesFromJSON(path string) ([]types.Resource, error) {
 }
 
 // loadConfigFromPath loads and validates the policy at path, or the
-// auto-discovered config file when path is empty.
-func loadConfigFromPath(path string) (*config.Config, error) {
+// auto-discovered config file when path is empty, and returns the path read.
+func loadConfigFromPath(path string) (*config.Config, string, error) {
 	if path == "" {
 		path = viper.ConfigFileUsed()
 	}
 	if path == "" {
-		return nil, fmt.Errorf("no policy file found. Specify --policy or run from a directory with tagctl.yaml")
+		return nil, "", fmt.Errorf("no policy file found. Specify --policy or run from a directory with tagctl.yaml")
 	}
 
 	log.Debug("Evaluate: Loading policy from %s", path)
 	cfg, err := config.Load(path)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	// Validate that the policy has at least some tags defined
 	if len(cfg.Policy.Required) == 0 && len(cfg.Policy.Optional) == 0 {
-		return nil, fmt.Errorf("policy has no required or optional tags defined")
+		return nil, "", fmt.Errorf("policy has no required or optional tags defined")
 	}
 
-	return cfg, nil
+	return cfg, path, nil
 }
 
 // EvaluateOutput is the JSON output format for the evaluate command.

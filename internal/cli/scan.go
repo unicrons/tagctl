@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 	"github.com/unicrons/tagctl/internal/config"
 	"github.com/unicrons/tagctl/internal/engine"
 	"github.com/unicrons/tagctl/internal/log"
@@ -123,7 +124,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 
 	// The CI reports are written before the gate runs, so a failing build
 	// still uploads its findings.
-	if reportErr := gateOpts.writeReports(result, cfgFile); reportErr != nil {
+	if reportErr := gateOpts.writeReports(result, viper.ConfigFileUsed()); reportErr != nil {
 		return reportErr
 	}
 

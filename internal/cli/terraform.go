@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 
 	"github.com/unicrons/tagctl/internal/engine"
 	"github.com/unicrons/tagctl/internal/log"
@@ -100,10 +101,13 @@ func runTerraform(cmd *cobra.Command, args []string) error {
 		if changedOnly {
 			fmt.Fprintln(os.Stderr, "With --changed-only, only resources being created or updated are checked.")
 		}
+		empty := types.NewScanResult()
 		if format == formatJSON {
-			return printJSON(types.NewScanResult())
+			if err = printJSON(empty); err != nil {
+				return err
+			}
 		}
-		return nil
+		return gateOpts.writeReports(empty, viper.ConfigFileUsed())
 	}
 
 	cfg, err := loadConfig()
@@ -127,7 +131,7 @@ func runTerraform(cmd *cobra.Command, args []string) error {
 		printTerraformResult(result, source, changedOnly)
 	}
 
-	if reportErr := gateOpts.writeReports(result, cfgFile); reportErr != nil {
+	if reportErr := gateOpts.writeReports(result, viper.ConfigFileUsed()); reportErr != nil {
 		return reportErr
 	}
 

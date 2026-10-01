@@ -28,9 +28,11 @@ These flags work with all commands:
 
 stdout carries only the output `--output` selects, so `tagctl scan -o json | jq`
 and `tagctl scan -o csv > findings.csv` work without filtering. The banner,
-spinners, the demo mode notice, warnings, the `apply` summary and confirmation
-prompt, and notices about files written (`Detailed results saved to`,
-`Plan saved to`, `Plan written to`, `Created tagctl.yaml`) go to stderr.
+spinners, the demo mode notice, the partial scan warnings of `scan`, `plan`,
+`diff` and `--baseline`, the `apply` summary and confirmation prompt, and
+notices about files written (`Detailed results saved to`, `Plan saved to`,
+`Plan written to`, `Created tagctl.yaml`) go to stderr. `validate` prints its
+warnings on stdout, since they are part of the report it was asked for.
 
 ## Exit codes
 
@@ -301,8 +303,10 @@ HTML reports carry the failures, one entry per provider that failed:
 }
 ```
 
-Both keys are omitted from a complete scan. The CSV, SARIF, JUnit and OCSF
-reports are not marked.
+Both keys are omitted from a complete scan. The SARIF report marks a partial
+scan in `runs[0].invocations[0]`: `executionSuccessful` is `false` and each
+error is a `toolExecutionNotifications` entry. The CSV, JUnit and OCSF reports
+are not marked.
 
 Credentials are checked before discovery starts: an account whose credentials or
 role are rejected at startup stops the scan with an error and no reports.
@@ -1130,7 +1134,8 @@ from a report into a build step.
 | `--ocsf <path>` | Also write findings as OCSF Compliance Finding events (`-` for stdout) |
 
 Reports are written **before** the gate runs, so a failing build still uploads
-its findings.
+its findings. Report files are created readable only by the current user
+(`0600`), like the files in `output/`: they carry every tag value and ARN.
 
 A report written to `-` replaces the command's own stdout output (the table, or
 the JSON `evaluate` prints), so stdout holds a single document. Sending more
@@ -1176,10 +1181,19 @@ appear in the Security tab and as pull request annotations.
 - Each result carries a **partial fingerprint** of the resource and tag, so
   GitHub keeps an alert attached across scans instead of closing and reopening
   it every run.
+- `runs[0].automationDetails.id` is `tagctl/scan/`, `tagctl/evaluate/` or
+  `tagctl/terraform/`. Code scanning uses it as the category, so uploads from
+  different commands do not close each other's alerts.
+- `runs[0].invocations[0].executionSuccessful` is `false` for a
+  [partial scan](#partial-scans), with each discovery error as a
+  `toolExecutionNotifications` entry, and `true` otherwise.
 
-Cloud resources have no source file, so results are anchored to your policy file
-(`tagctl.yaml` by default, or whatever `--config` points at) and carry the
-resource identity as a SARIF *logical location*.
+Cloud resources have no source file, so results are anchored to the config file
+the command read: `--config`, the discovered `tagctl.yaml`, or `evaluate
+--policy`. The path is relative to the working directory, with forward slashes,
+so run tagctl from the repository root for GitHub to link the file. Without a
+config file the anchor is `tagctl.yaml`. Each result also carries the resource
+identity as a SARIF *logical location*.
 
 ### JUnit
 
@@ -1191,6 +1205,8 @@ JUnit XML is understood by essentially every CI system.
   than a wall of failures with no denominator.
 - Each failure body carries the resource, type, account, region, expected and
   actual values, and the ARN, so it can be acted on without opening the scan.
+- The `classname` is `provider.account.region`, leaving out the parts a
+  resource does not have: a Terraform plan gives `aws`.
 
 ### OCSF
 
