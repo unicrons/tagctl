@@ -197,7 +197,7 @@ jobs:
           node-version: '22'
 
       - name: Install Mint CLI
-        run: npm install -g mint@4.2.313
+        run: npm install -g mint@4.2.313 # zizmor: ignore[adhoc-packages] pinned CLI, no lockfile to install from
 
       - name: Validate build
         working-directory: docs
