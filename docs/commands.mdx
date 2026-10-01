@@ -1009,8 +1009,15 @@ Three signals, in decreasing order of confidence:
 | Signal | Matches | Example |
 |--------|---------|---------|
 | `casing` | Differ only in case, separators or spacing | `team-platform` / `Team_Platform` / `team platform` |
-| `typo` | Within `--max-distance` edits of each other | `staging` / `stagng` |
+| `typo` | Within `--max-distance` edits of each other, and no more than one edit per 3 letters or digits of the shorter value; the longer value needs at least 4 | `staging` / `stagng`, `prod` / `prd` |
 | `abbreviation` | One is a prefix of the other, at least 3 characters | `prod` / `production` |
+
+Groups are formed by chaining matches, so a value can join a group through
+another variant without matching the canonical spelling itself. With
+`--max-distance 1`, `stagn` is one edit from `stagng` and two from
+`staging`. Such a value is reported with the match `transitive`: it is shown
+for review, but `--out` leaves it out of the plan and it is not counted in
+"affecting N resource(s)".
 
 ### Safety rules
 
@@ -1020,10 +1027,24 @@ These are what keep the proposals trustworthy:
   canonical spelling even when a different spelling is more common.
 - **Two values the policy both allows are never collapsed into each other.**
   Without this, `dev` and `devops` would be merged, which would be wrong.
+- **Values that differ in a digit are never typos or abbreviations.**
+  `us-east-1` / `us-east-2` and `build-10` / `build-100` stay apart. A typo in
+  the letters still counts: `backend-1` / `backnd-1`.
+- **Short values need a closer match.** `us` / `uk`, `api` / `app` and, at
+  `--max-distance 2`, `test` / `temp` are not typos of each other, while
+  `prod` / `prd` is.
 - **The `Name` tag is always skipped.** Its values are unique by design, so
   clustering it would propose renaming half the estate.
 - **Nothing is written.** `normalize` reports, and optionally emits a plan you
   review before running `apply`.
+
+### Known limits
+
+Values one letter apart are grouped once they are long enough, even when they
+mean different things: `team-a` / `team-b` and `data` / `date` are reported as
+typos. Review each cluster before applying a plan. To keep such values apart,
+list both in the tag's policy `values` (two allowed values are never collapsed),
+or skip the tag with `ignore_tags` or `--ignore-tag`.
 
 ### Choosing the canonical value
 
@@ -1051,6 +1072,33 @@ Found 3 cluster(s) of inconsistent values, affecting 16 resource(s):
   team → "platform"  (most common, 22 resources)
       "Platform"                 5 resources [casing]
 ```
+
+### JSON output
+
+`--output json` prints the same clusters. Each variant's `match` is `casing`,
+`typo`, `abbreviation` or `transitive`, as described above:
+
+```json
+{
+  "clusters": [
+    {
+      "tag": "environment",
+      "canonical": "staging",
+      "canonical_count": 5,
+      "canonical_from_policy": false,
+      "variants": [
+        { "value": "stagng", "count": 2, "match": "typo", "resources": [] },
+        { "value": "stagn", "count": 1, "match": "transitive", "resources": [] }
+      ]
+    }
+  ],
+  "resources_scanned": 8,
+  "tags_scanned": 1
+}
+```
+
+`resources` lists the full resource objects carrying each variant; it is
+shortened to `[]` here.
 
 ### Configuration
 

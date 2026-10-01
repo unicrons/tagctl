@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -28,8 +29,15 @@ that a missing-tag check never catches.
 
 Values are grouped by three signals:
   • casing        — they differ only in case, separators or spacing
-  • typo          — they are within the configured edit distance
+  • typo          — they are within the configured edit distance, with at most
+                    one edit per 3 letters or digits of the shorter value
+                    ("prod" / "prd")
   • abbreviation  — one is a prefix of the other ("prod" / "production")
+
+Values with different digits never match, so "us-east-1", "us-east-2" and
+"us-east-10" stay apart. A value that joined a group through another variant,
+without matching the canonical spelling itself, is reported as "transitive" and
+left out of the plan.
 
 A value your policy already allows is never rewritten, and is preferred as the
 canonical spelling. Two values the policy both allows are never collapsed into
@@ -266,14 +274,14 @@ func printNormalizeTable(result *types.NormalizeResult, source string) {
 		fmt.Println()
 	}
 
-	printNormalizeExamples(result)
+	writeNormalizeExamples(os.Stdout, result)
 
 	fmt.Println("Run with --out <file> to write a plan, then 'tagctl apply' to fix them.")
 }
 
-// printNormalizeExamples names a few affected resources, so the report can be
+// writeNormalizeExamples names a few affected resources, so the report can be
 // sanity-checked without opening the scan file.
-func printNormalizeExamples(result *types.NormalizeResult) {
+func writeNormalizeExamples(w io.Writer, result *types.NormalizeResult) {
 	const maxExamples = 3
 
 	for _, cluster := range result.Clusters {
@@ -295,11 +303,16 @@ func printNormalizeExamples(result *types.NormalizeResult) {
 				suffix = fmt.Sprintf(" and %d more", len(ids)-maxExamples)
 			}
 
-			fmt.Printf("  %s=%q: %s%s\n", cluster.Tag, variant.Value, strings.Join(shown, ", "), suffix)
+			note := ""
+			if variant.Match == types.MatchTransitive {
+				note = " (transitive, not in the plan)"
+			}
+
+			fmt.Fprintf(w, "  %s=%q%s: %s%s\n", cluster.Tag, variant.Value, note, strings.Join(shown, ", "), suffix)
 		}
 	}
 
-	fmt.Println()
+	fmt.Fprintf(w, "\n")
 }
 
 // pluralResources agrees the noun with the count.
