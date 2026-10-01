@@ -21,7 +21,7 @@ func initConfigAt(t *testing.T, path string) (string, error) {
 	})
 
 	var err error
-	out := captureStdout(t, func() { err = runInit(initCmd, nil) })
+	out := captureStderr(t, func() { err = runInit(initCmd, nil) })
 	return out, err
 }
 

@@ -14,13 +14,24 @@ import (
 // captureStdout returns what fn printed to os.Stdout.
 func captureStdout(t *testing.T, fn func()) string {
 	t.Helper()
+	return captureStream(t, &os.Stdout, fn)
+}
+
+// captureStderr returns what fn printed to os.Stderr.
+func captureStderr(t *testing.T, fn func()) string {
+	t.Helper()
+	return captureStream(t, &os.Stderr, fn)
+}
+
+func captureStream(t *testing.T, stream **os.File, fn func()) string {
+	t.Helper()
 
 	r, w, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
 	}
-	original := os.Stdout
-	os.Stdout = w
+	original := *stream
+	*stream = w
 
 	// Reading while fn runs keeps a large output from filling the pipe.
 	out := make(chan string, 1)
@@ -31,7 +42,7 @@ func captureStdout(t *testing.T, fn func()) string {
 
 	func() {
 		defer func() {
-			os.Stdout = original
+			*stream = original
 			_ = w.Close()
 		}()
 		fn()
