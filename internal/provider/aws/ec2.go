@@ -169,8 +169,7 @@ func (p *Provider) applyEC2Tags(ctx context.Context, resourceID string, tags map
 
 	// If the resourceID is an ARN, extract the region
 	if strings.HasPrefix(resourceID, "arn:") {
-		region := extractRegionFromARN(resourceID)
-		if region != "" {
+		if region, err := regionForARN(resourceID); err == nil {
 			log.Debug("AWS EC2: Extracted region %s from ARN", region)
 			return p.applyEC2TagsInRegion(ctx, resourceID, region, tags)
 		}

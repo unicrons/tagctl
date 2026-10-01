@@ -136,8 +136,12 @@ func (p *Provider) applyECSTags(ctx context.Context, arn string, tags map[string
 		tagList = append(tagList, ecstypes.Tag{Key: aws.String(k), Value: aws.String(v)})
 	}
 
-	client := p.getECSClient(extractRegionFromARN(arn))
-	_, err := client.TagResource(ctx, &ecs.TagResourceInput{
+	region, err := regionForARN(arn)
+	if err != nil {
+		return provider.NewProviderError(providerName, "apply_ecs_tags", arn, err)
+	}
+	client := p.getECSClient(region)
+	_, err = client.TagResource(ctx, &ecs.TagResourceInput{
 		ResourceArn: aws.String(arn),
 		Tags:        tagList,
 	})

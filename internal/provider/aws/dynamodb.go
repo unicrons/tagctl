@@ -96,8 +96,12 @@ func (p *Provider) applyDynamoDBTags(ctx context.Context, arn string, tags map[s
 		tagList = append(tagList, ddbtypes.Tag{Key: aws.String(k), Value: aws.String(v)})
 	}
 
-	client := p.getDynamoDBClient(extractRegionFromARN(arn))
-	_, err := client.TagResource(ctx, &dynamodb.TagResourceInput{
+	region, err := regionForARN(arn)
+	if err != nil {
+		return provider.NewProviderError(providerName, "apply_dynamodb_tags", arn, err)
+	}
+	client := p.getDynamoDBClient(region)
+	_, err = client.TagResource(ctx, &dynamodb.TagResourceInput{
 		ResourceArn: aws.String(arn),
 		Tags:        tagList,
 	})

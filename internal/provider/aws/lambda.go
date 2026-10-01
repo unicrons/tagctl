@@ -74,18 +74,14 @@ func getLambdaTags(ctx context.Context, client lambdaAPI, arn string) (map[strin
 func (p *Provider) applyLambdaTags(ctx context.Context, functionARN string, tags map[string]string) error {
 	log.Debug("AWS Lambda: Applying tags to %s", functionARN)
 
-	// Extract region from ARN
-	region := extractRegionFromARN(functionARN)
-	if region == "" && len(p.regions) > 0 {
-		log.Debug("AWS Lambda: Could not extract region from ARN, using default %s", p.regions[0])
-		region = p.regions[0]
-	} else {
-		log.Debug("AWS Lambda: Extracted region %s from ARN", region)
+	region, err := regionForARN(functionARN)
+	if err != nil {
+		return provider.NewProviderError(providerName, "tag_lambda_function", functionARN, err)
 	}
 
 	client := p.getLambdaClient(region)
 
-	_, err := client.TagResource(ctx, &lambda.TagResourceInput{
+	_, err = client.TagResource(ctx, &lambda.TagResourceInput{
 		Resource: aws.String(functionARN),
 		Tags:     tags,
 	})

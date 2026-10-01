@@ -94,8 +94,12 @@ func (p *Provider) applyClassicELBTags(ctx context.Context, arn string, tags map
 		tagList = append(tagList, elbtypes.Tag{Key: aws.String(k), Value: aws.String(v)})
 	}
 
-	client := p.getClassicELBClient(extractRegionFromARN(arn))
-	_, err := client.AddTags(ctx, &elb.AddTagsInput{
+	region, err := regionForARN(arn)
+	if err != nil {
+		return provider.NewProviderError(providerName, "apply_classic_elb_tags", arn, err)
+	}
+	client := p.getClassicELBClient(region)
+	_, err = client.AddTags(ctx, &elb.AddTagsInput{
 		LoadBalancerNames: []string{nameFromARN(arn)},
 		Tags:              tagList,
 	})

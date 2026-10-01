@@ -2,6 +2,7 @@ package aws
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/aws/arn"
@@ -69,13 +70,9 @@ func getRDSTags(ctx context.Context, client rdsInstanceAPI, arn string) (map[str
 func (p *Provider) applyRDSTags(ctx context.Context, resourceARN string, tags map[string]string) error {
 	log.Debug("AWS RDS: Applying tags to %s", resourceARN)
 
-	// Extract region from ARN
-	region := extractRegionFromARN(resourceARN)
-	if region == "" && len(p.regions) > 0 {
-		log.Debug("AWS RDS: Could not extract region from ARN, using default %s", p.regions[0])
-		region = p.regions[0]
-	} else {
-		log.Debug("AWS RDS: Extracted region %s from ARN", region)
+	region, err := regionForARN(resourceARN)
+	if err != nil {
+		return provider.NewProviderError(providerName, "add_rds_tags", resourceARN, err)
 	}
 
 	client := p.getRDSClient(region)
@@ -88,7 +85,7 @@ func (p *Provider) applyRDSTags(ctx context.Context, resourceARN string, tags ma
 		})
 	}
 
-	_, err := client.AddTagsToResource(ctx, &rds.AddTagsToResourceInput{
+	_, err = client.AddTagsToResource(ctx, &rds.AddTagsToResourceInput{
 		ResourceName: aws.String(resourceARN),
 		Tags:         rdsTags,
 	})
@@ -102,12 +99,15 @@ func (p *Provider) applyRDSTags(ctx context.Context, resourceARN string, tags ma
 	return nil
 }
 
-// extractRegionFromARN returns the region segment of an ARN, empty when the
-// ARN has none or does not parse.
-func extractRegionFromARN(resourceARN string) string {
+// regionForARN returns the region segment of an ARN. An ARN that does not
+// parse or has no region is an error, never an empty region.
+func regionForARN(resourceARN string) (string, error) {
 	parsed, err := arn.Parse(resourceARN)
 	if err != nil {
-		return ""
+		return "", fmt.Errorf("region of %q: %w", resourceARN, err)
 	}
-	return parsed.Region
+	if parsed.Region == "" {
+		return "", fmt.Errorf("ARN %q has no region", resourceARN)
+	}
+	return parsed.Region, nil
 }

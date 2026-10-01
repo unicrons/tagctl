@@ -66,9 +66,9 @@ func (p *Provider) listAutoScalingGroupsFrom(ctx context.Context, client autosca
 
 // applyAutoScalingTags applies tags to an Auto Scaling group.
 func (p *Provider) applyAutoScalingTags(ctx context.Context, arn string, tags map[string]string) error {
-	region := extractRegionFromARN(arn)
-	if region == "" && len(p.regions) > 0 {
-		region = p.regions[0]
+	region, err := regionForARN(arn)
+	if err != nil {
+		return provider.NewProviderError(providerName, "apply_autoscaling_tags", arn, err)
 	}
 
 	// Auto Scaling tags are keyed by group name, not by ARN.
@@ -86,7 +86,7 @@ func (p *Provider) applyAutoScalingTags(ctx context.Context, arn string, tags ma
 	}
 
 	client := p.getAutoScalingClient(region)
-	_, err := client.CreateOrUpdateTags(ctx, &autoscaling.CreateOrUpdateTagsInput{
+	_, err = client.CreateOrUpdateTags(ctx, &autoscaling.CreateOrUpdateTagsInput{
 		Tags: tagList,
 	})
 	if err != nil {

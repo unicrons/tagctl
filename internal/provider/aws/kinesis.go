@@ -102,8 +102,12 @@ func getKinesisTags(ctx context.Context, client kinesisAPI, arn string) (map[str
 
 // applyKinesisTags applies tags to a Kinesis stream addressed by ARN.
 func (p *Provider) applyKinesisTags(ctx context.Context, arn string, tags map[string]string) error {
-	client := p.getKinesisClient(extractRegionFromARN(arn))
-	_, err := client.AddTagsToStream(ctx, &kinesis.AddTagsToStreamInput{
+	region, err := regionForARN(arn)
+	if err != nil {
+		return provider.NewProviderError(providerName, "apply_kinesis_tags", arn, err)
+	}
+	client := p.getKinesisClient(region)
+	_, err = client.AddTagsToStream(ctx, &kinesis.AddTagsToStreamInput{
 		StreamARN: aws.String(arn),
 		Tags:      tags,
 	})

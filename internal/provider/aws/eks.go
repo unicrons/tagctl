@@ -68,8 +68,12 @@ func (p *Provider) listEKSClustersFrom(ctx context.Context, client eksAPI, regio
 
 // applyEKSTags applies tags to an EKS cluster addressed by ARN.
 func (p *Provider) applyEKSTags(ctx context.Context, arn string, tags map[string]string) error {
-	client := p.getEKSClient(extractRegionFromARN(arn))
-	_, err := client.TagResource(ctx, &eks.TagResourceInput{
+	region, err := regionForARN(arn)
+	if err != nil {
+		return provider.NewProviderError(providerName, "apply_eks_tags", arn, err)
+	}
+	client := p.getEKSClient(region)
+	_, err = client.TagResource(ctx, &eks.TagResourceInput{
 		ResourceArn: aws.String(arn),
 		Tags:        tags,
 	})

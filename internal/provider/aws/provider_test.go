@@ -273,27 +273,62 @@ func TestGetResourceType(t *testing.T) {
 	}
 }
 
-func TestExtractRegionFromARN(t *testing.T) {
+func TestRegionForARN(t *testing.T) {
 	tests := []struct {
-		arn            string
-		expectedRegion string
+		arn     string
+		want    string
+		wantErr bool
 	}{
-		{"arn:aws:rds:us-east-1:123456789012:db:mydb", "us-east-1"},
-		{"arn:aws:lambda:eu-west-1:123456789012:function:myfunction", "eu-west-1"},
-		{"arn:aws:ec2:ap-southeast-2:123456789012:instance/i-0abc123", "ap-southeast-2"},
-		{"arn:aws-cn:rds:cn-north-1:123456789012:db:mydb", "cn-north-1"},
-		{"arn:aws-us-gov:lambda:us-gov-west-1:123456789012:function:fn", "us-gov-west-1"},
-		{"arn:aws:iam::123456789012:role/admin", ""},
-		{"arn:aws:rds:us-east-1", ""},
-		{"invalid-arn", ""},
-		{"", ""},
+		{"arn:aws:rds:us-east-1:123456789012:db:mydb", "us-east-1", false},
+		{"arn:aws:lambda:eu-west-1:123456789012:function:myfunction", "eu-west-1", false},
+		{"arn:aws-cn:rds:cn-north-1:123456789012:db:mydb", "cn-north-1", false},
+		{"arn:aws-us-gov:lambda:us-gov-west-1:123456789012:function:fn", "us-gov-west-1", false},
+		{"arn:aws:iam::123456789012:role/admin", "", true},
+		{"arn:aws:s3:::my-bucket", "", true},
+		{"arn:aws:rds:us-east-1", "", true},
+		{"invalid-arn", "", true},
+		{"", "", true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.arn, func(t *testing.T) {
-			result := extractRegionFromARN(tt.arn)
-			if result != tt.expectedRegion {
-				t.Errorf("extractRegionFromARN(%q) = %q, want %q", tt.arn, result, tt.expectedRegion)
+			got, err := regionForARN(tt.arn)
+			if (err != nil) != tt.wantErr || got != tt.want {
+				t.Errorf("regionForARN(%q) = %q, %v; want %q, error %v", tt.arn, got, err, tt.want, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestApplyTags_ServiceAppliersRejectAnARNWithoutARegion(t *testing.T) {
+	ids := []string{
+		"arn:aws:rds::123456789012:db:mydb",
+		"arn:aws:lambda::123456789012:function:fn",
+		"arn:aws:sns::123456789012:alerts",
+		"arn:aws:sqs::123456789012:jobs",
+		"arn:aws:autoscaling::123456789012:autoScalingGroup:uuid:autoScalingGroupName/web",
+		"arn:aws:dynamodb::123456789012:table/orders",
+		"arn:aws:ecs::123456789012:cluster/web",
+		"arn:aws:ecs::123456789012:service/web/api",
+		"arn:aws:eks::123456789012:cluster/prod",
+		"arn:aws:elasticache::123456789012:cluster:sessions",
+		"arn:aws:elasticfilesystem::123456789012:file-system/fs-0abc",
+		"arn:aws:ecr::123456789012:repository/api",
+		"arn:aws:kms::123456789012:key/1234abcd",
+		"arn:aws:kinesis::123456789012:stream/events",
+		"arn:aws:logs::123456789012:log-group:/aws/lambda/fn",
+		"arn:aws:lightsail::123456789012:Instance/abc",
+		"arn:aws:elasticloadbalancing::123456789012:loadbalancer/app/web/abc",
+		"arn:aws:elasticloadbalancing::123456789012:loadbalancer/classic-web",
+		"arn:aws:elasticloadbalancing::123456789012:targetgroup/web/abc",
+	}
+	// A zero Provider has no client caches: creating a client would panic.
+	p := &Provider{}
+	for _, id := range ids {
+		t.Run(id, func(t *testing.T) {
+			err := p.ApplyTags(context.Background(), id, map[string]string{"owner": "x"})
+			if err == nil || !strings.Contains(err.Error(), id) {
+				t.Errorf("ApplyTags() err = %v, want an error naming the ARN", err)
 			}
 		})
 	}

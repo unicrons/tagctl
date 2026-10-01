@@ -88,8 +88,12 @@ func (p *Provider) applyElastiCacheTags(ctx context.Context, arn string, tags ma
 		tagList = append(tagList, ectypes.Tag{Key: aws.String(k), Value: aws.String(v)})
 	}
 
-	client := p.getElastiCacheClient(extractRegionFromARN(arn))
-	_, err := client.AddTagsToResource(ctx, &elasticache.AddTagsToResourceInput{
+	region, err := regionForARN(arn)
+	if err != nil {
+		return provider.NewProviderError(providerName, "apply_elasticache_tags", arn, err)
+	}
+	client := p.getElastiCacheClient(region)
+	_, err = client.AddTagsToResource(ctx, &elasticache.AddTagsToResourceInput{
 		ResourceName: aws.String(arn),
 		Tags:         tagList,
 	})

@@ -257,9 +257,9 @@ func (p *Provider) listLightsailInstancesFrom(ctx context.Context, client lights
 // applyLightsailTags tags a Lightsail resource, which the Resource Groups
 // Tagging API does not cover. Lightsail addresses resources by name.
 func (p *Provider) applyLightsailTags(ctx context.Context, arn string, tags map[string]string) error {
-	region := extractRegionFromARN(arn)
-	if region == "" {
-		region = defaultRegion
+	region, err := regionForARN(arn)
+	if err != nil {
+		return provider.NewProviderError(providerName, "apply_lightsail_tags", arn, err)
 	}
 	return applyLightsailTagsWith(ctx, regionalClient(p, region, lightsail.NewFromConfig), arn, tags)
 }

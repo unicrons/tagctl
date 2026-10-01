@@ -314,7 +314,7 @@ func (p *Provider) applyTagsViaTaggingAPI(ctx context.Context, arn string, tags 
 // own, or the partition's global region for ARNs without one (IAM, Route 53,
 // CloudFront).
 func (p *Provider) taggingRegion(arn string) string {
-	if region := extractRegionFromARN(arn); region != "" {
+	if region, err := regionForARN(arn); err == nil {
 		return region
 	}
 	return p.globalRegion()

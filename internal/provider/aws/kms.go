@@ -107,8 +107,12 @@ func (p *Provider) applyKMSTags(ctx context.Context, arn string, tags map[string
 		tagList = append(tagList, kmstypes.Tag{TagKey: aws.String(k), TagValue: aws.String(v)})
 	}
 
-	client := p.getKMSClient(extractRegionFromARN(arn))
-	_, err := client.TagResource(ctx, &kms.TagResourceInput{
+	region, err := regionForARN(arn)
+	if err != nil {
+		return provider.NewProviderError(providerName, "apply_kms_tags", arn, err)
+	}
+	client := p.getKMSClient(region)
+	_, err = client.TagResource(ctx, &kms.TagResourceInput{
 		KeyId: aws.String(arn),
 		Tags:  tagList,
 	})
