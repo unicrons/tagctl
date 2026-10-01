@@ -54,7 +54,7 @@ internal/
 │   ├── junit.go          # JUnit XML
 │   ├── ocsf.go           # OCSF 1.4 Compliance Finding events (class 2003)
 │   ├── gate.go           # Compliance thresholds
-│   ├── findings.go       # failedFindings helper
+│   ├── findings.go       # findingMessage helper, tool name
 │   ├── html.go           # HTML report view model (templates/scan.html)
 │   └── templates/        # Embedded html/template files
 ├── terraform/parse.go    # terraform show -json parsing
@@ -221,7 +221,14 @@ const (
 ```
 
 `ScanResult` carries both `Violations` (deprecated) and `Findings`; new code should
-use `Findings`. The `violations` JSON key is kept for backwards compatibility.
+use `Findings`. The `violations` JSON key is kept for backwards compatibility. The
+evaluator checks each resource once; `Violations` is its FAILED findings in the same
+order (`type Violation Finding`). `ScanResult.FailedFindings()` falls back to
+`Violations` for scan files written before findings existed; planner, differ,
+SARIF and `terraform` read failures through it. An optional tag is checked only
+on resources that carry it: an absent one is no finding and not `missing` in
+`by_tag`, and its `compliance_percent` is the valid share of its carriers (100
+when there are none).
 
 ### Providers
 

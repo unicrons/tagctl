@@ -187,6 +187,13 @@ policy:
     - name: application
 ```
 
+An optional tag is checked only on resources that carry it. There, a value
+outside `values` or not matching `pattern` fails the same way a required tag
+does; a resource without the tag gets no finding for it. In the scan's `by_tag`
+statistics an optional tag counts only the resources that carry it: `missing`
+stays 0 and `compliance_percent` is the share of those values that are valid
+(100 when no resource carries the tag).
+
 ## Section: `rules`
 
 Defines auto-fix rules for the `plan` command. See [Rules Documentation](/rules) for details.

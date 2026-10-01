@@ -56,9 +56,10 @@ func NewPlanner(rules config.RulesConfig) (*RealPlanner, error) {
 	return p, nil
 }
 
-// Plan generates a fix plan based on scan violations and configured rules.
+// Plan generates a fix plan based on the scan's failed findings and configured rules.
 func (p *RealPlanner) Plan(ctx context.Context, scanResult *types.ScanResult) (*types.Plan, error) {
-	log.Info("Planner: Analyzing %d violations for auto-fix opportunities", len(scanResult.Violations))
+	failures := scanResult.FailedFindings()
+	log.Info("Planner: Analyzing %d violations for auto-fix opportunities", len(failures))
 
 	plan := &types.Plan{
 		ID:        fmt.Sprintf("plan-%s", time.Now().Format("20060102-150405")),
@@ -68,23 +69,23 @@ func (p *RealPlanner) Plan(ctx context.Context, scanResult *types.ScanResult) (*
 	// Track unique resources for summary
 	resourcesWithChanges := make(map[string]bool)
 
-	for _, violation := range scanResult.Violations {
+	for _, finding := range failures {
 		// Only try to fix missing tags (not invalid values for now)
-		if violation.Reason != types.ReasonMissing {
+		if finding.Reason != types.ReasonMissing {
 			log.Debug("Planner: Skipping violation for %s.%s (reason: %s)",
-				violation.Resource.ID, violation.Tag, violation.Reason)
+				finding.Resource.ID, finding.Tag, finding.Reason)
 			continue
 		}
 
-		change := p.tryFixViolation(violation)
+		change := p.tryFix(finding)
 		if change != nil {
 			plan.Changes = append(plan.Changes, *change)
-			resourcesWithChanges[violation.Resource.Identity()] = true
+			resourcesWithChanges[finding.Resource.Identity()] = true
 			log.Debug("Planner: Found fix for %s.%s: %s=%s (%s)",
-				violation.Resource.ID, violation.Tag, change.Tag, change.NewValue, change.Reason)
+				finding.Resource.ID, finding.Tag, change.Tag, change.NewValue, change.Reason)
 		} else {
 			log.Debug("Planner: No auto-fix available for %s.%s",
-				violation.Resource.ID, violation.Tag)
+				finding.Resource.ID, finding.Tag)
 		}
 	}
 
@@ -103,15 +104,15 @@ func (p *RealPlanner) Plan(ctx context.Context, scanResult *types.ScanResult) (*
 	return plan, nil
 }
 
-// tryFixViolation attempts to find a fix for a missing tag violation.
-func (p *RealPlanner) tryFixViolation(violation types.Violation) *types.TagChange {
+// tryFix attempts to find a fix for a missing tag finding.
+func (p *RealPlanner) tryFix(finding types.Finding) *types.TagChange {
 	// Try inference rules first
-	if change := p.tryInfer(violation); change != nil {
+	if change := p.tryInfer(finding); change != nil {
 		return change
 	}
 
 	// Try default rules
-	if change := p.tryDefault(violation); change != nil {
+	if change := p.tryDefault(finding); change != nil {
 		return change
 	}
 
@@ -119,22 +120,22 @@ func (p *RealPlanner) tryFixViolation(violation types.Violation) *types.TagChang
 }
 
 // tryInfer tries to infer a tag value from the resource name.
-func (p *RealPlanner) tryInfer(violation types.Violation) *types.TagChange {
-	rules, ok := p.compiled[violation.Tag]
+func (p *RealPlanner) tryInfer(finding types.Finding) *types.TagChange {
+	rules, ok := p.compiled[finding.Tag]
 	if !ok {
 		return nil
 	}
 
-	resourceName := violation.Resource.Name
+	resourceName := finding.Resource.Name
 	if resourceName == "" {
-		resourceName = violation.Resource.ID
+		resourceName = finding.Resource.ID
 	}
 
 	for _, rule := range rules {
 		if rule.pattern.MatchString(resourceName) {
 			return &types.TagChange{
-				Resource: violation.Resource,
-				Tag:      violation.Tag,
+				Resource: finding.Resource,
+				Tag:      finding.Tag,
 				Action:   types.ActionAdd,
 				NewValue: rule.value,
 				Reason:   types.ReasonInferred,
@@ -147,23 +148,23 @@ func (p *RealPlanner) tryInfer(violation types.Violation) *types.TagChange {
 }
 
 // tryDefault tries to apply a default value for a missing tag.
-func (p *RealPlanner) tryDefault(violation types.Violation) *types.TagChange {
+func (p *RealPlanner) tryDefault(finding types.Finding) *types.TagChange {
 	for _, rule := range p.rules.Defaults {
 		// Check resource type matches
-		if !matchGlob(rule.Resource, violation.Resource.Type) {
+		if !matchGlob(rule.Resource, finding.Resource.Type) {
 			continue
 		}
 
 		// Check conditions (when clause)
-		if !p.checkConditions(rule.When, violation) {
+		if !p.checkConditions(rule.When, finding) {
 			continue
 		}
 
 		// Check if this rule sets the tag we need
-		if value, ok := rule.Set[violation.Tag]; ok {
+		if value, ok := rule.Set[finding.Tag]; ok {
 			return &types.TagChange{
-				Resource: violation.Resource,
-				Tag:      violation.Tag,
+				Resource: finding.Resource,
+				Tag:      finding.Tag,
 				Action:   types.ActionAdd,
 				NewValue: value,
 				Reason:   types.ReasonDefault,
@@ -177,17 +178,17 @@ func (p *RealPlanner) tryDefault(violation types.Violation) *types.TagChange {
 
 // checkConditions reports whether every condition holds. A condition it does
 // not understand fails, so a malformed rule never sets a tag.
-func (p *RealPlanner) checkConditions(when map[string]string, violation types.Violation) bool {
+func (p *RealPlanner) checkConditions(when map[string]string, finding types.Finding) bool {
 	for condition, value := range when {
 		tagName, ok := strings.CutPrefix(condition, config.ConditionTagPrefix)
 		if !ok || tagName == "" {
 			return false
 		}
 		if value == config.ConditionAbsent {
-			if violation.Resource.HasTag(tagName) {
+			if finding.Resource.HasTag(tagName) {
 				return false
 			}
-		} else if violation.Resource.GetTag(tagName) != value {
+		} else if finding.Resource.GetTag(tagName) != value {
 			return false
 		}
 	}

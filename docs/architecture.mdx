@@ -222,18 +222,11 @@ const (
 ### Violation (deprecated)
 
 ```go
-type Violation struct {
-    Resource Resource        `json:"resource"`
-    Tag      string          `json:"tag"`
-    Status   FindingStatus   `json:"status"` // Always "FAILED"
-    Reason   ViolationReason `json:"reason"`
-    Expected string          `json:"expected,omitempty"`
-    Actual   string          `json:"actual,omitempty"`
-}
+type Violation Finding // Always "FAILED"
 ```
 
 <Note>
-Use `Findings` instead of `Violations` in new code. Violations are kept for backward compatibility.
+Use `Findings` instead of `Violations` in new code. Violations are kept for backward compatibility: the scan's `violations` list is its FAILED findings, in the same order.
 </Note>
 
 ### TagChange

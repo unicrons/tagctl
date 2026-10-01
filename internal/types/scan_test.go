@@ -2,6 +2,7 @@ package types
 
 import (
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -169,5 +170,46 @@ func TestScanResult_JSONCarriesPartialOnlyWhenSet(t *testing.T) {
 		if !strings.Contains(string(partial), want) {
 			t.Errorf("partial scan JSON = %s, missing %s", partial, want)
 		}
+	}
+}
+
+func TestScanResult_CalculateCompliance_TagNoResourceIsCheckedFor(t *testing.T) {
+	result := &ScanResult{
+		ByAccount: make(map[string]*AccountStats),
+		ByTag: map[string]*TagStats{
+			"owner":   {Tag: "owner", Required: true},
+			"project": {Tag: "project"},
+		},
+	}
+
+	result.CalculateCompliance()
+
+	if got := result.ByTag["owner"].CompliancePct; got != 0 {
+		t.Errorf("required tag with no resources CompliancePct = %v, want 0", got)
+	}
+	if got := result.ByTag["project"].CompliancePct; got != 100 {
+		t.Errorf("optional tag no resource carries CompliancePct = %v, want 100", got)
+	}
+}
+
+func TestScanResult_FailedFindings(t *testing.T) {
+	failed := Finding{Tag: "owner", Status: StatusFailed, Reason: ReasonMissing}
+	passed := Finding{Tag: "environment", Status: StatusPass, Reason: ReasonCompliant, Actual: "prod"}
+
+	cases := []struct {
+		name string
+		scan ScanResult
+		want []Finding
+	}{
+		{"failed findings", ScanResult{Findings: []Finding{passed, failed}, Violations: []Violation{{Tag: "stale"}}}, []Finding{failed}},
+		{"legacy violations", ScanResult{Violations: []Violation{{Tag: "owner", Reason: ReasonMissing}}}, []Finding{failed}},
+		{"nothing failed", ScanResult{Findings: []Finding{passed}}, []Finding{}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.scan.FailedFindings(); !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("FailedFindings() = %+v, want %+v", got, tc.want)
+			}
+		})
 	}
 }

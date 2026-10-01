@@ -8,8 +8,8 @@ import (
 	"github.com/unicrons/tagctl/internal/types"
 )
 
-func missing(tag string, r types.Resource) types.Violation {
-	return types.Violation{Resource: r, Tag: tag, Reason: types.ReasonMissing}
+func missing(tag string, r types.Resource) types.Finding {
+	return types.Finding{Resource: r, Tag: tag, Status: types.StatusFailed, Reason: types.ReasonMissing}
 }
 
 func TestRealPlanner_TryInfer(t *testing.T) {
@@ -22,9 +22,9 @@ func TestRealPlanner_TryInfer(t *testing.T) {
 	}
 
 	cases := []struct {
-		name      string
-		violation types.Violation
-		want      string
+		name    string
+		finding types.Finding
+		want    string
 	}{
 		{"name matches the second pattern", missing("environment", types.Resource{Name: "db-dev-1"}), "dev"},
 		{"id is used when there is no name", missing("environment", types.Resource{ID: "web-prod-1"}), "prod"},
@@ -33,7 +33,7 @@ func TestRealPlanner_TryInfer(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			change := planner.tryInfer(tc.violation)
+			change := planner.tryInfer(tc.finding)
 			if got := newValue(change); got != tc.want {
 				t.Errorf("tryInfer() value = %q, want %q", got, tc.want)
 			}
@@ -54,9 +54,9 @@ func TestRealPlanner_TryDefault(t *testing.T) {
 	}
 
 	cases := []struct {
-		name      string
-		violation types.Violation
-		want      string
+		name    string
+		finding types.Finding
+		want    string
 	}{
 		{"exact value condition wins by order", missing("CostCenter", types.Resource{Type: "aws_s3_bucket", Tags: map[string]string{"Environment": "prod"}}), "CC-PROD"},
 		{"absent condition", missing("CostCenter", types.Resource{Type: "aws_instance"}), "CC-1"},
@@ -67,7 +67,7 @@ func TestRealPlanner_TryDefault(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			change := planner.tryDefault(tc.violation)
+			change := planner.tryDefault(tc.finding)
 			if got := newValue(change); got != tc.want {
 				t.Errorf("tryDefault() value = %q, want %q", got, tc.want)
 			}
@@ -112,18 +112,27 @@ func TestRealPlanner_PlanFixesOnlyMissingTags(t *testing.T) {
 		t.Fatal(err)
 	}
 	bucket := types.Resource{ARN: "arn:aws:s3:::logs", Type: "aws_s3_bucket"}
-	result := types.NewScanResult()
-	result.Violations = []types.Violation{
-		missing("owner", bucket),
-		{Resource: bucket, Tag: "owner", Reason: types.ReasonInvalidFormat, Actual: "john"},
-	}
+	missingOwner := missing("owner", bucket)
+	invalidOwner := types.Finding{Resource: bucket, Tag: "owner", Status: types.StatusFailed, Reason: types.ReasonInvalidFormat, Actual: "john"}
+	passingEnv := types.Finding{Resource: bucket, Tag: "environment", Status: types.StatusPass, Reason: types.ReasonCompliant, Actual: "prod"}
 
-	plan, err := planner.Plan(context.Background(), result)
-	if err != nil {
-		t.Fatalf("Plan() = %v", err)
+	cases := []struct {
+		name string
+		scan *types.ScanResult
+	}{
+		{"findings", &types.ScanResult{Findings: []types.Finding{passingEnv, missingOwner, invalidOwner}}},
+		{"legacy violations", &types.ScanResult{Violations: []types.Violation{types.Violation(missingOwner), types.Violation(invalidOwner)}}},
 	}
-	if len(plan.Changes) != 1 || plan.Summary.TotalResources != 1 || plan.Changes[0].NewValue != "platform@example.com" {
-		t.Errorf("plan = %+v, want one default change for the missing tag", plan)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			plan, err := planner.Plan(context.Background(), tc.scan)
+			if err != nil {
+				t.Fatalf("Plan() = %v", err)
+			}
+			if len(plan.Changes) != 1 || plan.Summary.TotalResources != 1 || plan.Changes[0].NewValue != "platform@example.com" {
+				t.Errorf("plan = %+v, want one default change for the missing tag", plan)
+			}
+		})
 	}
 }
 
