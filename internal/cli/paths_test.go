@@ -16,12 +16,24 @@ func TestOutputDirConstant(t *testing.T) {
 	}
 }
 
+func mustMkdirAll(t *testing.T, dir string) {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func mustWriteFile(t *testing.T, name string) {
+	t.Helper()
+	if err := os.WriteFile(name, []byte(`{}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestEnsureOutputDir(t *testing.T) {
 	// Create a temporary directory for testing
 	tempDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	defer os.Chdir(oldWd)
-	os.Chdir(tempDir)
+	t.Chdir(tempDir)
 
 	// Test creating output directory
 	err := EnsureOutputDir()
@@ -47,9 +59,7 @@ func TestEnsureOutputDir(t *testing.T) {
 
 func TestGetPlanPath_EmptyFilename(t *testing.T) {
 	tempDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	defer os.Chdir(oldWd)
-	os.Chdir(tempDir)
+	t.Chdir(tempDir)
 
 	path, err := GetPlanPath("")
 	if err != nil {
@@ -81,9 +91,7 @@ func TestGetPlanPath_EmptyFilename(t *testing.T) {
 
 func TestGetPlanPath_SimpleFilename(t *testing.T) {
 	tempDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	defer os.Chdir(oldWd)
-	os.Chdir(tempDir)
+	t.Chdir(tempDir)
 
 	path, err := GetPlanPath("my-plan.json")
 	if err != nil {
@@ -112,12 +120,10 @@ func TestGetPlanPath_AbsolutePath(t *testing.T) {
 
 func TestGetPlanPath_RelativePathWithDir(t *testing.T) {
 	tempDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	defer os.Chdir(oldWd)
-	os.Chdir(tempDir)
+	t.Chdir(tempDir)
 
 	// Create the custom directory
-	os.MkdirAll("custom/dir", 0755)
+	mustMkdirAll(t, "custom/dir")
 
 	path, err := GetPlanPath("custom/dir/plan.json")
 	if err != nil {
@@ -132,9 +138,7 @@ func TestGetPlanPath_RelativePathWithDir(t *testing.T) {
 
 func TestFindLatestPlanInDir_NoDirectory(t *testing.T) {
 	tempDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	defer os.Chdir(oldWd)
-	os.Chdir(tempDir)
+	t.Chdir(tempDir)
 
 	_, err := FindLatestPlanInDir()
 	if err == nil {
@@ -144,11 +148,9 @@ func TestFindLatestPlanInDir_NoDirectory(t *testing.T) {
 
 func TestFindLatestPlanInDir_EmptyDirectory(t *testing.T) {
 	tempDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	defer os.Chdir(oldWd)
-	os.Chdir(tempDir)
+	t.Chdir(tempDir)
 
-	os.MkdirAll(OutputDir, 0755)
+	mustMkdirAll(t, OutputDir)
 
 	_, err := FindLatestPlanInDir()
 	if err == nil {
@@ -158,14 +160,12 @@ func TestFindLatestPlanInDir_EmptyDirectory(t *testing.T) {
 
 func TestFindLatestPlanInDir_SinglePlan(t *testing.T) {
 	tempDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	defer os.Chdir(oldWd)
-	os.Chdir(tempDir)
+	t.Chdir(tempDir)
 
-	os.MkdirAll(OutputDir, 0755)
+	mustMkdirAll(t, OutputDir)
 
 	planFile := filepath.Join(OutputDir, "plan-20240101-120000.json")
-	os.WriteFile(planFile, []byte(`{}`), 0644)
+	mustWriteFile(t, planFile)
 
 	found, err := FindLatestPlanInDir()
 	if err != nil {
@@ -179,22 +179,20 @@ func TestFindLatestPlanInDir_SinglePlan(t *testing.T) {
 
 func TestFindLatestPlanInDir_MultiplePlans(t *testing.T) {
 	tempDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	defer os.Chdir(oldWd)
-	os.Chdir(tempDir)
+	t.Chdir(tempDir)
 
-	os.MkdirAll(OutputDir, 0755)
+	mustMkdirAll(t, OutputDir)
 
 	// Create older plan
 	oldPlan := filepath.Join(OutputDir, "plan-20240101-100000.json")
-	os.WriteFile(oldPlan, []byte(`{}`), 0644)
+	mustWriteFile(t, oldPlan)
 
 	// Sleep to ensure different modification times
 	time.Sleep(10 * time.Millisecond)
 
 	// Create newer plan
 	newPlan := filepath.Join(OutputDir, "plan-20240101-120000.json")
-	os.WriteFile(newPlan, []byte(`{}`), 0644)
+	mustWriteFile(t, newPlan)
 
 	found, err := FindLatestPlanInDir()
 	if err != nil {
@@ -208,20 +206,18 @@ func TestFindLatestPlanInDir_MultiplePlans(t *testing.T) {
 
 func TestFindLatestPlanInDir_IgnoresNonPlanFiles(t *testing.T) {
 	tempDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	defer os.Chdir(oldWd)
-	os.Chdir(tempDir)
+	t.Chdir(tempDir)
 
-	os.MkdirAll(OutputDir, 0755)
+	mustMkdirAll(t, OutputDir)
 
 	// Create non-plan files
-	os.WriteFile(filepath.Join(OutputDir, "config.json"), []byte(`{}`), 0644)
-	os.WriteFile(filepath.Join(OutputDir, "report.json"), []byte(`{}`), 0644)
-	os.WriteFile(filepath.Join(OutputDir, "plan.txt"), []byte(`{}`), 0644) // Wrong extension
+	mustWriteFile(t, filepath.Join(OutputDir, "config.json"))
+	mustWriteFile(t, filepath.Join(OutputDir, "report.json"))
+	mustWriteFile(t, filepath.Join(OutputDir, "plan.txt")) // Wrong extension
 
 	// Create valid plan file
 	planFile := filepath.Join(OutputDir, "plan-20240101-120000.json")
-	os.WriteFile(planFile, []byte(`{}`), 0644)
+	mustWriteFile(t, planFile)
 
 	found, err := FindLatestPlanInDir()
 	if err != nil {
@@ -235,18 +231,16 @@ func TestFindLatestPlanInDir_IgnoresNonPlanFiles(t *testing.T) {
 
 func TestFindLatestPlanInDir_IgnoresDirectories(t *testing.T) {
 	tempDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	defer os.Chdir(oldWd)
-	os.Chdir(tempDir)
+	t.Chdir(tempDir)
 
-	os.MkdirAll(OutputDir, 0755)
+	mustMkdirAll(t, OutputDir)
 
 	// Create a directory that looks like a plan file
-	os.MkdirAll(filepath.Join(OutputDir, "plan-20240101-130000.json"), 0755)
+	mustMkdirAll(t, filepath.Join(OutputDir, "plan-20240101-130000.json"))
 
 	// Create actual plan file
 	planFile := filepath.Join(OutputDir, "plan-20240101-120000.json")
-	os.WriteFile(planFile, []byte(`{}`), 0644)
+	mustWriteFile(t, planFile)
 
 	found, err := FindLatestPlanInDir()
 	if err != nil {
@@ -261,9 +255,7 @@ func TestFindLatestPlanInDir_IgnoresDirectories(t *testing.T) {
 // Integration test: verify plan is saved to output directory
 func TestPlanSavedToOutputDir(t *testing.T) {
 	tempDir := t.TempDir()
-	oldWd, _ := os.Getwd()
-	defer os.Chdir(oldWd)
-	os.Chdir(tempDir)
+	t.Chdir(tempDir)
 
 	// Get a plan path
 	planPath, err := GetPlanPath("")

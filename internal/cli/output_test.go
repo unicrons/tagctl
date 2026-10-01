@@ -24,9 +24,11 @@ func TestPrintFindingsTable_AlignsAndTruncates(t *testing.T) {
 	if len(lines) != 4 {
 		t.Fatalf("lines = %d, want 4:\n%s", len(lines), buf.String())
 	}
-	typeColumn := utf8.RuneCountInString(lines[0][:strings.Index(lines[0], "TYPE")])
+	header, _, _ := strings.Cut(lines[0], "TYPE")
+	typeColumn := utf8.RuneCountInString(header)
 	for _, line := range lines[2:] {
-		if got := utf8.RuneCountInString(line[:strings.Index(line, "aws_")]); got != typeColumn {
+		prefix, _, _ := strings.Cut(line, "aws_")
+		if got := utf8.RuneCountInString(prefix); got != typeColumn {
 			t.Errorf("TYPE starts at column %d, header at %d: %q", got, typeColumn, line)
 		}
 		if strings.Contains(line, strings.Repeat("a", maxResourceWidth)) {

@@ -22,7 +22,6 @@ jobs:
       pull-requests: read
     outputs:
       go: ${{ steps.filter.outputs.go }}
-      go_files: ${{ steps.filter.outputs.go_files }}
       docs: ${{ steps.filter.outputs.docs }}
     steps:
       - name: Checkout code
@@ -35,7 +34,6 @@ jobs:
         id: filter
         uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad # v3.0.4
         with:
-          list-files: shell
           # Non-Go inputs of the build and tests: embedded templates, fixtures,
           # and the IAM files and aws.mdx blocks permissions_test.go compares.
           filters: |
@@ -89,6 +87,9 @@ jobs:
       - name: Run shellcheck
         run: shellcheck scripts/*.sh .githooks/*
 
+      - name: Run ruff
+        run: pipx run ruff==0.15.12 check scripts/
+
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -133,8 +134,21 @@ jobs:
       - name: Download dependencies
         run: go mod download
 
+      - name: Cross-compile
+        run: |
+          GOOS=windows GOARCH=amd64 go build ./...
+          GOOS=darwin GOARCH=arm64 go build ./...
+
       - name: Run tests
-        run: go test -v -race -coverprofile=coverage.out ./...
+        run: go test -v -race -shuffle=on -coverprofile=coverage.out ./...
+
+      - name: Check coverage threshold
+        env:
+          MIN_COVERAGE: "74.3"
+        run: |
+          total=$(go tool cover -func=coverage.out | awk '/^total:/ {sub("%", "", $3); print $3}')
+          echo "total coverage: ${total}% (minimum ${MIN_COVERAGE}%)"
+          awk -v t="$total" -v m="$MIN_COVERAGE" 'BEGIN { exit !(t >= m) }'
 
       - name: Upload coverage
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
@@ -160,21 +174,8 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Resolve changed packages
-        id: pkgs
-        env:
-          GO_FILES: ${{ needs.changes.outputs.go_files }}
-        run: |
-          dirs=$(for f in $GO_FILES; do
-            case "$f" in *.go) d=$(dirname "$f"); [ -d "$d" ] && echo "./$d";; esac
-          done | sort -u | tr '\n' ' ')
-          echo "dirs=${dirs:-./...}" >> "$GITHUB_OUTPUT"
-          echo "scanning: ${dirs:-./...}"
-
       - name: Run gosec
-        env:
-          PKG_DIRS: ${{ steps.pkgs.outputs.dirs }}
-        run: go run github.com/securego/gosec/v2/cmd/gosec@v2.29.0 -exclude=G104 $PKG_DIRS
+        run: go run github.com/securego/gosec/v2/cmd/gosec@v2.29.0 -exclude=G104 ./...
 
       - name: Run govulncheck
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
@@ -196,7 +197,7 @@ jobs:
           node-version: '22'
 
       - name: Install Mint CLI
-        run: npm install -g mint@4.2.313
+        run: npm install -g mint@4.2.313 # zizmor: ignore[adhoc-packages] pinned CLI, no lockfile to install from
 
       - name: Validate build
         working-directory: docs
