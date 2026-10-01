@@ -149,8 +149,15 @@ aws cloudformation deploy \
   --template-file permissions/aws/tagctl-scan-role.yaml \
   --stack-name tagctl-scan-role \
   --capabilities CAPABILITY_NAMED_IAM \
-  --parameter-overrides TrustedPrincipalArn=arn:aws:iam::111111111111:root
+  --parameter-overrides TrustedPrincipalArn=arn:aws:iam::123456789012:role/platform-admin
 ```
+
+`TrustedPrincipalArn` is the principal of the role's trust policy. Name the
+role or user that runs tagctl. An account root ARN
+(`arn:aws:iam::123456789012:root`) is accepted too, but it trusts every
+principal in that account whose own policies allow `sts:AssumeRole` on this
+role, not one identity. The `OrgId` parameter adds an `aws:PrincipalOrgID`
+condition on top; see [`permissions/aws/`](permissions/aws#who-can-assume-the-role).
 
 ## Example output
 
