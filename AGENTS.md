@@ -129,7 +129,7 @@ make test-short         # Tests without the race detector
 make coverage           # Tests with coverage report
 make lint               # golangci-lint
 make vet                # go vet
-make fmt                # gofmt
+make fmt                # golangci-lint fmt (gofmt + goimports)
 make check              # secrets + fmt + vet + build + test-short
 
 # Run a single package or test
