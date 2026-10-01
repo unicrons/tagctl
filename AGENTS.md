@@ -459,6 +459,16 @@ and the `main.version`/`main.buildTime` ldflags, attaches archives and
 `checksums.txt` to the GitHub Release and groups the notes by conventional
 commit type. Commit subjects are `type(scope): summary`, at most 60 characters.
 
+## GitHub Action
+
+`action.yml` at the repo root is a composite action (`uses: unicrons/tagctl@<ref>`):
+`actions/setup-go`, `go install ...@<version>` (default: the action ref; a
+`uses: ./` checkout has no ref and builds from `github.action_path`), then
+tagctl with the `args` input. Inputs reach the scripts through `env:` only,
+never `${{ inputs.* }}` inside `run:`. `.github/workflows/action-test.yml` runs
+it from the checkout when `action.yml` changes; the contract is
+`docs/integrations/github-action.mdx`.
+
 ## Git Hooks
 
 The pre-commit hook runs on a copy of `git write-tree` (`<git dir>/tagctl-pre-commit`;

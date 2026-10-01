@@ -41,6 +41,7 @@
           {
             "group": "Integrations",
             "pages": [
+              "integrations/github-action",
               "integrations/ocsf"
             ]
           },

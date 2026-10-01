@@ -1,0 +1,165 @@
+---
+title: 'GitHub Action'
+description: 'Run tagctl in a GitHub Actions workflow'
+icon: 'github'
+---
+
+The repository ships a composite action, so a workflow can run tagctl with
+`uses: unicrons/tagctl@<ref>` instead of installing it by hand. The action
+sets up Go, builds tagctl at the ref you pin, runs it with the arguments you
+give and fails the step when tagctl exits non-zero.
+
+```yaml
+name: Tag compliance
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'
+  pull_request:
+
+permissions:
+  contents: read
+  id-token: write          # OIDC token for configure-aws-credentials
+  security-events: write   # upload SARIF
+
+jobs:
+  tag-compliance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::123456789012:role/github-tagctl
+          aws-region: us-east-1
+
+      - uses: unicrons/tagctl@main
+        with:
+          args: scan --fail-under 80 --sarif tagctl.sarif
+
+      # Runs even when the gate failed, so findings are always visible.
+      - uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: tagctl.sarif
+```
+
+<Note>
+`@main` follows the default branch. For a workflow you depend on, pin the
+action to a full commit SHA, or to a release tag once one covers the action.
+</Note>
+
+## Inputs
+
+| Input | Default | Description |
+|-------|---------|-------------|
+| `args` | required | The tagctl arguments, for example `scan --fail-under 80 --sarif tagctl.sarif`. |
+| `version` | the action ref | tagctl version to install: a release tag, branch or commit SHA. |
+| `config` | empty | Path to the config file, relative to `working-directory`. Passed as `--config`. Empty lets tagctl find `./tagctl.yaml`. |
+| `working-directory` | `.` | Directory tagctl runs in. `output/` reports are written under it. |
+| `go-version` | `stable` | Go version used for the build, in `actions/setup-go` syntax. |
+
+`args` is split into words like a shell command line: whitespace and newlines
+separate words, single or double quotes group them and a backslash escapes
+the next character. Nothing else is interpreted: no variable expansion, no
+globbing, no command substitution. An unterminated quote fails the step with
+exit code `2`.
+
+```yaml
+- uses: unicrons/tagctl@main
+  with:
+    config: policies/tagctl.yaml
+    args: |
+      scan
+      --fail-on-new --baseline .tagctl/baseline-scan.json
+      --junit "reports/tag compliance.xml"
+```
+
+## Outputs
+
+| Output | Description |
+|--------|-------------|
+| `exit-code` | tagctl's [exit code](/commands#exit-codes): `0` success, `1` a gate failed, `2` any other error. |
+
+The step fails on any non-zero exit code. To act on the code instead, let the
+step continue and read the output:
+
+```yaml
+- uses: unicrons/tagctl@main
+  id: tagctl
+  continue-on-error: true
+  with:
+    args: scan --fail-under 80
+
+- name: Comment only when the gate failed
+  if: steps.tagctl.outputs.exit-code == '1'
+  run: echo "Tag compliance is under 80%"
+```
+
+## How tagctl is installed
+
+There are no release binaries to download yet, so the action builds from
+source:
+
+1. `actions/setup-go` installs Go (`go-version`). It replaces the Go version
+   an earlier step of the same job set up; run your own `setup-go` again
+   afterwards if later steps need a specific one.
+2. `go install github.com/unicrons/tagctl/cmd/tagctl@<version>` builds the
+   binary into the runner's temporary directory. `<version>` is the `version`
+   input, or the ref after `unicrons/tagctl@` when the input is empty.
+
+The binary is not added to `PATH`. Call the action again for each tagctl
+command a job needs; the second call reuses Go's build cache.
+
+A cold build compiles the AWS SDK and takes a few minutes on a hosted runner.
+
+## AWS credentials
+
+The action handles no secrets and has no credential inputs. tagctl reads
+credentials from the AWS SDK default chain, so whatever an earlier step
+exported is what it uses. The recommended setup is OIDC with
+[`aws-actions/configure-aws-credentials`](https://github.com/aws-actions/configure-aws-credentials),
+which needs no long-lived keys:
+
+1. Add GitHub as an OIDC identity provider in the AWS account and create a
+   role whose trust policy accepts your repository (see
+   [Configuring OpenID Connect in AWS](https://docs.github.com/en/actions/security-for-github-actions/security-hardening-your-deployments/configuring-openid-connect-in-amazon-web-services)).
+2. Give that role the read-only scan permissions. Either attach
+   [`tagctl-scan-policy.json`](/providers/aws#read-only-scan) to it, or deploy the
+   `TagctlScan` role with `TrustedPrincipalArn` set to the OIDC role and put
+   `role_arn` in `tagctl.yaml` so tagctl assumes it.
+3. Grant the job `id-token: write` and assume the role with
+   `configure-aws-credentials` before the tagctl step, as in the workflow
+   above.
+
+With the first option the config entry carries no identity:
+
+```yaml
+clouds:
+  aws:
+    - regions: [us-east-1, eu-west-1]   # credentials from the environment
+```
+
+Keep `apply` out of unattended workflows unless you mean it: it needs the
+`TagctlApply` role and `--auto-approve` to skip the confirmation prompt.
+
+## Without AWS
+
+`scan --mock` evaluates built-in demo resources and needs neither credentials
+nor a config file, which makes it a quick way to check the wiring of a
+workflow:
+
+```yaml
+- uses: unicrons/tagctl@main
+  with:
+    args: scan --mock
+```
+
+`terraform` and `evaluate` read files instead of the cloud, so they run
+without credentials too:
+
+```yaml
+- uses: unicrons/tagctl@main
+  with:
+    args: terraform --plan plan.json --fail-under 100 --sarif tagctl.sarif
+```
