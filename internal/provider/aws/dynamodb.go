@@ -41,7 +41,7 @@ func (p *Provider) listDynamoDBTablesFrom(ctx context.Context, client dynamoDBAP
 	resources := forEachConcurrently(names, func(name string) []types.Resource {
 		arn := p.buildARN("dynamodb", region, p.accountID, "table/"+name)
 
-		tags, err := p.resourceTags(region, arn, func() (map[string]string, error) {
+		tags, err := p.resourceTags(ctx, region, arn, func() (map[string]string, error) {
 			return getDynamoDBTags(ctx, client, arn)
 		})
 		if err != nil {

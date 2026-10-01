@@ -53,7 +53,7 @@ func (p *Provider) listKMSKeysFrom(ctx context.Context, client kmsAPI, region st
 			return nil
 		}
 
-		tags, err := p.resourceTags(region, aws.ToString(meta.Arn), func() (map[string]string, error) {
+		tags, err := p.resourceTags(ctx, region, aws.ToString(meta.Arn), func() (map[string]string, error) {
 			return getKMSTags(ctx, client, keyID)
 		})
 		if err != nil {

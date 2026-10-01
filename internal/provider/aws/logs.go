@@ -53,7 +53,7 @@ func (p *Provider) listLogGroupsFrom(ctx context.Context, client logsAPI, region
 	}
 
 	resources := forEachConcurrently(groups, func(g logGroup) []types.Resource {
-		tags, err := p.resourceTags(region, g.arn, func() (map[string]string, error) {
+		tags, err := p.resourceTags(ctx, region, g.arn, func() (map[string]string, error) {
 			output, err := client.ListTagsForResource(ctx, &cloudwatchlogs.ListTagsForResourceInput{ResourceArn: aws.String(g.arn)})
 			if err != nil {
 				return nil, err

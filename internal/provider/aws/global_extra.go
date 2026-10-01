@@ -44,7 +44,7 @@ func (p *Provider) listProtections(ctx context.Context) ([]types.Resource, error
 }
 
 func (p *Provider) listProtectionsFrom(ctx context.Context, client shieldAPI) ([]types.Resource, error) {
-	if !p.requireBulkTags(p.globalRegion(), "Shield") {
+	if !p.requireBulkTags(ctx, p.globalRegion(), "Shield") {
 		return nil, nil
 	}
 	var resources []types.Resource
@@ -59,7 +59,7 @@ func (p *Provider) listProtectionsFrom(ctx context.Context, client shieldAPI) ([
 			return nil, provider.NewProviderError(providerName, "list_shield_protections", "", err)
 		}
 		for _, pr := range output.Protections {
-			r := p.bulkResource(p.globalRegion(), "aws_shield_protection", aws.ToString(pr.Id), aws.ToString(pr.Name), aws.ToString(pr.ProtectionArn), nil)
+			r := p.bulkResource(ctx, p.globalRegion(), "aws_shield_protection", aws.ToString(pr.Id), aws.ToString(pr.Name), aws.ToString(pr.ProtectionArn), nil)
 			r.Region = regionGlobal
 			resources = append(resources, r)
 		}
@@ -74,7 +74,7 @@ func (p *Provider) listGlobalWebACLs(ctx context.Context) ([]types.Resource, err
 
 // listGlobalWebACLsFrom lists WAF Classic web ACLs attached to CloudFront.
 func (p *Provider) listGlobalWebACLsFrom(ctx context.Context, client wafGlobalAPI) ([]types.Resource, error) {
-	if !p.requireBulkTags(p.globalRegion(), "WAF Classic") {
+	if !p.requireBulkTags(ctx, p.globalRegion(), "WAF Classic") {
 		return nil, nil
 	}
 	var resources []types.Resource
@@ -86,7 +86,7 @@ func (p *Provider) listGlobalWebACLsFrom(ctx context.Context, client wafGlobalAP
 		for _, acl := range output.WebACLs {
 			id := aws.ToString(acl.WebACLId)
 			arn := p.buildARN("waf", "", p.accountID, "webacl/"+id)
-			r := p.bulkResource(p.globalRegion(), "aws_waf_web_acl", id, aws.ToString(acl.Name), arn, nil)
+			r := p.bulkResource(ctx, p.globalRegion(), "aws_waf_web_acl", id, aws.ToString(acl.Name), arn, nil)
 			r.Region = regionGlobal
 			resources = append(resources, r)
 		}

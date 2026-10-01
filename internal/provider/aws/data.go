@@ -95,7 +95,7 @@ func (p *Provider) listOpenSearchDomains(ctx context.Context, region string) ([]
 }
 
 func (p *Provider) listOpenSearchDomainsFrom(ctx context.Context, client openSearchAPI, region string) ([]types.Resource, error) {
-	if !p.requireBulkTags(region, "OpenSearch") {
+	if !p.requireBulkTags(ctx, region, "OpenSearch") {
 		return nil, nil
 	}
 	listed, err := client.ListDomainNames(ctx, &opensearch.ListDomainNamesInput{})
@@ -124,7 +124,7 @@ func (p *Provider) listOpenSearchDomainsFrom(ctx context.Context, client openSea
 				Region:   region,
 				Account:  p.accountID,
 				Provider: providerName,
-				Tags:     p.bulkTags(region, arn),
+				Tags:     p.bulkTags(ctx, region, arn),
 			})
 		}
 	}
@@ -172,7 +172,7 @@ func (p *Provider) listGlueJobs(ctx context.Context, region string) ([]types.Res
 }
 
 func (p *Provider) listGlueJobsFrom(ctx context.Context, client glueAPI, region string) ([]types.Resource, error) {
-	if !p.requireBulkTags(region, "Glue") {
+	if !p.requireBulkTags(ctx, region, "Glue") {
 		return nil, nil
 	}
 	var resources []types.Resource
@@ -193,7 +193,7 @@ func (p *Provider) listGlueJobsFrom(ctx context.Context, client glueAPI, region 
 				Region:    region,
 				Account:   p.accountID,
 				Provider:  providerName,
-				Tags:      p.bulkTags(region, arn),
+				Tags:      p.bulkTags(ctx, region, arn),
 				CreatedAt: j.CreatedOn,
 			})
 		}
@@ -207,7 +207,7 @@ func (p *Provider) listFirehoseStreams(ctx context.Context, region string) ([]ty
 }
 
 func (p *Provider) listFirehoseStreamsFrom(ctx context.Context, client firehoseAPI, region string) ([]types.Resource, error) {
-	if !p.requireBulkTags(region, "Firehose") {
+	if !p.requireBulkTags(ctx, region, "Firehose") {
 		return nil, nil
 	}
 	var resources []types.Resource
@@ -227,7 +227,7 @@ func (p *Provider) listFirehoseStreamsFrom(ctx context.Context, client firehoseA
 				Region:   region,
 				Account:  p.accountID,
 				Provider: providerName,
-				Tags:     p.bulkTags(region, arn),
+				Tags:     p.bulkTags(ctx, region, arn),
 			})
 		}
 		if !aws.ToBool(output.HasMoreDeliveryStreams) || len(output.DeliveryStreamNames) == 0 {
@@ -244,7 +244,7 @@ func (p *Provider) listSageMakerResources(ctx context.Context, region string) ([
 }
 
 func (p *Provider) listSageMakerResourcesFrom(ctx context.Context, client sageMakerAPI, region string) ([]types.Resource, error) {
-	if !p.requireBulkTags(region, "SageMaker") {
+	if !p.requireBulkTags(ctx, region, "SageMaker") {
 		return nil, nil
 	}
 	var resources []types.Resource
@@ -261,7 +261,7 @@ func (p *Provider) listSageMakerResourcesFrom(ctx context.Context, client sageMa
 			resources = append(resources, types.Resource{
 				ID: name, Name: name, ARN: arn, Type: "aws_sagemaker_endpoint",
 				Region: region, Account: p.accountID, Provider: providerName,
-				Tags: p.bulkTags(region, arn), CreatedAt: e.CreationTime,
+				Tags: p.bulkTags(ctx, region, arn), CreatedAt: e.CreationTime,
 			})
 		}
 	}
@@ -278,7 +278,7 @@ func (p *Provider) listSageMakerResourcesFrom(ctx context.Context, client sageMa
 			resources = append(resources, types.Resource{
 				ID: name, Name: name, ARN: arn, Type: "aws_sagemaker_notebook_instance",
 				Region: region, Account: p.accountID, Provider: providerName,
-				Tags: p.bulkTags(region, arn), CreatedAt: n.CreationTime,
+				Tags: p.bulkTags(ctx, region, arn), CreatedAt: n.CreationTime,
 			})
 		}
 	}

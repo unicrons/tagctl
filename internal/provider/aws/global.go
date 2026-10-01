@@ -54,7 +54,7 @@ func (p *Provider) listHostedZones(ctx context.Context) ([]types.Resource, error
 }
 
 func (p *Provider) listHostedZonesFrom(ctx context.Context, client route53API) ([]types.Resource, error) {
-	if !p.requireBulkTags(p.globalRegion(), "Route 53") {
+	if !p.requireBulkTags(ctx, p.globalRegion(), "Route 53") {
 		return nil, nil
 	}
 	var resources []types.Resource
@@ -70,7 +70,7 @@ func (p *Provider) listHostedZonesFrom(ctx context.Context, client route53API) (
 			resources = append(resources, types.Resource{
 				ID: id, Name: strings.TrimSuffix(aws.ToString(z.Name), "."), ARN: arn, Type: "aws_route53_zone",
 				Region: regionGlobal, Account: p.accountID, Provider: providerName,
-				Tags: p.bulkTags(p.globalRegion(), arn),
+				Tags: p.bulkTags(ctx, p.globalRegion(), arn),
 			})
 		}
 	}
@@ -83,7 +83,7 @@ func (p *Provider) listDistributions(ctx context.Context) ([]types.Resource, err
 }
 
 func (p *Provider) listDistributionsFrom(ctx context.Context, client cloudFrontAPI) ([]types.Resource, error) {
-	if !p.requireBulkTags(p.globalRegion(), "CloudFront") {
+	if !p.requireBulkTags(ctx, p.globalRegion(), "CloudFront") {
 		return nil, nil
 	}
 	var resources []types.Resource
@@ -101,7 +101,7 @@ func (p *Provider) listDistributionsFrom(ctx context.Context, client cloudFrontA
 			resources = append(resources, types.Resource{
 				ID: aws.ToString(d.Id), Name: aws.ToString(d.DomainName), ARN: arn, Type: "aws_cloudfront_distribution",
 				Region: regionGlobal, Account: p.accountID, Provider: providerName,
-				Tags: p.bulkTags(p.globalRegion(), arn),
+				Tags: p.bulkTags(ctx, p.globalRegion(), arn),
 			})
 		}
 	}
@@ -116,7 +116,7 @@ func (p *Provider) listIAMRoles(ctx context.Context) ([]types.Resource, error) {
 }
 
 func (p *Provider) listIAMRolesFrom(ctx context.Context, client iamAPI) ([]types.Resource, error) {
-	if !p.requireBulkTags(p.globalRegion(), "IAM") {
+	if !p.requireBulkTags(ctx, p.globalRegion(), "IAM") {
 		return nil, nil
 	}
 	var resources []types.Resource
@@ -135,7 +135,7 @@ func (p *Provider) listIAMRolesFrom(ctx context.Context, client iamAPI) ([]types
 			resources = append(resources, types.Resource{
 				ID: name, Name: name, ARN: arn, Type: "aws_iam_role",
 				Region: regionGlobal, Account: p.accountID, Provider: providerName,
-				Tags: p.bulkTags(p.globalRegion(), arn), CreatedAt: r.CreateDate,
+				Tags: p.bulkTags(ctx, p.globalRegion(), arn), CreatedAt: r.CreateDate,
 			})
 		}
 	}

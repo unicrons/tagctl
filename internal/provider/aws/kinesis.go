@@ -52,7 +52,7 @@ func (p *Provider) listKinesisStreamsFrom(ctx context.Context, client kinesisAPI
 	}
 
 	resources := forEachConcurrently(streams, func(s kinesisStream) []types.Resource {
-		tags, err := p.resourceTags(region, s.arn, func() (map[string]string, error) {
+		tags, err := p.resourceTags(ctx, region, s.arn, func() (map[string]string, error) {
 			return getKinesisTags(ctx, client, s.arn)
 		})
 		if err != nil {

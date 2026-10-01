@@ -476,7 +476,7 @@ func (p *Provider) ListResources(ctx context.Context) ([]types.Resource, error) 
 	globals := append(p.globalListers(), globalLister{"S3 buckets", p.listS3Buckets})
 	resources, err := p.discover(ctx, globals, p.regionalListers())
 
-	p.logBulkTagCoverage(resources)
+	p.logBulkTagCoverage(ctx, resources)
 	log.Info("AWS: Discovery complete - found %d total resources in %s", len(resources), time.Since(discoveryStart).Round(time.Millisecond))
 	return resources, err
 }
@@ -891,7 +891,7 @@ func (p *Provider) getLogsClient(region string) *cloudwatchlogs.Client {
 // logBulkTagCoverage reports, per region, how many discovered resources
 // carried tags when bulk tags were used. Zero matches with tagged resources
 // present would point at an ARN mismatch.
-func (p *Provider) logBulkTagCoverage(resources []types.Resource) {
+func (p *Provider) logBulkTagCoverage(ctx context.Context, resources []types.Resource) {
 	if log.GetLevel() < log.LevelDebug {
 		return
 	}
@@ -905,7 +905,7 @@ func (p *Provider) logBulkTagCoverage(resources []types.Resource) {
 	}
 	for _, region := range p.regions {
 		src := p.tagsFor(region)
-		if !src.available() {
+		if !src.available(ctx) {
 			log.Debug("AWS Tagging: bulk tags unavailable in %s, per-resource calls used", region)
 			continue
 		}

@@ -73,14 +73,24 @@ func staticTagSource(tags map[string]map[string]string) *tagSource {
 	return t
 }
 
-// lookup blocks until the fetch finished. ok is false when bulk tags are not
-// available (permission denied, API error), in which case the caller must
-// fall back to the service's own tag call.
-func (t *tagSource) lookup(arn string) (tags map[string]string, ok bool) {
-	if t == nil {
+// wait blocks until the fetch finished and reports whether it did before ctx
+// was cancelled.
+func (t *tagSource) wait(ctx context.Context) bool {
+	select {
+	case <-t.done:
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
+// lookup blocks until the fetch finished or ctx is cancelled. ok is false
+// when bulk tags are not available (permission denied, API error, cancelled),
+// in which case the caller must fall back to the service's own tag call.
+func (t *tagSource) lookup(ctx context.Context, arn string) (tags map[string]string, ok bool) {
+	if t == nil || !t.wait(ctx) {
 		return nil, false
 	}
-	<-t.done
 	if t.err != nil {
 		return nil, false
 	}
@@ -90,12 +100,12 @@ func (t *tagSource) lookup(arn string) (tags map[string]string, ok bool) {
 	return map[string]string{}, true
 }
 
-// available reports whether bulk tags were fetched for this source.
-func (t *tagSource) available() bool {
-	if t == nil {
+// available reports whether bulk tags were fetched for this source. It is
+// false once ctx is cancelled, without waiting for the fetch.
+func (t *tagSource) available(ctx context.Context) bool {
+	if t == nil || !t.wait(ctx) {
 		return false
 	}
-	<-t.done
 	return t.err == nil
 }
 
@@ -181,10 +191,14 @@ func (p *Provider) startTagSources(ctx context.Context) {
 
 // requireBulkTags reports whether bulk tags are available for region. Services
 // with no tag API of their own cannot be audited without them; the caller
-// skips the service and this logs and records why, once per service and region.
-func (p *Provider) requireBulkTags(region, label string) bool {
-	if p.tagsFor(region).available() {
+// skips the service and this logs and records why, once per service and
+// region. A cancelled scan records nothing.
+func (p *Provider) requireBulkTags(ctx context.Context, region, label string) bool {
+	if p.tagsFor(region).available(ctx) {
 		return true
+	}
+	if ctx.Err() != nil {
+		return false
 	}
 	log.Error("AWS %s: skipped in %s: reading its tags needs the tag:GetResources permission", label, region)
 	p.skipped.service(label, region)
@@ -266,8 +280,8 @@ func (s *skipLog) errs() []error {
 
 // bulkTags returns the tags of arn from the bulk source; empty when untagged.
 // Only valid after requireBulkTags returned true.
-func (p *Provider) bulkTags(region, arn string) map[string]string {
-	tags, _ := p.tagsFor(region).lookup(arn)
+func (p *Provider) bulkTags(ctx context.Context, region, arn string) map[string]string {
+	tags, _ := p.tagsFor(region).lookup(ctx, arn)
 	if tags == nil {
 		tags = map[string]string{}
 	}
@@ -282,10 +296,14 @@ func (p *Provider) tagsFor(region string) *tagSource {
 }
 
 // resourceTags resolves a resource's tags from the bulk source when it is
-// available and through fallback otherwise.
-func (p *Provider) resourceTags(region, arn string, fallback func() (map[string]string, error)) (map[string]string, error) {
-	if tags, ok := p.tagsFor(region).lookup(arn); ok {
+// available and through fallback otherwise. A cancelled ctx is returned as
+// the error, without calling fallback.
+func (p *Provider) resourceTags(ctx context.Context, region, arn string, fallback func() (map[string]string, error)) (map[string]string, error) {
+	if tags, ok := p.tagsFor(region).lookup(ctx, arn); ok {
 		return tags, nil
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 	return fallback()
 }

@@ -93,7 +93,7 @@ func (p *Provider) listS3BucketsFrom(ctx context.Context, global s3API, regional
 			}
 
 			bucketARN := p.buildARN("s3", "", "", bucketName)
-			tags, err := p.resourceTags(region, bucketARN, func() (map[string]string, error) {
+			tags, err := p.resourceTags(ctx, region, bucketARN, func() (map[string]string, error) {
 				return getBucketTags(ctx, regional(region), bucketName)
 			})
 			if err != nil {

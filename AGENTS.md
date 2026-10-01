@@ -276,9 +276,10 @@ a scan file counts resources but has neither (written before the inventory).
   CloudFront, IAM, Shield, WAF Classic global, WAFv2 CloudFront, Global
   Accelerator; S3 is handled apart because buckets are filtered by region). Tags are read in bulk: `startTagSources()` launches one
   `tag:GetResources` sweep per region before discovery, and listers resolve
-  tags with `p.resourceTags(region, arn, fallback)` (services with their own
-  tag API) or `p.bulkTags(region, arn)` after `p.requireBulkTags(region,
-  label)` (services without one; the service is skipped with `log.Error`
+  tags with `p.resourceTags(ctx, region, arn, fallback)` (services with their own
+  tag API) or `p.bulkTags(ctx, region, arn)` after
+  `p.requireBulkTags(ctx, region, label)` (services without one; the service
+  is skipped with `log.Error`
   when the sweep is unavailable). Regions come from config; empty `regions`
   means all available regions. A resource whose tags cannot be read is
   skipped with `p.skipResource` (logs and records it), never reported as
@@ -286,7 +287,8 @@ a scan file counts resources but has neither (written before the inventory).
   not-found answer (`resourceGone`: deleted since it was listed) is dropped
   at debug level (a batch call failing that way is re-read one item at a
   time); a cancelled context records nothing and `discover` returns the
-  context error instead.
+  context error instead. The bulk tag helpers take the scan `ctx` and stop
+  waiting for the sweep once it is cancelled.
   `ListResources` returns what it found plus `errors.Join` of every lister
   error (prefixed `account <id>, region <region|global>: list <label>:`) and
   a per-service summary of those skips (prefixed `account <id>:`). `discover`

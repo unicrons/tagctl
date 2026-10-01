@@ -54,7 +54,7 @@ func (p *Provider) listSQSQueuesFrom(ctx context.Context, client sqsAPI, region 
 			p.skipResource(ctx, "SQS", region, "queue "+name, err)
 			return nil
 		}
-		tags, err := p.resourceTags(region, arn, func() (map[string]string, error) {
+		tags, err := p.resourceTags(ctx, region, arn, func() (map[string]string, error) {
 			return getSQSTags(ctx, client, queueURL)
 		})
 		if err != nil {

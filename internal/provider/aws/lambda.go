@@ -40,7 +40,7 @@ func (p *Provider) listLambdaFunctionsFrom(ctx context.Context, client lambdaAPI
 
 	resources := forEachConcurrently(functions, func(fn lambdatypes.FunctionConfiguration) []types.Resource {
 		name, arn := aws.ToString(fn.FunctionName), aws.ToString(fn.FunctionArn)
-		tags, err := p.resourceTags(region, arn, func() (map[string]string, error) {
+		tags, err := p.resourceTags(ctx, region, arn, func() (map[string]string, error) {
 			return getLambdaTags(ctx, client, arn)
 		})
 		if err != nil {

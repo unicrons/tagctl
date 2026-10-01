@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	lambdatypes "github.com/aws/aws-sdk-go-v2/service/lambda/types"
@@ -122,21 +123,97 @@ func TestBulkTagFilterGroups_CoverBulkReadTypes(t *testing.T) {
 func TestTagSource_Lookup(t *testing.T) {
 	src := staticTagSource(map[string]map[string]string{"arn:tagged": {"k": "v"}})
 
-	if tags, ok := src.lookup("arn:tagged"); !ok || tags["k"] != "v" {
+	if tags, ok := src.lookup(context.Background(), "arn:tagged"); !ok || tags["k"] != "v" {
 		t.Errorf("tagged lookup = %v, %v", tags, ok)
 	}
-	if tags, ok := src.lookup("arn:never-tagged"); !ok || len(tags) != 0 {
+	if tags, ok := src.lookup(context.Background(), "arn:never-tagged"); !ok || len(tags) != 0 {
 		t.Errorf("never-tagged resource must resolve to empty tags with ok=true, got %v, %v", tags, ok)
 	}
 
 	failed := newTagSource(func() (map[string]map[string]string, error) { return nil, errors.New("denied") })
-	if _, ok := failed.lookup("arn:x"); ok {
+	if _, ok := failed.lookup(context.Background(), "arn:x"); ok {
 		t.Error("failed fetch must report ok=false so callers fall back")
 	}
 	var none *tagSource
-	if _, ok := none.lookup("arn:x"); ok {
+	if _, ok := none.lookup(context.Background(), "arn:x"); ok {
 		t.Error("nil source must report ok=false")
 	}
+}
+
+// pendingTagSource is a sweep that never finishes.
+func pendingTagSource() *tagSource {
+	return &tagSource{done: make(chan struct{})}
+}
+
+// returnsPromptly fails the test when fn is still blocked after a few seconds.
+func returnsPromptly(t *testing.T, fn func()) {
+	t.Helper()
+	finished := make(chan struct{})
+	go func() {
+		defer close(finished)
+		fn()
+	}()
+	select {
+	case <-finished:
+	case <-time.After(5 * time.Second):
+		t.Fatal("still blocked on the tag sweep after the context was cancelled")
+	}
+}
+
+func TestTagSource_CancelledContextStopsWaitingForTheSweep(t *testing.T) {
+	src := pendingTagSource()
+	ctx, cancel := context.WithCancel(context.Background())
+	time.AfterFunc(10*time.Millisecond, cancel)
+
+	returnsPromptly(t, func() {
+		if tags, ok := src.lookup(ctx, "arn:x"); ok || tags != nil {
+			t.Errorf("lookup = %v, %v; want no tags from an unfinished sweep", tags, ok)
+		}
+		if src.available(ctx) {
+			t.Error("available = true for an unfinished sweep")
+		}
+	})
+}
+
+func TestBulkTagHelpers_CancelledScanNeitherHangsNorRecordsASkip(t *testing.T) {
+	p := testProvider()
+	p.tagSources = map[string]*tagSource{defaultRegion: pendingTagSource()}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	returnsPromptly(t, func() {
+		if p.requireBulkTags(ctx, defaultRegion, "Route 53") {
+			t.Error("requireBulkTags = true for an unfinished sweep")
+		}
+		if tags := p.bulkTags(ctx, defaultRegion, "arn:x"); len(tags) != 0 {
+			t.Errorf("bulkTags = %v, want none", tags)
+		}
+		fallbackCalls := 0
+		_, err := p.resourceTags(ctx, defaultRegion, "arn:x", func() (map[string]string, error) {
+			fallbackCalls++
+			return nil, nil
+		})
+		if !errors.Is(err, context.Canceled) || fallbackCalls != 0 {
+			t.Errorf("resourceTags err = %v with %d fallback calls, want context.Canceled and none", err, fallbackCalls)
+		}
+	})
+	if errs := p.skipped.errs(); len(errs) != 0 {
+		t.Errorf("skips recorded for a cancelled scan: %v", errs)
+	}
+}
+
+func TestListHostedZones_CancelledScanDoesNotWaitForTheSweep(t *testing.T) {
+	p := testProvider()
+	p.tagSources = map[string]*tagSource{defaultRegion: pendingTagSource()}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	returnsPromptly(t, func() {
+		resources, err := p.listHostedZonesFrom(ctx, &mockRoute53Client{})
+		if err != nil || len(resources) != 0 {
+			t.Errorf("resources = %+v, err = %v", resources, err)
+		}
+	})
 }
 
 func TestResourceTags_PrefersBulkAndFallsBack(t *testing.T) {
@@ -150,12 +227,12 @@ func TestResourceTags_PrefersBulkAndFallsBack(t *testing.T) {
 		return map[string]string{"from": "fallback"}, nil
 	}
 
-	tags, err := p.resourceTags(defaultRegion, "arn:x", fallback)
+	tags, err := p.resourceTags(context.Background(), defaultRegion, "arn:x", fallback)
 	if err != nil || tags["environment"] != envProd || fallbackCalls != 0 {
 		t.Errorf("bulk path: tags=%v err=%v fallbackCalls=%d", tags, err, fallbackCalls)
 	}
 
-	tags, err = p.resourceTags("eu-west-1", "arn:x", fallback)
+	tags, err = p.resourceTags(context.Background(), "eu-west-1", "arn:x", fallback)
 	if err != nil || tags["from"] != "fallback" || fallbackCalls != 1 {
 		t.Errorf("region without bulk source must use fallback: tags=%v err=%v calls=%d", tags, err, fallbackCalls)
 	}
@@ -202,12 +279,12 @@ func TestSkipLog_SummarisesSkippedResourcesAndServicesPerLabel(t *testing.T) {
 	p.skipResource(ctx, "RDS", "us-east-1", "DB instance orders", errors.New("access denied"))
 	p.skipResource(ctx, "RDS", "eu-west-1", "DB instance reports", errors.New("access denied"))
 	for _, region := range []string{"us-east-1", "eu-west-1", "eu-west-1"} {
-		if p.requireBulkTags(region, "ACM") {
+		if p.requireBulkTags(context.Background(), region, "ACM") {
 			t.Fatalf("requireBulkTags(%s) = true without a bulk source", region)
 		}
 	}
-	p.requireBulkTags("us-east-1", "Route 53")
-	if !p.requireBulkTags("us-west-2", "ACM") {
+	p.requireBulkTags(context.Background(), "us-east-1", "Route 53")
+	if !p.requireBulkTags(context.Background(), "us-west-2", "ACM") {
 		t.Fatal("requireBulkTags(us-west-2) = false with a bulk source")
 	}
 

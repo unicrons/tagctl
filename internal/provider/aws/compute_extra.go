@@ -80,7 +80,7 @@ func (p *Provider) listAppStreamResources(ctx context.Context, region string) ([
 }
 
 func (p *Provider) listAppStreamResourcesFrom(ctx context.Context, client appStreamAPI, region string) ([]types.Resource, error) {
-	if !p.requireBulkTags(region, "AppStream") {
+	if !p.requireBulkTags(ctx, region, "AppStream") {
 		return nil, nil
 	}
 	var resources []types.Resource
@@ -91,7 +91,7 @@ func (p *Provider) listAppStreamResourcesFrom(ctx context.Context, client appStr
 		}
 		for _, f := range output.Fleets {
 			name := aws.ToString(f.Name)
-			resources = append(resources, p.bulkResource(region, "aws_appstream_fleet", name, name, aws.ToString(f.Arn), f.CreatedTime))
+			resources = append(resources, p.bulkResource(ctx, region, "aws_appstream_fleet", name, name, aws.ToString(f.Arn), f.CreatedTime))
 		}
 		return output.NextToken, nil
 	}); err != nil {
@@ -104,7 +104,7 @@ func (p *Provider) listAppStreamResourcesFrom(ctx context.Context, client appStr
 		}
 		for _, s := range output.Stacks {
 			name := aws.ToString(s.Name)
-			resources = append(resources, p.bulkResource(region, "aws_appstream_stack", name, name, aws.ToString(s.Arn), s.CreatedTime))
+			resources = append(resources, p.bulkResource(ctx, region, "aws_appstream_stack", name, name, aws.ToString(s.Arn), s.CreatedTime))
 		}
 		return output.NextToken, nil
 	}); err != nil {
@@ -289,7 +289,7 @@ func (p *Provider) listSSMResources(ctx context.Context, region string) ([]types
 // the account's own documents (tags inline).
 func (p *Provider) listSSMResourcesFrom(ctx context.Context, client ssmAPI, region string) ([]types.Resource, error) {
 	var resources []types.Resource
-	if p.requireBulkTags(region, "SSM parameters") {
+	if p.requireBulkTags(ctx, region, "SSM parameters") {
 		params := ssm.NewDescribeParametersPaginator(client, &ssm.DescribeParametersInput{})
 		for params.HasMorePages() {
 			output, err := params.NextPage(ctx)
@@ -298,7 +298,7 @@ func (p *Provider) listSSMResourcesFrom(ctx context.Context, client ssmAPI, regi
 			}
 			for _, prm := range output.Parameters {
 				name := aws.ToString(prm.Name)
-				resources = append(resources, p.bulkResource(region, "aws_ssm_parameter", name, name, aws.ToString(prm.ARN), prm.LastModifiedDate))
+				resources = append(resources, p.bulkResource(ctx, region, "aws_ssm_parameter", name, name, aws.ToString(prm.ARN), prm.LastModifiedDate))
 			}
 		}
 	}
@@ -329,7 +329,7 @@ func (p *Provider) listResponsePlans(ctx context.Context, region string) ([]type
 }
 
 func (p *Provider) listResponsePlansFrom(ctx context.Context, client ssmIncidentsAPI, region string) ([]types.Resource, error) {
-	if !p.requireBulkTags(region, "Incident Manager") {
+	if !p.requireBulkTags(ctx, region, "Incident Manager") {
 		return nil, nil
 	}
 	var resources []types.Resource
@@ -341,7 +341,7 @@ func (p *Provider) listResponsePlansFrom(ctx context.Context, client ssmIncident
 		}
 		for _, rp := range output.ResponsePlanSummaries {
 			name := aws.ToString(rp.Name)
-			resources = append(resources, p.bulkResource(region, "aws_ssmincidents_response_plan", name, name, aws.ToString(rp.Arn), nil))
+			resources = append(resources, p.bulkResource(ctx, region, "aws_ssmincidents_response_plan", name, name, aws.ToString(rp.Arn), nil))
 		}
 	}
 	log.Debug("AWS Incident Manager: Found %d response plans in %s", len(resources), region)
@@ -353,7 +353,7 @@ func (p *Provider) listWorkSpaces(ctx context.Context, region string) ([]types.R
 }
 
 func (p *Provider) listWorkSpacesFrom(ctx context.Context, client workSpacesAPI, region string) ([]types.Resource, error) {
-	if !p.requireBulkTags(region, "WorkSpaces") {
+	if !p.requireBulkTags(ctx, region, "WorkSpaces") {
 		return nil, nil
 	}
 	var resources []types.Resource
@@ -373,7 +373,7 @@ func (p *Provider) listWorkSpacesFrom(ctx context.Context, client workSpacesAPI,
 			if name == "" {
 				name = id
 			}
-			resources = append(resources, p.bulkResource(region, "aws_workspaces_workspace", id, name, arn, nil))
+			resources = append(resources, p.bulkResource(ctx, region, "aws_workspaces_workspace", id, name, arn, nil))
 		}
 	}
 	log.Debug("AWS WorkSpaces: Found %d workspaces in %s", len(resources), region)

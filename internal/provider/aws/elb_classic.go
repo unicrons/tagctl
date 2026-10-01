@@ -41,7 +41,7 @@ func (p *Provider) listClassicLoadBalancersFrom(ctx context.Context, client clas
 	}
 
 	tagsByName := make(map[string]map[string]string, len(names))
-	useBulk := p.tagsFor(region).available()
+	useBulk := p.tagsFor(region).available(ctx)
 	if !useBulk {
 		for _, batch := range chunk(names, elbTagBatchSize) {
 			output, err := client.DescribeTags(ctx, &elb.DescribeTagsInput{LoadBalancerNames: batch})
@@ -66,7 +66,7 @@ func (p *Provider) listClassicLoadBalancersFrom(ctx context.Context, client clas
 		arn := p.buildARN("elasticloadbalancing", region, p.accountID, "loadbalancer/"+name)
 		tags := tagsByName[name]
 		if useBulk {
-			tags = p.bulkTags(region, arn)
+			tags = p.bulkTags(ctx, region, arn)
 		}
 		if tags == nil {
 			tags = map[string]string{}
