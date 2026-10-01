@@ -83,6 +83,14 @@ tagctl init [flags]
   Name of the config file to create
 </ParamField>
 
+<ParamField path="--template" type="string" default="default">
+  Policy template to start from: `default`, `finops`, `security` or `well-architected`. An unknown name is rejected with the list of valid ones and nothing is written
+</ParamField>
+
+<ParamField path="--list-templates" type="boolean" default="false">
+  Print the available templates, one per line, and exit without writing a file
+</ParamField>
+
 <CodeGroup>
 ```bash Basic
 tagctl init
@@ -91,7 +99,34 @@ tagctl init
 ```bash Custom name
 tagctl init --name production.yaml
 ```
+
+```bash From a template
+tagctl init --template finops
+```
+
+```bash List templates
+tagctl init --list-templates
+```
 </CodeGroup>
+
+### Templates
+
+Every template is a complete configuration that `tagctl validate` accepts as
+written. They differ in the tag policy and the auto-fix rules:
+
+| Template | Required tags | Optional tags |
+|----------|---------------|---------------|
+| `default` | `environment`, `cost-center`, `owner` | `project`, `team` |
+| `finops` | `cost-center`, `owner`, `environment`, `project` | `application`, `business-unit` |
+| `security` | `data-classification`, `owner`, `environment`, `compliance` | `security-contact`, `exposure` |
+| `well-architected` | `application`, `environment`, `owner`, `cost-center`, `project`, `confidentiality`, `compliance` | `application-role`, `cluster`, `version`, `business-unit`, `customer` |
+
+`well-architected` follows the technical, business and security tag categories of
+the AWS whitepaper [Best Practices for Tagging AWS Resources](https://docs.aws.amazon.com/whitepapers/latest/tagging-best-practices/tagging-best-practices.html).
+
+The allowed values, patterns and default owners are placeholders: edit them to
+match your organisation before the first `plan`. `init` never overwrites an
+existing file.
 
 ## tagctl validate
 

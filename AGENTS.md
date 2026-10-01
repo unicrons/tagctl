@@ -34,7 +34,8 @@ internal/
 │   ├── cost.go           # Cost attribution reporting
 │   ├── gate.go           # CI gate flags shared by scan/evaluate/terraform
 │   ├── exitcode.go       # ExitCode: 0 success, 1 gate failed, 2 other error
-│   ├── init.go           # Config scaffolding
+│   ├── init.go           # Config scaffolding (--template, --list-templates)
+│   ├── templates/        # Embedded tagctl.yaml templates, one per --template name
 │   ├── validate.go       # Config validation
 │   ├── output.go         # Table/JSON/CSV/HTML output
 │   ├── format.go         # -o validation per command (outputFormatFor)
@@ -326,7 +327,7 @@ Kubernetes cluster name): the applier routes a change to the provider whose
 configured more than once must implement it.
 
 Provider status has one table, "Provider Status" in `docs/development.mdx`.
-README, CONTRIBUTING, `tagctl.yaml.example`, the `init` template and the docs
+README, CONTRIBUTING, `tagctl.yaml.example`, the `init` templates and the docs
 pages introduction, configuration, architecture, credentials, rules, roadmap
 and providers/kubernetes summarize it and link there: change them together.
 
@@ -425,6 +426,15 @@ Checklist:
 2. Register it with `rootCmd.AddCommand(newCmd)` in `root.go`
 3. Add `internal/cli/newcmd_test.go`
 4. Document it in `docs/commands.mdx`
+
+### Adding an init Template
+
+1. Add `internal/cli/templates/<name>.yaml`, a complete config using only
+   keys `config.Load` accepts
+2. List it in `configTemplates` (`internal/cli/init.go`);
+   `TestConfigTemplates_MatchEmbeddedFiles` fails on a file that is not listed
+   and `TestInit_EveryTemplateLoadsAndValidates` on one `validate` rejects
+3. Add it to the templates table in `docs/commands.mdx`
 
 ### Adding a New Tag Rule Type
 
