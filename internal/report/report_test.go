@@ -395,6 +395,24 @@ func TestWriteJUnit_Structure(t *testing.T) {
 	}
 }
 
+func TestWriteJUnit_OmitsTheTimeAttribute(t *testing.T) {
+	scan := scanOf(
+		failed("i-1", "aws_instance", "111", tagOwner, types.ReasonMissing),
+		passed("i-2", "aws_instance", "111", tagOwner),
+	)
+
+	var buf bytes.Buffer
+	if err := WriteJUnit(&buf, scan); err != nil {
+		t.Fatalf("WriteJUnit() error = %v", err)
+	}
+	if strings.Contains(buf.String(), " time=") {
+		t.Errorf("report claims a duration tagctl never measured:\n%s", buf.String())
+	}
+	if !strings.Contains(buf.String(), " timestamp=") {
+		t.Errorf("report lost the suite timestamp:\n%s", buf.String())
+	}
+}
+
 func TestWriteJUnit_FailureCarriesContext(t *testing.T) {
 	finding := failed("i-1", "aws_instance", "111", tagEnv, types.ReasonInvalidValue)
 	finding.Expected = "dev, staging, prod"

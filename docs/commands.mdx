@@ -1366,6 +1366,8 @@ JUnit XML is understood by essentially every CI system.
   actual values, and the ARN, so it can be acted on without opening the scan.
 - The `classname` is `provider.account.region`, leaving out the parts a
   resource does not have: a Terraform plan gives `aws`.
+- No `time` attribute is written: tagctl does not time individual checks. Each
+  suite carries the scan `timestamp`.
 
 ### OCSF
 

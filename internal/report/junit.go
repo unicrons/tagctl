@@ -17,7 +17,6 @@ type JUnitTestSuites struct {
 	Name     string           `xml:"name,attr"`
 	Tests    int              `xml:"tests,attr"`
 	Failures int              `xml:"failures,attr"`
-	Time     string           `xml:"time,attr"`
 	Suites   []JUnitTestSuite `xml:"testsuite"`
 }
 
@@ -34,7 +33,6 @@ type JUnitTestSuite struct {
 type JUnitTestCase struct {
 	Name      string        `xml:"name,attr"`
 	ClassName string        `xml:"classname,attr"`
-	Time      string        `xml:"time,attr"`
 	Failure   *JUnitFailure `xml:"failure,omitempty"`
 }
 
@@ -64,7 +62,6 @@ func WriteJUnit(w io.Writer, scan *types.ScanResult) error {
 
 	report := JUnitTestSuites{
 		Name:   toolName,
-		Time:   "0",
 		Suites: make([]JUnitTestSuite, 0, len(tags)),
 	}
 
@@ -80,7 +77,6 @@ func WriteJUnit(w io.Writer, scan *types.ScanResult) error {
 			testCase := JUnitTestCase{
 				Name:      fmt.Sprintf("%s %s", finding.Resource.Type, finding.Resource.ID),
 				ClassName: junitClassName(finding),
-				Time:      "0",
 			}
 
 			if finding.Status == types.StatusFailed {
