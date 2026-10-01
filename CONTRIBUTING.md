@@ -382,7 +382,7 @@ type Finding struct {
     Actual   string        `json:"actual,omitempty"`
 }
 
-// Violation is deprecated, use Finding instead
+// Violation is deprecated and will be removed in v1.0.0, use Finding instead
 type Violation struct {
     Resource Resource        `json:"resource"`
     Tag      string          `json:"tag"`

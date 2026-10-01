@@ -244,7 +244,7 @@ const (
 )
 ```
 
-`ScanResult` carries both `Violations` (deprecated) and `Findings`; new code should
+`ScanResult` carries both `Violations` (deprecated, removed in `v1.0.0`) and `Findings`; new code should
 use `Findings`. The `violations` JSON key is kept for backwards compatibility. The
 evaluator checks each resource once; `Violations` is its FAILED findings in the same
 order (`type Violation Finding`). `ScanResult.FailedFindings()` falls back to
