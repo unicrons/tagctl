@@ -211,7 +211,7 @@ func printDiffTable(result *types.DiffResult, baselinePath, currentPath string) 
 		fmt.Println("Regressions:")
 		for _, f := range result.Regressions {
 			fmt.Printf("  ✗ %s %s (%s) — %s\n",
-				f.Resource.Type, f.Resource.ID, f.Resource.Account, f.Message())
+				printable(f.Resource.Type), printable(f.Resource.ID), printable(f.Resource.Account), printable(f.Message()))
 		}
 		fmt.Println()
 	}
@@ -220,7 +220,7 @@ func printDiffTable(result *types.DiffResult, baselinePath, currentPath string) 
 		fmt.Println("Resolved:")
 		for _, f := range result.Resolved {
 			fmt.Printf("  ✓ %s %s (%s) — tag '%s' is now compliant\n",
-				f.Resource.Type, f.Resource.ID, f.Resource.Account, f.Tag)
+				printable(f.Resource.Type), printable(f.Resource.ID), printable(f.Resource.Account), printable(f.Tag))
 		}
 		fmt.Println()
 	}
@@ -250,7 +250,7 @@ func printTagDeltas(result *types.DiffResult) {
 	fmt.Println("By tag:")
 	for _, delta := range moved {
 		fmt.Printf("  %-24s %5.1f%% → %5.1f%%  (%s)\n",
-			delta.Tag, delta.CompliancePctBefore, delta.CompliancePctAfter, signedPct(delta.Delta()))
+			printable(delta.Tag), delta.CompliancePctBefore, delta.CompliancePctAfter, signedPct(delta.Delta()))
 	}
 	fmt.Println()
 }

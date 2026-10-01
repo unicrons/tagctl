@@ -57,7 +57,7 @@ func outputScanTable(result *types.ScanResult, verbose bool) error {
 		for _, acc := range result.ByAccount {
 			bar := renderProgressBar(acc.CompliancePct, 10)
 			fmt.Fprintf(w, "  %s/%s\t%d\t%d\t%.0f%% %s\n",
-				acc.Provider, acc.Account, acc.Total, acc.Compliant, acc.CompliancePct, bar)
+				printable(acc.Provider), printable(acc.Account), acc.Total, acc.Compliant, acc.CompliancePct, bar)
 		}
 		_ = w.Flush()
 		fmt.Println()
@@ -73,7 +73,7 @@ func outputScanTable(result *types.ScanResult, verbose bool) error {
 			if tag.Required {
 				bar := renderProgressBar(tag.CompliancePct, 10)
 				fmt.Fprintf(w, "  %s\t%d\t%d\t%d\t%.0f%% %s\n",
-					tag.Tag, tag.Present, tag.Missing, tag.Invalid, tag.CompliancePct, bar)
+					printable(tag.Tag), tag.Present, tag.Missing, tag.Invalid, tag.CompliancePct, bar)
 			}
 		}
 		_ = w.Flush()
@@ -206,7 +206,7 @@ func printFindingsTable(out io.Writer, findings []types.Finding) {
 		rows = append(rows, []string{
 			status,
 			truncate(printable(f.Resource.DisplayName()), maxResourceWidth),
-			f.Resource.Type,
+			printable(f.Resource.Type),
 			printable(f.Tag),
 			truncate(printable(value), maxValueWidth),
 		})
@@ -311,7 +311,7 @@ func outputPlanTable(plan *types.Plan) {
 
 	for resourceID, changes := range resourceChanges {
 		res := changes[0].Resource
-		fmt.Printf("%s (%s)\n", res.Type, res.DisplayName())
+		fmt.Printf("%s (%s)\n", printable(res.Type), printable(res.DisplayName()))
 
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 		for _, c := range changes {

@@ -227,7 +227,7 @@ func printCostReport(w io.Writer, report *types.CostReport) {
 	}
 
 	for _, tag := range sortedTagCosts(report) {
-		fmt.Fprintf(w, "  %s\n", tag.Tag)
+		fmt.Fprintf(w, "  %s\n", printable(tag.Tag))
 		fmt.Fprintf(w, "      attributed:   %14s  (%.1f%%)\n",
 			money(tag.Attributed, report.Currency), tag.CoveragePct())
 		fmt.Fprintf(w, "      unattributed: %14s  (%.1f%%)\n",
@@ -256,7 +256,7 @@ func printTopValues(w io.Writer, tag *types.TagCost, currency string) {
 		if shown == 0 {
 			fmt.Fprintf(w, "      top values:\n")
 		}
-		fmt.Fprintf(w, "        %-28s %14s\n", truncate(value.Value, 28), money(value.Amount, currency))
+		fmt.Fprintf(w, "        %-28s %14s\n", truncate(printable(value.Value), 28), money(value.Amount, currency))
 		shown++
 		if shown == topValueCount {
 			break
@@ -305,7 +305,7 @@ func printCostSummary(w io.Writer, report *types.CostReport) {
 
 	fmt.Fprintln(w, "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	fmt.Fprintf(w, "Worst attribution: %s, leaving %s unattributable over %d days.\n",
-		worst.Tag, money(worst.Unattributed, report.Currency), report.Days())
+		printable(worst.Tag), money(worst.Unattributed, report.Currency), report.Days())
 
 	if report.Days() > 0 {
 		annual := worst.Unattributed / float64(report.Days()) * 365
@@ -413,7 +413,7 @@ func money(amount float64, currency string) string {
 	if currency == "" {
 		currency = "USD"
 	}
-	return fmt.Sprintf("%.2f %s", amount, currency)
+	return fmt.Sprintf("%.2f %s", amount, printable(currency))
 }
 
 // signedMoney formats a change with an explicit sign.

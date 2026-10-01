@@ -77,6 +77,17 @@ func TestSetLevelFromString_InvalidKeepsTheLevel(t *testing.T) {
 	}
 }
 
+func TestWrite_NeutralisesControlCharacters(t *testing.T) {
+	buf := capture(t, LevelError)
+
+	Error("skipped %s:\n\tsecond line", "bucket\x1b[2J\x07\r")
+
+	want := "[ERROR]\033[0m skipped bucket?[2J??:\n\tsecond line\n"
+	if got := buf.String(); !strings.HasSuffix(got, want) {
+		t.Errorf("got %q, want it to end with %q", got, want)
+	}
+}
+
 type recordingHolder struct {
 	buf   *bytes.Buffer
 	calls int

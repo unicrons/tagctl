@@ -10,6 +10,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"unicode"
 )
 
 // Level represents a log level.
@@ -113,7 +114,7 @@ func write(level Level, color, tag, format string, args ...interface{}) {
 		return
 	}
 
-	line := fmt.Sprintf("%s%s%s %s\n", color, tag, colorReset, fmt.Sprintf(format, args...))
+	line := fmt.Sprintf("%s%s%s %s\n", color, tag, colorReset, printable(fmt.Sprintf(format, args...)))
 	emit := func() { fmt.Fprint(out, line) }
 
 	if holder != nil {
@@ -121,4 +122,15 @@ func write(level Level, color, tag, format string, args ...interface{}) {
 		return
 	}
 	emit()
+}
+
+// printable replaces control characters, so a logged cloud value or error
+// cannot drive the terminal through escape sequences. Line breaks and tabs stay.
+func printable(s string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) && r != '\n' && r != '\t' {
+			return '?'
+		}
+		return r
+	}, s)
 }
