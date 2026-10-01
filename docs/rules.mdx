@@ -8,7 +8,7 @@ tagctl can automatically generate tag values using two types of rules:
 
 <CardGroup cols={2}>
   <Card title="Inference" icon="magnifying-glass">
-    Derive tags from resource names
+    Derive tags from resource names or other tags
   </Card>
   <Card title="Defaults" icon="shield">
     Apply fallback values
@@ -89,6 +89,40 @@ rules:
 | `web-prod-api-1` | `environment: prod` |
 | `db-dev-postgres` | `environment: dev` |
 | `cache-redis-main` | *(no match)* |
+
+### From Another Tag
+
+`from_tag` takes the value from another tag on the same resource, which is
+how a legacy key (`env`, `Environment`) feeds the one the policy requires:
+
+```yaml
+rules:
+  infer:
+    - tag: environment
+      from_tag:
+        # Translate the values that differ; anything else infers nothing
+        - tag: env
+          values:
+            production: prod
+            development: dev
+        # No values: copy the value as is
+        - tag: Environment
+      from_name:
+        - pattern: "-prod-"
+          value: prod
+```
+
+| Field | Meaning |
+|-------|---------|
+| `tag` | Tag key to read. Required, case-sensitive, and different from the tag being inferred |
+| `values` | Optional map from the source value to the value to set. Without it the value is copied unchanged; with it a value missing from the map is skipped |
+
+Sources are tried in order and the first usable one wins. A resource that
+does not carry the source tag, carries it empty, or carries a value outside
+`values` falls through to the next source and then to `from_name`: a tag
+already on the resource is a stronger signal than its name. The change is
+reported as `inferred` with the source `from tag '<key>'`, and the source tag
+is left in place.
 
 ## Inheritance Rules
 
@@ -180,7 +214,7 @@ When multiple rules could apply:
 ```
 1. Existing tags (never overwritten)
         ↓
-2. Inference rules (from resource name)
+2. Inference rules (from another tag, then from the resource name)
         ↓
 3. Default rules (fallback values)
 ```

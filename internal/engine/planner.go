@@ -20,8 +20,9 @@ type Planner interface {
 
 // RealPlanner generates fix plans based on scan results and configured rules.
 type RealPlanner struct {
-	rules    config.RulesConfig
-	compiled map[string][]*compiledInferRule
+	rules      config.RulesConfig
+	compiled   map[string][]*compiledInferRule
+	tagSources map[string][]config.TagSource
 }
 
 type compiledInferRule struct {
@@ -35,12 +36,14 @@ func NewPlanner(rules config.RulesConfig) (*RealPlanner, error) {
 		len(rules.Infer), len(rules.Inherit), len(rules.Defaults))
 
 	p := &RealPlanner{
-		rules:    rules,
-		compiled: make(map[string][]*compiledInferRule),
+		rules:      rules,
+		compiled:   make(map[string][]*compiledInferRule),
+		tagSources: make(map[string][]config.TagSource),
 	}
 
 	// Pre-compile infer rule patterns
 	for _, rule := range rules.Infer {
+		p.tagSources[rule.Tag] = append(p.tagSources[rule.Tag], rule.FromTag...)
 		for _, pattern := range rule.FromName {
 			re, err := regexp.Compile(pattern.Pattern)
 			if err != nil {
@@ -119,8 +122,13 @@ func (p *RealPlanner) tryFix(finding types.Finding) *types.TagChange {
 	return nil
 }
 
-// tryInfer tries to infer a tag value from the resource name.
+// tryInfer tries to infer a tag value from another tag on the resource, then
+// from the resource name.
 func (p *RealPlanner) tryInfer(finding types.Finding) *types.TagChange {
+	if change := p.tryInferFromTag(finding); change != nil {
+		return change
+	}
+
 	rules, ok := p.compiled[finding.Tag]
 	if !ok {
 		return nil
@@ -144,6 +152,34 @@ func (p *RealPlanner) tryInfer(finding types.Finding) *types.TagChange {
 		}
 	}
 
+	return nil
+}
+
+// tryInferFromTag takes the value from the first source tag the resource
+// carries with a usable value.
+func (p *RealPlanner) tryInferFromTag(finding types.Finding) *types.TagChange {
+	for _, source := range p.tagSources[finding.Tag] {
+		value, ok := finding.Resource.Tags[source.Tag]
+		if !ok {
+			continue
+		}
+		if len(source.Values) > 0 {
+			if value, ok = source.Values[value]; !ok {
+				continue
+			}
+		}
+		if value == "" {
+			continue
+		}
+		return &types.TagChange{
+			Resource: finding.Resource,
+			Tag:      finding.Tag,
+			Action:   types.ActionAdd,
+			NewValue: value,
+			Reason:   types.ReasonInferred,
+			Source:   fmt.Sprintf("from tag '%s'", source.Tag),
+		}
+	}
 	return nil
 }
 

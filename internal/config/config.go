@@ -225,6 +225,20 @@ type InferRule struct {
 
 	// FromName contains patterns to match against resource names.
 	FromName []NamePattern `yaml:"from_name" mapstructure:"from_name"`
+
+	// FromTag lists other tags on the same resource to take the value from,
+	// tried in order before FromName.
+	FromTag []TagSource `yaml:"from_tag" mapstructure:"from_tag"`
+}
+
+// TagSource takes a tag value from another tag on the same resource.
+type TagSource struct {
+	// Tag is the tag key to read.
+	Tag string `yaml:"tag" mapstructure:"tag"`
+
+	// Values maps the source value to the value to set. Empty copies the
+	// value as is; otherwise a value outside the map infers nothing.
+	Values map[string]string `yaml:"values" mapstructure:"values"`
 }
 
 // NamePattern matches resource names and maps to values.
@@ -427,10 +441,33 @@ func (r RulesConfig) validate() error {
 				return fmt.Errorf("rules.infer[%d].from_name[%d]: invalid pattern %q: %w", i, j, pattern.Pattern, err)
 			}
 		}
+		for j, source := range rule.FromTag {
+			if err := source.validate(rule.Tag); err != nil {
+				return fmt.Errorf("rules.infer[%d].from_tag[%d]: %w", i, j, err)
+			}
+		}
 	}
 	for i, rule := range r.Defaults {
 		if err := rule.validate(); err != nil {
 			return fmt.Errorf("rules.defaults[%d]: %w", i, err)
+		}
+	}
+	return nil
+}
+
+func (s TagSource) validate(target string) error {
+	if target == "" {
+		return errors.New("the rule needs a tag to infer")
+	}
+	if s.Tag == "" {
+		return errors.New("tag is required")
+	}
+	if s.Tag == target {
+		return fmt.Errorf("tag %q is the tag being inferred", s.Tag)
+	}
+	for _, from := range slices.Sorted(maps.Keys(s.Values)) {
+		if from == "" || s.Values[from] == "" {
+			return fmt.Errorf("values: %q maps to %q, both sides must be non-empty", from, s.Values[from])
 		}
 	}
 	return nil

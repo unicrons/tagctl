@@ -214,6 +214,21 @@ rules:
           value: staging
 ```
 
+Or from another tag on the same resource, tried before `from_name`:
+
+```yaml
+rules:
+  infer:
+    - tag: environment
+      from_tag:
+        - tag: env
+          values:            # optional: without it the value is copied as is
+            production: prod
+```
+
+Each `from_tag` entry needs a `tag` other than the one being inferred, and
+`values` entries cannot be empty. See [From Another Tag](/rules#from-another-tag).
+
 ### Inherit Rules
 
 `rules.inherit` is parsed and counted by `tagctl validate`, but `plan` does

@@ -375,11 +375,19 @@ func TestValidate_PolicyRulesAndIgnore(t *testing.T) {
 	awsDefault := func(set, when map[string]string) RulesConfig {
 		return RulesConfig{Defaults: []DefaultRule{{Resource: "aws_*", When: when, Set: set}}}
 	}
+	inferFrom := func(tag string, source TagSource) RulesConfig {
+		return RulesConfig{Infer: []InferRule{{Tag: tag, FromTag: []TagSource{source}}}}
+	}
 	cases := []struct {
 		name    string
 		cfg     Config
 		wantErr string
 	}{
+		{"infer from another tag", Config{Rules: inferFrom("environment", TagSource{Tag: "env", Values: map[string]string{"production": "prod"}})}, ""},
+		{"infer from tag without source tag", Config{Rules: inferFrom("environment", TagSource{})}, "rules.infer[0].from_tag[0]: tag is required"},
+		{"infer from tag without target tag", Config{Rules: inferFrom("", TagSource{Tag: "env"})}, "rules.infer[0].from_tag[0]: the rule needs a tag to infer"},
+		{"infer from the tag being inferred", Config{Rules: inferFrom("env", TagSource{Tag: "env"})}, `rules.infer[0].from_tag[0]: tag "env" is the tag being inferred`},
+		{"infer from tag mapping to an empty value", Config{Rules: inferFrom("environment", TagSource{Tag: "env", Values: map[string]string{"production": ""}})}, `rules.infer[0].from_tag[0]: values: "production" maps to ""`},
 		{"tag keys differing only in case", Config{Policy: PolicyConfig{Required: []TagRequirement{{Name: "Owner"}, {Name: "owner"}}}}, ""},
 		{"tag required twice", Config{Policy: PolicyConfig{Required: []TagRequirement{{Name: "owner"}, {Name: "owner"}}}}, `policy.required[1]: tag "owner" is already defined at policy.required[0]`},
 		{"tag both required and optional", Config{Policy: PolicyConfig{Required: []TagRequirement{{Name: "owner"}}, Optional: []TagRequirement{{Name: "owner"}}}}, `policy.optional[0]: tag "owner" is already defined at policy.required[0]`},

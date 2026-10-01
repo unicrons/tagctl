@@ -184,8 +184,11 @@ policy:
       pattern: "^.+@.+$"
 
 rules:
-  infer:                      # Infer tags from resource names
+  infer:                      # Infer tags from other tags, then resource names
     - tag: environment
+      from_tag:
+        - tag: env
+          values: {production: prod}   # optional mapping
       from_name:
         - pattern: "-prod-"
           value: prod
