@@ -256,6 +256,7 @@ func TestListFMSPolicies(t *testing.T) {
 	for _, notAdmin := range []error{
 		apiError{"InvalidOperationException"},
 		apiErrorMsg{"AccessDeniedException", "Operation ListPolicies is only available to AWS Firewall Manager Administrators."},
+		apiErrorMsg{"AccessDeniedException", "No default admin could be found for account 123456789012 in Region us-east-1"},
 	} {
 		if resources, err := p.listFMSPoliciesFrom(context.Background(), &mockFMSClient{err: notAdmin}, defaultRegion); err != nil || len(resources) != 0 {
 			t.Errorf("%v: non-admin account must be skipped silently, got %+v, %v", notAdmin, resources, err)

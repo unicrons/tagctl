@@ -282,11 +282,15 @@ func (p *Provider) listFMSPoliciesFrom(ctx context.Context, client fmsAPI, regio
 }
 
 // isFMSNonAdmin reports the AccessDenied FMS answers from any account that is
-// not the Firewall Manager administrator.
+// not the Firewall Manager administrator, or whose organization has none.
 func isFMSNonAdmin(err error) bool {
 	var apiErr smithy.APIError
-	return errors.As(err, &apiErr) && apiErr.ErrorCode() == "AccessDeniedException" &&
-		strings.Contains(apiErr.ErrorMessage(), "Firewall Manager Administrator")
+	if !errors.As(err, &apiErr) || apiErr.ErrorCode() != "AccessDeniedException" {
+		return false
+	}
+	msg := apiErr.ErrorMessage()
+	return strings.Contains(msg, "Firewall Manager Administrator") ||
+		strings.Contains(msg, "No default admin could be found")
 }
 
 func (p *Provider) listDetectors(ctx context.Context, region string) ([]types.Resource, error) {
