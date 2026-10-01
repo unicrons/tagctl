@@ -1,6 +1,7 @@
 package aws
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -22,7 +23,7 @@ func clientCacheProvider() *Provider {
 }
 
 func TestForEachConcurrently_NoItemsReturnsNilWithoutCallingFn(t *testing.T) {
-	got := forEachConcurrently(nil, func(int) []types.Resource {
+	got := forEachConcurrently(context.Background(), nil, func(int) []types.Resource {
 		t.Error("fn called with no items")
 		return nil
 	})
@@ -38,7 +39,7 @@ func TestForEachConcurrently_ProcessesEveryItemOnce(t *testing.T) {
 		items[i] = i
 	}
 
-	got := forEachConcurrently(items, func(i int) []types.Resource {
+	got := forEachConcurrently(context.Background(), items, func(i int) []types.Resource {
 		return one(types.Resource{ID: fmt.Sprintf("r-%d", i)})
 	})
 
@@ -57,7 +58,7 @@ func TestForEachConcurrently_ProcessesEveryItemOnce(t *testing.T) {
 }
 
 func TestForEachConcurrently_FlattensBatchesAndDropsEmptyOnes(t *testing.T) {
-	got := forEachConcurrently([]int{0, 1, 2, 3}, func(n int) []types.Resource {
+	got := forEachConcurrently(context.Background(), []int{0, 1, 2, 3}, func(n int) []types.Resource {
 		return make([]types.Resource, n)
 	})
 
@@ -74,7 +75,7 @@ func TestForEachConcurrently_NeverExceedsMaxConcurrentAPICalls(t *testing.T) {
 	filled := make(chan struct{})
 	var timedOut atomic.Bool
 
-	got := forEachConcurrently(items, func(int) []types.Resource {
+	got := forEachConcurrently(context.Background(), items, func(int) []types.Resource {
 		n := inFlight.Add(1)
 		defer inFlight.Add(-1)
 		raiseTo(&peak, n)

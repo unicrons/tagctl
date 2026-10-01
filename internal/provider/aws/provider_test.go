@@ -222,25 +222,6 @@ func TestForEachConcurrently_CancelledBeforeTheFirstItemRunsNothing(t *testing.T
 	}
 }
 
-func TestForEachConcurrently_BoundsCallsInFlightAndReturnsEveryResult(t *testing.T) {
-	items := make([]int, 5*maxConcurrentAPICalls)
-	var inFlight, peak atomic.Int64
-
-	resources := forEachConcurrently(context.Background(), items, func(int) []types.Resource {
-		raiseTo(&peak, inFlight.Add(1))
-		defer inFlight.Add(-1)
-		time.Sleep(time.Millisecond)
-		return one(types.Resource{})
-	})
-
-	if len(resources) != len(items) {
-		t.Errorf("got %d resources, want %d", len(resources), len(items))
-	}
-	if got := peak.Load(); got > maxConcurrentAPICalls {
-		t.Errorf("peak of %d calls in flight, want at most %d", got, maxConcurrentAPICalls)
-	}
-}
-
 func raiseTo(peak *atomic.Int64, n int64) {
 	for {
 		old := peak.Load()
