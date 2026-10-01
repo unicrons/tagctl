@@ -11,7 +11,7 @@
 
 <p align="center">
   Scan what is wrong, review the plan, then apply it.<br>
-  AWS today, 106 resource types, every region by default.
+  106 AWS resource types, every region by default, and Kubernetes labels.
 </p>
 
 <p align="center">
@@ -65,6 +65,7 @@ tagctl apply   # Fix it.           → tags written after a confirmation prompt
 | | |
 |---|---|
 | **Wide coverage** | 106 AWS resource types, the same services Prowler audits, from EC2 and S3 to GuardDuty, WAF, Bedrock and IAM roles. Every region unless you say otherwise. See [the full list](docs/providers/aws.mdx). |
+| **Kubernetes too** | Pods, deployments, services, namespaces and config maps, with labels as the tags. See [the provider page](docs/providers/kubernetes.mdx) for what label values cannot hold. |
 | **Fixes, not just findings** | Infer tags from resource names (`web-prod-api` → `environment: prod`), fill gaps with conditional defaults, preview with `plan`, write with `apply`. |
 | **CI native** | SARIF for GitHub code scanning, JUnit for any CI, compliance gates (`--fail-under`, `--fail-on-new`) that exit `1` on a policy failure and `2` on any other error, and `diff` to report what got worse since a baseline. |
 | **Shift left** | `terraform` checks a plan or state against the policy before anything is created, honouring `default_tags`. |
@@ -214,6 +215,7 @@ specific file instead of the latest. Flags, exit codes and CI gates are in the
 | [Commands](docs/commands.mdx) | Flags, exit codes and CI gates |
 | [Rules](docs/rules.mdx) | Inference and defaults |
 | [AWS provider](docs/providers/aws.mdx) | Resource types and IAM policies |
+| [Kubernetes provider](docs/providers/kubernetes.mdx) | Resource types, RBAC and label limits |
 | [OCSF](docs/integrations/ocsf.mdx) | Field mapping for the OCSF output |
 | [Architecture](docs/architecture.mdx) | How the pieces fit together |
 | [Roadmap](docs/roadmap.mdx) | Where tagctl is going, providers included |

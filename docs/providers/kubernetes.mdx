@@ -1,32 +1,59 @@
 ---
-title: 'Kubernetes Provider (Experimental)'
-description: 'Configuration read by the Kubernetes provider, which the CLI does not call yet'
+title: 'Kubernetes Provider'
+description: 'Scan and label Kubernetes resources'
 icon: 'dharmachakra'
 ---
 
-<Warning>
-**Not wired into the CLI.** The provider in `internal/provider/k8s/` lists and labels the resource types below, but no command calls it: a `clouds.kubernetes` entry passes validation and scans nothing. This page documents the configuration that provider reads. See [provider status](/development#provider-status).
-</Warning>
+`tagctl scan`, `plan` and `apply` work against every cluster listed under `clouds.kubernetes`.
+Labels are the tags: tagctl reads `metadata.labels` and `apply` writes them with a merge patch.
 
 ## Resource Types
 
-| Resource | Type | Labels Location |
-|----------|------|-----------------|
-| Pod | `k8s_pod` | `metadata.labels` |
-| Deployment | `k8s_deployment` | `metadata.labels` |
-| Service | `k8s_service` | `metadata.labels` |
-| Namespace | `k8s_namespace` | `metadata.labels` |
-| ConfigMap | `k8s_configmap` | `metadata.labels` |
-| Secret | `k8s_secret` | `metadata.labels` (opt-in) |
-
-<Note>
-  In Kubernetes, "tags" are called **labels**. tagctl treats them the same way.
-</Note>
+| Resource | Type | Scanned by default |
+|----------|------|--------------------|
+| Pod | `k8s_pod` | Yes (pods in phase `Succeeded` or `Failed` are skipped) |
+| Deployment | `k8s_deployment` | Yes |
+| Service | `k8s_service` | Yes |
+| Namespace | `k8s_namespace` | Yes |
+| ConfigMap | `k8s_configmap` | Yes |
+| Secret | `k8s_secret` | No, opt-in |
 
 Secrets are scanned only when `k8s_secret` is listed in `resource_types`. tagctl reads them through
 the metadata API (`PartialObjectMetadata`), so secret data is never downloaded, and service account
 tokens are excluded with the field selector `type!=kubernetes.io/service-account-token`. Every list
 call is paginated (`limit` 500 with `continue` tokens).
+
+In reports, the **account** of a resource is the cluster `name` from the config and its **region**
+is the namespace (empty for namespaces themselves). Its ID is `<type>/<namespace>/<name>`.
+
+## Limits
+
+<Warning>
+  **A label value cannot hold an e-mail address.** Kubernetes accepts at most 63 characters from
+  `[A-Za-z0-9._-]`, starting and ending with a letter or digit. A policy such as
+  `owner` with `pattern: "^.+@.+$"` can never be satisfied by a label: `scan` keeps reporting the
+  tag as missing or invalid, and `apply` refuses the change. Annotations, which accept such values,
+  are not read or written by tagctl.
+</Warning>
+
+- **Label syntax is checked before the API call.** `apply` fails every change of a resource whose
+  plan holds an invalid label key or value, names the label in the error and sends nothing for that
+  resource. The other resources in the plan are still applied and the command exits `2`. `plan` does
+  not check label syntax, so a `rules.defaults` value such as `owner: platform@company.com` shows
+  up in the plan and fails at `apply`.
+- **Use a policy that labels can satisfy.** When the same policy also covers AWS with e-mail
+  owners, keep the clusters in a config file of their own (`--config`) with a pattern such as
+  `^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$` for `owner`.
+- **Only the six types above.** StatefulSets, DaemonSets, Jobs, CronJobs, Ingresses, PVCs and
+  custom resources are not scanned.
+- **Only the object's own `metadata.labels`.** Labelling a Deployment does not change its pod
+  template, so its pods keep their labels; a pod labelled directly loses the label when it is
+  recreated. Fix pod labels in the workload manifest.
+- **`apply` patches live objects.** A GitOps controller or the next `helm upgrade` can revert a
+  label that is not in the source manifest. Treat `apply` as a stopgap and the plan as the list of
+  changes to make at the source.
+- **`--region` is AWS-only.** Filter a cluster with `namespaces` and `resource_types`.
+- **`tagctl cost` is AWS-only.**
 
 ## Configuration
 
@@ -36,39 +63,73 @@ clouds:
     - name: production
       kubeconfig: ~/.kube/config
       context: prod-context
-      namespaces: []  # all namespaces
+      # namespaces omitted: the whole cluster
 
     - name: staging
-      kubeconfig: ~/.kube/config
       context: staging-context
       namespaces:
         - app
         - backend
+
+policy:
+  required:
+    - name: app
+    - name: environment
+      values: [dev, staging, prod]
+    - name: owner
+      pattern: "^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$"   # a team name, not an e-mail
+
+rules:
+  defaults:
+    - resource: "k8s_*"
+      when:
+        "tag:owner": absent
+      set:
+        owner: platform-team
+```
+
+```bash
+tagctl scan     # list and evaluate both clusters
+tagctl plan     # propose labels from rules.infer and rules.defaults
+tagctl apply    # patch the labels
 ```
 
 ### Configuration Options
 
 <ParamField path="name" type="string" required>
-  Friendly name for this cluster (used in reports).
+  Identifies the cluster in reports, plans and resource identities. Must be unique: two clusters
+  with the same name are rejected.
 </ParamField>
 
 <ParamField path="kubeconfig" type="string">
-  Path to kubeconfig file. Defaults to `~/.kube/config`.
-  Use `in-cluster` for pods running inside Kubernetes.
+  Path to a kubeconfig file (`~/` is expanded), or `in-cluster` to use the pod's service account.
+  When omitted, tagctl follows the kubectl loading rules: the files in `KUBECONFIG`, then
+  `~/.kube/config`, then the in-cluster service account.
 </ParamField>
 
 <ParamField path="context" type="string">
-  Kubeconfig context to use. Defaults to current context.
+  Kubeconfig context to use. Defaults to the current context.
 </ParamField>
 
 <ParamField path="namespaces" type="string[]">
-  Namespaces to scan. Empty list means all namespaces.
+  Namespaces to scan. Empty means the whole cluster: each resource type is listed once across all
+  namespaces, which needs a ClusterRole. With a list, every call is scoped to one namespace and a
+  namespace that does not exist is an error.
 </ParamField>
 
 <ParamField path="resource_types" type="string[]">
   Resource types to scan, from the table above. Defaults to every type except `k8s_secret`.
   `tagctl validate` rejects an unknown or repeated type.
 </ParamField>
+
+## Errors and Partial Scans
+
+A kubeconfig that cannot be loaded, or a `context` that does not exist, stops the command before
+anything is scanned. A cluster that cannot be reached, or a list call the credentials are not
+allowed to make, makes the scan [partial](/commands#partial-scans): the resources that could be
+read are kept, the scan JSON records `partial: true` with one error per failing call (prefixed
+`cluster <name>:`), and `scan` exits `2` unless `--allow-partial` is set. An unreachable cluster is
+never reported as zero resources. Each API request times out after 60 seconds.
 
 ## Authentication
 
@@ -78,7 +139,6 @@ clouds:
 clouds:
   kubernetes:
     - name: my-cluster
-      kubeconfig: ~/.kube/config
 ```
 
 ### Using Specific Context
@@ -191,23 +251,20 @@ metadata:
 subjects:
   - kind: ServiceAccount
     name: tagctl
-    namespace: default
+    namespace: tagctl-system
 roleRef:
   kind: ClusterRole
-  name: tagctl-writer
+  name: tagctl-reader          # tagctl-writer to run apply
   apiGroup: rbac.authorization.k8s.io
 ```
 
 <Tip>
-  For namespace-scoped access, use `Role` and `RoleBinding` instead of cluster-wide permissions.
+  For namespace-scoped access, list the namespaces in `namespaces` and bind the same rules with a
+  `Role` and `RoleBinding` in each one. tagctl then makes no cluster-wide call: it lists inside each
+  namespace and reads the namespace object with `get`.
 </Tip>
 
 ## Running tagctl in Kubernetes
-
-<Warning>
-  The CLI does not call the Kubernetes provider yet, so a deployment with only a
-  `clouds.kubernetes` entry scans demo data. See [Provider Status](/development#provider-status).
-</Warning>
 
 No container image is published. Build a static binary from source, copy it into an image of your
 own and push that image to a registry the cluster can pull from:
@@ -216,36 +273,36 @@ own and push that image to a registry the cluster can pull from:
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o tagctl ./cmd/tagctl
 ```
 
-### Deployment
+### CronJob
+
+`scan` runs once and exits, so schedule it instead of keeping it in a Deployment:
 
 ```yaml
-apiVersion: apps/v1
-kind: Deployment
+apiVersion: batch/v1
+kind: CronJob
 metadata:
   name: tagctl
   namespace: tagctl-system
 spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: tagctl
-  template:
-    metadata:
-      labels:
-        app: tagctl
+  schedule: "0 6 * * *"
+  jobTemplate:
     spec:
-      serviceAccountName: tagctl
-      containers:
-        - name: tagctl
-          image: registry.example.com/tagctl:dev   # the image you built
-          command: ["tagctl", "scan", "--output", "json"]
-          volumeMounts:
+      template:
+        spec:
+          serviceAccountName: tagctl
+          restartPolicy: Never
+          containers:
+            - name: tagctl
+              image: registry.example.com/tagctl:dev   # the image you built
+              command: ["tagctl", "scan", "--config", "/etc/tagctl/tagctl.yaml", "--output", "json"]
+              workingDir: /tmp                          # scan writes its reports to ./output
+              volumeMounts:
+                - name: config
+                  mountPath: /etc/tagctl
+          volumes:
             - name: config
-              mountPath: /etc/tagctl
-      volumes:
-        - name: config
-          configMap:
-            name: tagctl-config
+              configMap:
+                name: tagctl-config
 ```
 
 ### ConfigMap
@@ -262,7 +319,6 @@ data:
       kubernetes:
         - name: current-cluster
           kubeconfig: in-cluster
-          namespaces: []
 
     policy:
       required:
@@ -283,14 +339,16 @@ metadata:
 
 ## Multi-Cluster Setup
 
+One provider is built per entry, and a plan entry is only ever applied to the cluster it was
+scanned from.
+
 ```yaml
 clouds:
   kubernetes:
     # Production EKS
     - name: prod-eks
       kubeconfig: ~/.kube/config
-      context: arn:aws:eks:us-east-1:111111111111:cluster/prod
-      namespaces: []
+      context: arn:aws:eks:us-east-1:123456789012:cluster/prod
 
     # Staging GKE
     - name: staging-gke
@@ -340,11 +398,15 @@ clouds:
       resource_types: [k8s_deployment, k8s_service, k8s_secret]
 ```
 
+### By Policy
+
+`ignore.resources` takes globs on the resource type, for example `k8s_configmap` or `k8s_*`.
+
 ## Troubleshooting
 
 <AccordionGroup>
   <Accordion title="Connection refused">
-    Check cluster connectivity:
+    The scan is partial and names the cluster. Check cluster connectivity:
     ```bash
     kubectl cluster-info
     kubectl config current-context
@@ -365,6 +427,12 @@ clouds:
     kubectl config get-contexts
     ```
     Use the exact context name in your config.
+  </Accordion>
+
+  <Accordion title="apply: not a valid Kubernetes label value">
+    The plan holds a value labels cannot store, usually an e-mail address from `rules.defaults`.
+    Change the rule to a value made of letters, digits, `-`, `_` and `.` (63 characters at most),
+    then run `tagctl plan` again. See [Limits](#limits).
   </Accordion>
 
   <Accordion title="In-cluster config fails">

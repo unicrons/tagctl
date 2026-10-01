@@ -5,7 +5,7 @@ others) working on this project.
 
 ## Project Overview
 
-**tagctl** is a cloud resource tag compliance auditing, remediation planning, and enforcement CLI tool. It scans cloud resources (AWS today; a Kubernetes provider exists but is not wired into the CLI; `gcp` and `azure` are reserved config keys), evaluates them against tag policies defined in YAML, generates remediation plans, and can apply fixes.
+**tagctl** is a cloud resource tag compliance auditing, remediation planning, and enforcement CLI tool. It scans cloud resources (AWS and Kubernetes; `gcp` and `azure` are reserved config keys), evaluates them against tag policies defined in YAML, generates remediation plans, and can apply fixes.
 
 ## Tech Stack
 
@@ -284,16 +284,33 @@ a scan file counts resources but has neither (written before the inventory).
   `maxRetryAttempts` (7) unless `AWS_RETRY_MODE`/`AWS_MAX_ATTEMPTS` or the
   profile set them. `--profile`/`--role` and friends live in
   `internal/cli/auth.go` and override a config with at most one AWS entry.
-- **Kubernetes**: provider exists under `internal/provider/k8s/` but is **not wired**
-  into `initProviders()` yet (commented TODO). A `clouds.kubernetes` entry
-  validates but scans nothing. `resource_types` is checked against
-  `config.KubernetesResourceTypes` (the single source; the k8s constants alias
-  it). Secrets are opt-in, listed and patched through the metadata client so
-  their data is never fetched; every List goes through `eachPage`
-  (Limit/Continue).
+- **Kubernetes**: `initProviders()` builds one `k8s.Provider` per
+  `clouds.kubernetes` entry through `newKubernetesProvider` (a package var in
+  `internal/cli/providers.go`; tests swap it for `k8s.NewWithClients` with
+  client-go fake clientsets), so `scan`, `plan` and `apply` run against
+  clusters. Labels are the tags. A resource has `Provider` `kubernetes`,
+  `Account` the cluster `name` (unique, `config.Validate()` rejects a repeat),
+  `Region` the namespace and `ID` `<type>/<namespace>/<name>`. `restConfig`
+  resolves credentials: `kubeconfig: in-cluster`, an explicit path, or the
+  kubectl loading rules (`KUBECONFIG`, `~/.kube/config`, in-cluster); a
+  kubeconfig or context that cannot be loaded fails `initProviders`.
+  `ListResources` lists each type once cluster-wide, or once per configured
+  namespace (namespaces themselves by `Get`, so namespaced Roles are enough);
+  every failing call is returned joined, prefixed `cluster <name>:`, next to
+  what was listed, so an unreachable cluster is a partial scan. `ApplyTags`
+  runs `validateLabels` (label key and value syntax) before the merge patch and
+  fails the resource without an API call: an e-mail is not a valid label
+  value. Annotations are not read or written. `resource_types` is checked
+  against `config.KubernetesResourceTypes` (the single source; the k8s
+  constants alias it). Secrets are opt-in, listed and patched through the
+  metadata client so their data is never fetched; every List goes through
+  `eachPage` (Limit/Continue).
 
 Each provider implements the `provider.Provider` interface (`Name`,
-`ListResources`, `ApplyTags`); `AccountID()` is AWS-specific.
+`ListResources`, `ApplyTags`). `AccountID()` is optional (AWS account id,
+Kubernetes cluster name): the applier routes a change to the provider whose
+`AccountID()` equals the resource's `Account`, so a provider that can be
+configured more than once must implement it.
 
 Provider status has one table, "Provider Status" in `docs/development.mdx`.
 README, CONTRIBUTING, `tagctl.yaml.example`, the `init` template and the docs
@@ -470,7 +487,7 @@ Install with: `make hooks`
    glob (`path.Match`) patterns, tag names defined twice, `rules.defaults`
    (`resource`, non-empty `set`, `when` keys `tag:<name>` with `absent` or an
    exact value; the planner fails closed on anything else) and Kubernetes
-   `resource_types` (unknown or repeated types rejected)
+   clusters (unique `name`; unknown or repeated `resource_types` rejected)
 
 8. **Bulk tags are eventually consistent**: `tag:GetResources` can lag a few
    minutes behind `tagctl apply`. Per-resource tag APIs are read-after-write,

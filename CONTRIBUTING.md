@@ -4,9 +4,8 @@ Thank you for your interest in contributing to tagctl! This guide will help you 
 
 ## Provider Status
 
-AWS is supported (106 resource types). The Kubernetes provider in
-`internal/provider/k8s/` is experimental and not wired into the CLI; GCP and
-Azure are not started. The status table is in
+AWS (106 resource types) and Kubernetes (six resource types, labels as tags)
+are supported; GCP and Azure are not started. The status table is in
 [docs/development.mdx](docs/development.mdx).
 
 ## Code of Conduct
@@ -184,7 +183,7 @@ tagctl/
 │   ├── provider/         # Cloud providers
 │   │   ├── provider.go   # Interface
 │   │   ├── aws/          # AWS, one file per service group
-│   │   └── k8s/          # Kubernetes (not wired yet)
+│   │   └── k8s/          # Kubernetes
 │   └── types/            # Domain types
 │       ├── resource.go, violation.go, scan.go, plan.go
 │       └── diff.go, normalize.go, cost.go
@@ -261,8 +260,7 @@ func init() {
 ### Adding a New Provider
 
 We're looking for contributors to help with:
-- **Kubernetes** - wire the existing `internal/provider/k8s/` provider into
-  `initProviders()`
+- **Kubernetes** - more resource types (StatefulSets, DaemonSets, Jobs)
 - **GCP** - Compute Engine, Cloud Storage, GKE
 - **Azure** - VMs, Storage Accounts, AKS
 
