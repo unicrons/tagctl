@@ -342,49 +342,36 @@ same ids SARIF uses, keep them aligned. The full mapping is the contract in
 
 ### Adding a New AWS Service
 
-1. `go get` the SDK module. Resolve the client with
-   `regionalClient(p, region, svc.NewFromConfig)` (generic cache in
-   `p.clients`); the typed `<svc>Clients` maps and `get<Service>Client` getters
-   are the older pattern, do not add more
-2. Add a `list<Service>` method in the file of its service group under
-   `internal/provider/aws/` (or a new file). Split it in two: `list<Service>`
-   resolves the regional client and delegates to `list<Service>From`, which
-   takes a narrow API interface so tests can inject a mock. Build resources
-   with `p.resource(...)` (tags known) or `p.bulkResource(...)` (bulk source);
-   convert SDK tag slices with `tagsToMap`. Page with the SDK paginator, or
-   with `paginate` when the operation has none: it follows a token past an
-   empty page and fails on a repeated token. A "service not set up" answer
-   (`notSubscribed(err)`) is zero resources at debug level, not an error
-3. Pick the tag source: inline tags from the Describe call when the API returns
-   them; otherwise `p.resourceTags(region, arn, fallback)` when the service has
-   a per-resource tag API (wrap the fallback in `forEachConcurrently`), or
-   `p.requireBulkTags` + `p.bulkTags` when it does not. Any type read through
-   the bulk source must also be added to `bulkTagFilterGroups` in `tags.go`
-   (ARN notation, `service:type`), otherwise the sweep never returns its tags.
-   On a tag-read error skip the resource with `p.skipResource`, do not report
-   it as untagged; add the tag call's not-found error type to `resourceGone`
-4. Add an `apply<Service>Tags` method only if the service has a tag write API
-   of its own; any other ARN is routed to `applyTagsViaTaggingAPI` by
-   `getResourceType` (`tagging_api`)
-5. Register the lister in `regionalListers()` (or `globalListers()`) in `provider.go`
-6. Route the resource type in `tagAppliers()` and `resourceTypePrefixes`.
-   Resources are tagged by ARN unless their type is in `idAddressedTypes`
-   (`internal/engine/applier.go`); only add a type there when its tag API
-   takes a bare ID
-7. Extend `TestRegionalListers`/`TestGlobalListers`,
-   `TestGetResourceType_AllSupportedServices` and `TestTaggingIdentifier`,
-   which pin the supported service set
-8. Add the read actions to `permissions/aws/tagctl-scan-policy.json` and the
-   write action to `tagctl-apply-policy.json`, with the ARN pattern of the
-   tagged resource type taken from the Service Authorization Reference (`"*"`
-   only when it lists no resource type; `unscopedWriteActions` pins those),
-   run `make iam-templates` to re-render the CloudFormation roles, and paste
-   the same JSON into `docs/providers/aws.mdx`. `TestPermissionPolicies_*` pins
-   the copies together, fails when a lister calls an API no policy allows and
-   keeps the apply role under IAM's 10,240-character inline policy limit
-9. Add the resource to the table in `docs/providers/aws.mdx` and bump the
-   count in README, `docs/introduction.mdx`, `docs/configuration.mdx`,
-   `docs/development.mdx` and `docs/architecture.mdx`
+The canonical guide, with snippets, is
+`docs/contributing/adding-an-aws-service.mdx`; change it with the pattern.
+Checklist:
+
+1. Client: `regionalClient(p, region, svc.NewFromConfig)`; no new typed
+   `<svc>Clients` maps or `get<Service>Client` getters
+2. Lister: `list<Service>` resolves the client, `list<Service>From` takes a
+   narrow API interface; `p.resource`/`p.bulkResource`, `tagsToMap`;
+   `notSubscribed(err)` is zero resources at debug level; page with the SDK
+   paginator or `paginate`
+3. Tags: inline, `p.resourceTags(region, arn, fallback)` inside
+   `forEachConcurrently`, or `p.requireBulkTags` + `p.bulkTags`. Types read
+   through the sweep go in `bulkTagFilterGroups` (a missing filter silently
+   reads as untagged). Tag-read error: `p.skipResource`; add the not-found
+   error type to `resourceGone`
+4. Writes: `tagging_api` (`applyTagsViaTaggingAPI`) by default;
+   `apply<Service>Tags` + `tagAppliers()` + `resourceTypePrefixes` only when
+   the Tagging API cannot tag the type; `idAddressedTypes` only for bare-ID
+   tag APIs
+5. Register in `regionalListers()` (`provider.go`) or `globalListers()`
+6. Pinned tests: `TestRegionalListers`/`TestGlobalListers`,
+   `TestGetResourceType_AllSupportedServices`, `TestTaggingIdentifier`
+7. IAM: read actions in `tagctl-scan-policy.json`, write action in
+   `tagctl-apply-policy.json` on the Service Authorization Reference ARN
+   pattern (`"*"` only via `unscopedWriteActions`), `make iam-templates`, same
+   JSON in `docs/providers/aws.mdx`. `TestPermissionPolicies_*` pins the
+   copies, API coverage and the 10,240-character inline limit
+8. Docs: table and "How tags are read" in `docs/providers/aws.mdx`; bump the
+   count in README, CONTRIBUTING, this file, introduction, configuration,
+   development, architecture
 
 ### Adding a New CLI Command
 

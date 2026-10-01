@@ -268,9 +268,10 @@ We're looking for contributors to help with:
 
 [docs/roadmap.mdx](docs/roadmap.mdx) says what is left for each.
 
-For a new AWS service, follow "Adding a New AWS Service" in
-[AGENTS.md](AGENTS.md), which walks through the lister, tag source, applier
-routing and the tests that pin the supported set.
+A new AWS service is not a new provider: follow
+[Adding an AWS Service](docs/contributing/adding-an-aws-service.mdx), which
+covers the lister, the tag source, write routing, the pinned tests, the IAM
+policies and the docs.
 
 1. Create `internal/provider/newcloud/provider.go`:
 
