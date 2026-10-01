@@ -2,9 +2,11 @@ package cli
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -39,6 +41,76 @@ func TestSpinnerSuspendKeepsLogLineIntact(t *testing.T) {
 	}
 	if !strings.Contains(out[idx:], "working") {
 		t.Errorf("spinner not redrawn after log line: %q", out)
+	}
+}
+
+// lockedBuffer is a writer the spinner and the logger can share across goroutines.
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+func TestSpinner_LoggingWhileItRunsNeitherRacesNorDeadlocks(t *testing.T) {
+	const loggers, lines = 8, 100
+
+	out := &lockedBuffer{}
+	log.SetOutput(out)
+	log.SetLevel(log.LevelInfo)
+	t.Cleanup(func() {
+		log.SetOutput(os.Stderr)
+		log.SetLevel(log.LevelError)
+	})
+
+	finished := make(chan struct{})
+	go func() {
+		defer close(finished)
+
+		// Several start/stop cycles, as a scan runs one spinner per phase.
+		var wg sync.WaitGroup
+		for g := range loggers {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for n := range lines {
+					log.Info("logger %d line %d end", g, n)
+				}
+			}()
+		}
+		for cycle := range 20 {
+			s := &Spinner{out: out, animate: true, message: "working", frames: []string{"-", "+"}, interval: time.Millisecond}
+			s.Start()
+			s.Update(fmt.Sprintf("cycle %d", cycle))
+			time.Sleep(2 * time.Millisecond)
+			s.Success("done")
+		}
+		wg.Wait()
+	}()
+
+	select {
+	case <-finished:
+	case <-time.After(30 * time.Second):
+		t.Fatal("logging while a spinner runs deadlocked")
+	}
+
+	got := out.String()
+	for g := range loggers {
+		for n := range lines {
+			if want := fmt.Sprintf("[INFO]  logger %d line %d end\n", g, n); !strings.Contains(got, want) {
+				t.Fatalf("log line %q was lost or torn by the spinner", want)
+			}
+		}
 	}
 }
 

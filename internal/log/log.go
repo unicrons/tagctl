@@ -126,6 +126,7 @@ func Debug(format string, args ...interface{}) {
 }
 
 func write(level Level, color, tag, format string, args ...interface{}) {
+	// Lock order: log.mu, then the holder's own lock inside Suspend. A holder must never log while holding its lock.
 	mu.Lock()
 	defer mu.Unlock()
 

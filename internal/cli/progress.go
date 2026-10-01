@@ -100,6 +100,7 @@ func (s *Spinner) draw() {
 
 // Suspend clears the spinner line, runs fn, and redraws the spinner.
 func (s *Spinner) Suspend(fn func()) {
+	// Lock order: called with log.mu held, so s.mu is always taken second; never log or call log.SetLineHolder under s.mu.
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
