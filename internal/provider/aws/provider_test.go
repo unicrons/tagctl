@@ -3,8 +3,19 @@ package aws
 import (
 	"context"
 	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
+	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/sts"
 
 	"github.com/unicrons/tagctl/internal/types"
 )
@@ -82,6 +93,159 @@ func TestDiscover_ForgetsSkipsOfAPreviousRun(t *testing.T) {
 
 	if _, err := p.discover(context.Background(), nil, nil); err != nil {
 		t.Errorf("err = %v, want nil for a run that skipped nothing", err)
+	}
+}
+
+func TestDiscover_BoundsListersAcrossRegionsAndFinishesTheirFanOuts(t *testing.T) {
+	p := testProvider()
+	p.regions = make([]string, 17)
+	for i := range p.regions {
+		p.regions[i] = fmt.Sprintf("region-%d", i)
+	}
+	items := make([]int, 2*maxConcurrentAPICalls)
+
+	var inFlight, peak atomic.Int64
+	var fillOnce sync.Once
+	filled := make(chan struct{})
+	list := func() ([]types.Resource, error) {
+		n := inFlight.Add(1)
+		defer inFlight.Add(-1)
+		raiseTo(&peak, n)
+		if n == maxConcurrentListers {
+			fillOnce.Do(func() { close(filled) })
+		}
+		select {
+		case <-filled:
+		case <-time.After(5 * time.Second):
+			return nil, errors.New("lister slots never filled")
+		}
+		time.Sleep(time.Millisecond)
+		return forEachConcurrently(items, func(int) []types.Resource { return one(types.Resource{}) }), nil
+	}
+
+	var globals []globalLister
+	for i := range 3 {
+		globals = append(globals, globalLister{fmt.Sprintf("global %d", i), func(context.Context) ([]types.Resource, error) { return list() }})
+	}
+	var regional []regionalLister
+	for i := range 10 {
+		regional = append(regional, regionalLister{fmt.Sprintf("regional %d", i), func(context.Context, string) ([]types.Resource, error) { return list() }})
+	}
+
+	resources, err := p.discover(context.Background(), globals, regional)
+
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	if want := (len(globals) + len(regional)*len(p.regions)) * len(items); len(resources) != want {
+		t.Errorf("got %d resources, want %d from every lister and fan-out item", len(resources), want)
+	}
+	if got := peak.Load(); got != maxConcurrentListers {
+		t.Errorf("peak of %d listers in flight, want exactly %d", got, maxConcurrentListers)
+	}
+}
+
+func TestDiscover_StartsNoQueuedListerOnceCancelled(t *testing.T) {
+	p := testProvider()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var started atomic.Int64
+	regional := make([]regionalLister, 2*maxConcurrentListers)
+	for i := range regional {
+		regional[i] = regionalLister{fmt.Sprintf("regional %d", i), func(listCtx context.Context, _ string) ([]types.Resource, error) {
+			if started.Add(1) == maxConcurrentListers {
+				cancel()
+			}
+			<-listCtx.Done()
+			return nil, listCtx.Err()
+		}}
+	}
+
+	_, err := p.discover(ctx, nil, regional)
+
+	if got := started.Load(); got != maxConcurrentListers {
+		t.Errorf("%d listers started, want only the %d that held a slot before the cancel", got, maxConcurrentListers)
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+	var joined interface{ Unwrap() []error }
+	if !errors.As(err, &joined) {
+		t.Fatalf("err = %v, want joined errors", err)
+	}
+	var accountErrs []string
+	for _, e := range joined.Unwrap() {
+		if msg := e.Error(); strings.HasPrefix(msg, "account 123456789012: ") {
+			accountErrs = append(accountErrs, msg)
+		}
+	}
+	want := []string{fmt.Sprintf("account 123456789012: discovery interrupted, %d lister(s) not started: context canceled", maxConcurrentListers)}
+	if !slices.Equal(accountErrs, want) {
+		t.Errorf("account-level errors = %q\nwant one context error %q", accountErrs, want)
+	}
+}
+
+func raiseTo(peak *atomic.Int64, n int64) {
+	for {
+		old := peak.Load()
+		if n <= old || peak.CompareAndSwap(old, n) {
+			return
+		}
+	}
+}
+
+// loadSharedConfig loads the default profile from the given shared config
+// file content, isolated from the environment and ~/.aws.
+func loadSharedConfig(content string) func(*testing.T) aws.Config {
+	return func(t *testing.T) aws.Config {
+		t.Helper()
+		dir := t.TempDir()
+		configFile := filepath.Join(dir, "config")
+		if err := os.WriteFile(configFile, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		for _, key := range []string{"AWS_PROFILE", "AWS_DEFAULT_PROFILE", "AWS_RETRY_MODE", "AWS_MAX_ATTEMPTS"} {
+			t.Setenv(key, "")
+		}
+		cfg, err := config.LoadDefaultConfig(context.Background(),
+			config.WithSharedConfigFiles([]string{configFile}),
+			config.WithSharedCredentialsFiles([]string{filepath.Join(dir, "credentials")}),
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return cfg
+	}
+}
+
+func TestWithRetryDefaults(t *testing.T) {
+	literal := func(cfg aws.Config) func(*testing.T) aws.Config {
+		return func(*testing.T) aws.Config { return cfg }
+	}
+	tests := []struct {
+		name         string
+		cfg          func(*testing.T) aws.Config
+		wantMode     aws.RetryMode
+		wantAttempts int
+	}{
+		{"nothing set retries adaptively", literal(aws.Config{}), aws.RetryModeAdaptive, maxRetryAttempts},
+		{"a mode from the environment keeps the higher attempts", literal(aws.Config{RetryMode: aws.RetryModeStandard}), aws.RetryModeStandard, maxRetryAttempts},
+		{"environment values win", literal(aws.Config{RetryMode: aws.RetryModeStandard, RetryMaxAttempts: 2}), aws.RetryModeStandard, 2},
+		{"a loaded profile without retry keys gets the defaults", loadSharedConfig("[default]\nregion = us-east-1\n"), aws.RetryModeAdaptive, maxRetryAttempts},
+		{"retry keys in a loaded profile win", loadSharedConfig("[default]\nretry_mode = standard\nmax_attempts = 2\n"), aws.RetryModeStandard, 2},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			opts := sts.NewFromConfig(withRetryDefaults(tt.cfg(t))).Options()
+
+			if opts.RetryMode != tt.wantMode {
+				t.Errorf("RetryMode = %q, want %q", opts.RetryMode, tt.wantMode)
+			}
+			if got := opts.Retryer.MaxAttempts(); got != tt.wantAttempts {
+				t.Errorf("MaxAttempts = %d, want %d", got, tt.wantAttempts)
+			}
+		})
 	}
 }
 

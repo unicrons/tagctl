@@ -245,13 +245,21 @@ use `Findings`. The `violations` JSON key is kept for backwards compatibility.
   context error instead.
   `ListResources` returns what it found plus `errors.Join` of every lister
   error (prefixed `account <id>, region <region|global>: list <label>:`) and
-  a per-service summary of those skips (prefixed `account <id>:`).
+  a per-service summary of those skips (prefixed `account <id>:`). `discover`
+  runs at most `maxConcurrentListers` (32) listers at once and starts none
+  once the context is cancelled (that one context error per account counts
+  the listers not started); each per-resource fan-out has its own
+  `maxConcurrentAPICalls` (16) pool (ECS nests two, up to 256 calls on one
+  client) and the tag sweeps run outside both, so never take a lister slot
+  from inside a lister.
 - **AWS auth**: `aws.New` relies on `config.LoadDefaultConfig` (SDK chain);
   `profile` adds `WithSharedConfigProfile`, `role_arn` wraps the credentials in
   `stscreds.NewAssumeRoleProvider` + `aws.NewCredentialsCache`
   (`internal/provider/aws/auth.go`). The region for the initial STS call is the
   SDK's, then the first configured region, then `us-east-1`; scanned regions
-  always come from config. `--profile`/`--role` and friends live in
+  always come from config. `withRetryDefaults` sets adaptive retries with
+  `maxRetryAttempts` (7) unless `AWS_RETRY_MODE`/`AWS_MAX_ATTEMPTS` or the
+  profile set them. `--profile`/`--role` and friends live in
   `internal/cli/auth.go` and override a config with at most one AWS entry.
 - **Kubernetes**: provider exists under `internal/provider/k8s/` but is **not wired**
   into `initProviders()` yet (commented TODO). A `clouds.kubernetes` entry
