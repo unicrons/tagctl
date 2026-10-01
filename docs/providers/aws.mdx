@@ -760,9 +760,9 @@ Every copy on this page is checked against those files by
   policy, as the `TagctlApply` role does. S3 buckets are tagged through
   `tag:TagResources`, which adds the new keys to the bucket's tag set on the
   AWS side. tagctl does not read the set and write it back itself, a sequence
-  that drops any tag written by someone else between the two calls. For a bucket the Tagging API
-  needs `s3:PutBucketTagging` and `s3:GetBucketTagging` (the latter comes from
-  the scan policy). `tag:TagResources` delegates to each service, so the
+  that drops any tag written by someone else between the two calls. For a
+  bucket the Tagging API needs `s3:PutBucketTagging` and `s3:GetBucketTagging`
+  (the latter comes from the scan policy). `tag:TagResources` delegates to each service, so the
   service's own tagging action must be allowed as well; a resource the service
   rejects is reported as a failed change with the service's error code, the
   rest of the batch still applies.

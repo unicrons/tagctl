@@ -422,15 +422,18 @@ Checklist:
    narrow API interface; `p.resource`/`p.bulkResource`, `tagsToMap`;
    `notSubscribed(err)` is zero resources at debug level; page with the SDK
    paginator or `paginate`
-3. Tags: inline, `p.resourceTags(region, arn, fallback)` inside
-   `forEachConcurrently`, or `p.requireBulkTags` + `p.bulkTags`. Types read
+3. Tags: inline, `p.resourceTags(ctx, region, arn, fallback)` inside
+   `forEachConcurrently(ctx, ...)`, or `p.requireBulkTags(ctx, ...)` +
+   `p.bulkTags(ctx, ...)`. ARNs the API does not return: `p.buildARN` /
+   `p.ec2ARN`, never a literal `arn:aws:`. Types read
    through the sweep go in `bulkTagFilterGroups` (a missing filter silently
    reads as untagged). Tag-read error: `p.skipResource`; add the not-found
    error type to `resourceGone`
 4. Writes: `tagging_api` (`applyTagsViaTaggingAPI`) by default;
-   `apply<Service>Tags` + `tagAppliers()` + `resourceTypePrefixes` only when
-   the Tagging API cannot tag the type; `idAddressedTypes` only for bare-ID
-   tag APIs
+   `apply<Service>Tags` (region from `regionForARN(arn)`, never a configured
+   region) + `tagAppliers(region)` + `arnServiceRoutes` only when the Tagging
+   API cannot tag the type; `idAddressedTypes` + `ec2IDPrefixes` only for
+   bare-ID tag APIs, which get the plan's region through `tagAppliers`
 5. Register in `regionalListers()` (`provider.go`) or `globalListers()`
 6. Pinned tests: `TestRegionalListers`/`TestGlobalListers`,
    `TestGetResourceType_AllSupportedServices`, `TestTaggingIdentifier`
