@@ -231,9 +231,20 @@ Each `from_tag` entry needs a `tag` other than the one being inferred, and
 
 ### Inherit Rules
 
-`rules.inherit` is parsed and counted by `tagctl validate`, but `plan` does
-not apply it yet: no parent-child relationship is resolved during discovery.
-Leave it out until inheritance ships.
+Copy missing tags from the parent resource recorded by the scan:
+
+```yaml
+rules:
+  inherit:
+    - resource: aws_ebs_volume
+      from: attached_instance
+      tags: [environment, owner]
+```
+
+`resource` (a glob) and at least one entry in `tags` are required. `from` is
+`attached_instance`, `source_volume` or `vpc`; leave it out to follow any
+parent the scan recorded. See [Inheritance Rules](/rules#inheritance-rules)
+for the resource types each relation covers.
 
 ### Default Rules
 

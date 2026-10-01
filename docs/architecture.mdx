@@ -69,7 +69,7 @@ tagctl/
 │   ├── engine/           # Core business logic
 │   │   ├── scanner.go    # Resource discovery
 │   │   ├── evaluator.go  # Policy evaluation → Findings
-│   │   ├── planner.go    # Change planning (inference, defaults)
+│   │   ├── planner.go    # Change planning (inference, inheritance, defaults)
 │   │   ├── applier.go    # Tag application
 │   │   ├── differ.go     # Drift between two scans
 │   │   └── normalizer.go # Tag value clustering
@@ -168,10 +168,11 @@ tagctl apply ◀────────────┘
 
   <Step title="Plan → output/plan-*.json">
     1. Load scan results (latest or specified with `--scan`)
-    2. Apply inference rules (extract tags from resource names)
-    3. Apply default rules (fallback values)
-    4. Generate `Plan` with proposed changes
-    5. Write plan to `output/plan-TIMESTAMP.json`
+    2. Apply inference rules (extract tags from other tags and resource names)
+    3. Apply inheritance rules (copy tags from the parent the scan recorded)
+    4. Apply default rules (fallback values)
+    5. Generate `Plan` with proposed changes
+    6. Write plan to `output/plan-TIMESTAMP.json`
   </Step>
 
   <Step title="Apply">
@@ -199,6 +200,7 @@ type Resource struct {
     Tags        map[string]string `json:"tags"`
     UnknownTags []string          `json:"unknown_tags,omitempty"`
     CreatedAt   *time.Time        `json:"created_at,omitempty"`
+    Parents     map[string]string `json:"parents,omitempty"` // relation -> parent Identity()
 }
 ```
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -32,9 +33,6 @@ type compiledInferRule struct {
 
 // NewPlanner creates a new RealPlanner with the given rules.
 func NewPlanner(rules config.RulesConfig) (*RealPlanner, error) {
-	log.Debug("Planner: Creating planner with %d infer rules, %d inherit rules, %d default rules",
-		len(rules.Infer), len(rules.Inherit), len(rules.Defaults))
-
 	p := &RealPlanner{
 		rules:      rules,
 		compiled:   make(map[string][]*compiledInferRule),
@@ -69,6 +67,11 @@ func (p *RealPlanner) Plan(ctx context.Context, scanResult *types.ScanResult) (*
 		CreatedAt: time.Now(),
 	}
 
+	index := newScanIndex(scanResult)
+	if len(p.rules.Inherit) > 0 && !index.hasParents {
+		plan.Warnings = append(plan.Warnings, noParentsWarning)
+	}
+
 	// Track unique resources for summary
 	resourcesWithChanges := make(map[string]bool)
 
@@ -80,7 +83,7 @@ func (p *RealPlanner) Plan(ctx context.Context, scanResult *types.ScanResult) (*
 			continue
 		}
 
-		change := p.tryFix(finding)
+		change := p.tryFix(finding, index)
 		if change != nil {
 			plan.Changes = append(plan.Changes, *change)
 			resourcesWithChanges[finding.Resource.Identity()] = true
@@ -108,9 +111,13 @@ func (p *RealPlanner) Plan(ctx context.Context, scanResult *types.ScanResult) (*
 }
 
 // tryFix attempts to find a fix for a missing tag finding.
-func (p *RealPlanner) tryFix(finding types.Finding) *types.TagChange {
+func (p *RealPlanner) tryFix(finding types.Finding, index *scanIndex) *types.TagChange {
 	// Try inference rules first
 	if change := p.tryInfer(finding); change != nil {
+		return change
+	}
+
+	if change := p.tryInherit(finding, index); change != nil {
 		return change
 	}
 
@@ -181,6 +188,117 @@ func (p *RealPlanner) tryInferFromTag(finding types.Finding) *types.TagChange {
 		}
 	}
 	return nil
+}
+
+// noParentsWarning is what a plan reports when inherit rules had nothing to
+// resolve parents with.
+const noParentsWarning = "rules.inherit could not be applied: the scan records no parent resources. " +
+	"A scan written by an older tagctl has none; run 'tagctl scan' again"
+
+// maxInheritDepth bounds the walk up a chain of parents.
+const maxInheritDepth = 8
+
+// scanIndex resolves the parents a scan recorded.
+type scanIndex struct {
+	resources  map[string]types.Resource
+	failed     map[string]map[string]bool // identity -> tags with a FAILED finding
+	hasParents bool
+}
+
+func newScanIndex(scan *types.ScanResult) *scanIndex {
+	index := &scanIndex{
+		resources: make(map[string]types.Resource),
+		failed:    make(map[string]map[string]bool),
+	}
+	add := func(f types.Finding) {
+		id := f.Resource.Identity()
+		index.resources[id] = f.Resource
+		if len(f.Resource.Parents) > 0 {
+			index.hasParents = true
+		}
+		if f.Status == types.StatusFailed {
+			if index.failed[id] == nil {
+				index.failed[id] = make(map[string]bool)
+			}
+			index.failed[id][f.Tag] = true
+		}
+	}
+	for _, f := range scan.Findings {
+		add(f)
+	}
+	if len(scan.Findings) == 0 {
+		for _, f := range types.ViolationsToFindings(scan.Violations) {
+			add(f)
+		}
+	}
+	return index
+}
+
+// tryInherit copies a missing tag from the parent the first matching rule
+// points at.
+func (p *RealPlanner) tryInherit(finding types.Finding, index *scanIndex) *types.TagChange {
+	relation, parent, value := p.inherited(finding.Resource, finding.Tag, index, 0)
+	if relation == "" {
+		return nil
+	}
+	return &types.TagChange{
+		Resource: finding.Resource,
+		Tag:      finding.Tag,
+		Action:   types.ActionAdd,
+		NewValue: value,
+		Reason:   types.ReasonInherited,
+		Source:   fmt.Sprintf("from %s %s", strings.ReplaceAll(relation, "_", " "), parent.ID),
+	}
+}
+
+// inherited returns the relation, parent and value a resource inherits for a
+// tag, or an empty relation. A parent that lacks the tag hands down what it
+// inherits itself; one whose value fails the policy hands down nothing.
+func (p *RealPlanner) inherited(resource types.Resource, tag string, index *scanIndex, depth int) (string, types.Resource, string) {
+	if depth >= maxInheritDepth {
+		return "", types.Resource{}, ""
+	}
+	for _, rule := range p.rules.Inherit {
+		if !matchGlob(rule.Resource, resource.Type) || !slices.Contains(rule.Tags, tag) {
+			continue
+		}
+		for _, relation := range parentRelations(resource, rule.From) {
+			parent, ok := index.resources[resource.Parents[relation]]
+			if !ok {
+				continue
+			}
+			value, present := parent.Tags[tag]
+			switch {
+			case present && index.failed[parent.Identity()][tag]:
+				continue
+			case !present:
+				if _, _, value = p.inherited(parent, tag, index, depth+1); value == "" {
+					continue
+				}
+			case value == "":
+				continue
+			}
+			return relation, parent, value
+		}
+	}
+	return "", types.Resource{}, ""
+}
+
+// parentRelations lists the relations of a resource a rule may follow: the
+// one it names, or all of them in a stable order.
+func parentRelations(resource types.Resource, from string) []string {
+	if from != "" {
+		if _, ok := resource.Parents[from]; !ok {
+			return nil
+		}
+		return []string{from}
+	}
+	relations := make([]string, 0, len(resource.Parents))
+	for relation := range resource.Parents {
+		relations = append(relations, relation)
+	}
+	slices.Sort(relations)
+	return relations
 }
 
 // tryDefault tries to apply a default value for a missing tag.

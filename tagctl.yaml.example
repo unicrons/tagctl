@@ -82,10 +82,10 @@ rules:
         - pattern: "-dev-"
           value: dev
 
-  # Inherit tags from parent resources: parsed, not applied by plan yet
+  # Inherit tags from parent resources
   # inherit:
   #   - resource: aws_ebs_volume
-  #     from: attached_instance
+  #     from: attached_instance   # or source_volume, vpc
   #     tags: [environment, cost-center, owner]
 
   # Default values for untagged resources

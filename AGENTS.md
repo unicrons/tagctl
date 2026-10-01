@@ -219,7 +219,11 @@ ignore:
    types after discovery, before `ignore`: listers do not declare their
    resource types, so no API call is saved
 2. **Evaluate**: `engine.Evaluator` → `[]types.Finding` (PASS or FAILED)
-3. **Plan**: `engine.Planner` → filters FAILED findings with `missing` reason → `[]types.TagChange`
+3. **Plan**: `engine.Planner` → filters FAILED findings with `missing` reason → `[]types.TagChange`.
+   Each missing tag tries infer (`from_tag`, then `from_name`), then inherit, then
+   defaults. Inherit resolves `Resource.Parents` (relation → parent `Identity()`,
+   set by the provider) against the resources in the scan; a scan with no
+   parents at all adds a `Plan.Warnings` entry that `plan` prints
 4. **Apply**: `engine.ValidatePlan` (add/update only) → `engine.Applier` → `provider.Provider.ApplyTags()` → cloud API calls
 
 `apply --interactive` runs `reviewChanges` between loading the plan and the
@@ -471,8 +475,16 @@ Checklist:
 ### Adding a New Tag Rule Type
 
 1. Add the struct in `internal/config/config.go`
-2. Add parsing and validation for it
+2. Add parsing and validation for it (`RulesConfig.validate`), with cases in
+   `TestValidate_PolicyRulesAndIgnore`
 3. Add processing in `internal/engine/planner.go`
+4. Document it in `docs/rules.mdx`, `docs/configuration.mdx` and
+   `tagctl.yaml.example`
+
+A new `rules.inherit` relation is a constant in `types.ParentRelations`
+(`internal/types/resource.go`), set by the provider from a field the list call
+already returns (`withEC2Parent` in the AWS provider) and added to the table in
+`docs/rules.mdx`.
 
 ## Linting
 

@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"time"
@@ -22,7 +23,7 @@ inference rules, inheritance, and defaults.
 The plan will:
   • Analyze current tag violations
   • Apply inference rules (from naming conventions)
-  • Apply inheritance rules (from parent resources)
+  • Apply inheritance rules (from the parent resources the scan recorded)
   • Apply default values for untagged resources
   • Generate a detailed plan file
 
@@ -120,8 +121,16 @@ func runPlan(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to generate plan: %w", err)
 	}
 	spinner.Success(fmt.Sprintf("Generated plan with %d changes", len(plan.Changes)))
+	printPlanWarnings(os.Stderr, plan)
 
 	return savePlanAndOutput(plan, outputDir, outFile, format)
+}
+
+// printPlanWarnings reports the rules the planner could not apply.
+func printPlanWarnings(w io.Writer, plan *types.Plan) {
+	for _, warning := range plan.Warnings {
+		fmt.Fprintf(w, "Warning: %s\n", warning)
+	}
 }
 
 // loadScanResults loads scan results from a file.

@@ -15,8 +15,11 @@ import (
 
 // listEC2Instances lists all EC2 instances in a region.
 func (p *Provider) listEC2Instances(ctx context.Context, region string) ([]types.Resource, error) {
+	return p.listEC2InstancesFrom(ctx, regionalClient(p, region, ec2.NewFromConfig), region)
+}
+
+func (p *Provider) listEC2InstancesFrom(ctx context.Context, client ec2.DescribeInstancesAPIClient, region string) ([]types.Resource, error) {
 	log.Debug("AWS EC2: Listing instances in region %s...", region)
-	client := regionalClient(p, region, ec2.NewFromConfig)
 	var resources []types.Resource
 
 	paginator := ec2.NewDescribeInstancesPaginator(client, &ec2.DescribeInstancesInput{})
@@ -57,6 +60,7 @@ func (p *Provider) listEC2Instances(ctx context.Context, region string) ([]types
 				if instance.LaunchTime != nil {
 					resource.CreatedAt = instance.LaunchTime
 				}
+				resource = p.withEC2Parent(resource, types.RelationVPC, "vpc", aws.ToString(instance.VpcId))
 
 				log.Debug("AWS EC2: Instance %s (%s) in %s has %d tags", resource.ID, resource.Name, region, len(resource.Tags))
 				resources = append(resources, resource)
@@ -70,8 +74,11 @@ func (p *Provider) listEC2Instances(ctx context.Context, region string) ([]types
 
 // listEBSVolumes lists all EBS volumes in a region.
 func (p *Provider) listEBSVolumes(ctx context.Context, region string) ([]types.Resource, error) {
+	return p.listEBSVolumesFrom(ctx, regionalClient(p, region, ec2.NewFromConfig), region)
+}
+
+func (p *Provider) listEBSVolumesFrom(ctx context.Context, client ec2.DescribeVolumesAPIClient, region string) ([]types.Resource, error) {
 	log.Debug("AWS EBS: Listing volumes in region %s...", region)
-	client := regionalClient(p, region, ec2.NewFromConfig)
 	var resources []types.Resource
 
 	paginator := ec2.NewDescribeVolumesPaginator(client, &ec2.DescribeVolumesInput{})
@@ -105,6 +112,10 @@ func (p *Provider) listEBSVolumes(ctx context.Context, region string) ([]types.R
 			// Set creation time
 			if volume.CreateTime != nil {
 				resource.CreatedAt = volume.CreateTime
+			}
+			// A multi-attach volume has no single instance to inherit from.
+			if len(volume.Attachments) == 1 {
+				resource = p.withEC2Parent(resource, types.RelationAttachedInstance, "instance", aws.ToString(volume.Attachments[0].InstanceId))
 			}
 
 			log.Debug("AWS EBS: Volume %s (%s) in %s has %d tags", resource.ID, resource.Name, region, len(resource.Tags))
@@ -154,6 +165,7 @@ func (p *Provider) listEBSSnapshotsFrom(ctx context.Context, client ebsSnapshots
 			if name, ok := resource.Tags["Name"]; ok {
 				resource.Name = name
 			}
+			resource = p.withEC2Parent(resource, types.RelationSourceVolume, "volume", aws.ToString(snap.VolumeId))
 			resources = append(resources, resource)
 		}
 	}
@@ -205,6 +217,20 @@ func ec2TagsToMap(tags []ec2types.Tag) map[string]string {
 		func(t ec2types.Tag) *string { return t.Value })
 }
 
+// withEC2Parent records the EC2 resource r hangs from under relation; an
+// empty parent id records nothing.
+func (p *Provider) withEC2Parent(r types.Resource, relation, arnType, parentID string) types.Resource {
+	// vol-ffffffff is what EC2 reports for a snapshot with no source volume.
+	if parentID == "" || parentID == "vol-ffffffff" {
+		return r
+	}
+	if r.Parents == nil {
+		r.Parents = make(map[string]string, 1)
+	}
+	r.Parents[relation] = p.ec2ARN(r.Region, arnType, parentID)
+	return r
+}
+
 // listSecurityGroups lists all EC2 security groups in a region.
 func (p *Provider) listSecurityGroups(ctx context.Context, region string) ([]types.Resource, error) {
 	return p.listSecurityGroupsFrom(ctx, regionalClient(p, region, ec2.NewFromConfig), region)
@@ -241,6 +267,7 @@ func (p *Provider) listSecurityGroupsFrom(ctx context.Context, client ec2Describ
 			}
 
 			resource.ARN = p.ec2ARN(region, "security-group", resource.ID)
+			resource = p.withEC2Parent(resource, types.RelationVPC, "vpc", aws.ToString(sg.VpcId))
 
 			log.Debug("AWS SecurityGroup: %s (%s) in %s has %d tags", resource.ID, resource.Name, region, len(resource.Tags))
 			resources = append(resources, resource)
@@ -331,6 +358,7 @@ func (p *Provider) listSubnetsFrom(ctx context.Context, client ec2DescribeSubnet
 			}
 
 			resource.ARN = p.ec2ARN(region, "subnet", resource.ID)
+			resource = p.withEC2Parent(resource, types.RelationVPC, "vpc", aws.ToString(subnet.VpcId))
 
 			log.Debug("AWS Subnet: %s (%s) in %s has %d tags", resource.ID, resource.Name, region, len(resource.Tags))
 			resources = append(resources, resource)

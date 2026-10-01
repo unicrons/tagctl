@@ -1,14 +1,17 @@
 ---
 title: 'Auto-Fix Rules'
-description: 'Inference and default rules'
+description: 'Inference, inheritance and default rules'
 icon: 'wand-magic-sparkles'
 ---
 
-tagctl can automatically generate tag values using two types of rules:
+tagctl can automatically generate tag values using three types of rules:
 
-<CardGroup cols={2}>
+<CardGroup cols={3}>
   <Card title="Inference" icon="magnifying-glass">
     Derive tags from resource names or other tags
+  </Card>
+  <Card title="Inheritance" icon="sitemap">
+    Copy tags from the parent resource
   </Card>
   <Card title="Defaults" icon="shield">
     Apply fallback values
@@ -126,11 +129,79 @@ is left in place.
 
 ## Inheritance Rules
 
-Not available yet. `rules.inherit` (child resource, relationship, tags to
-copy) is parsed and counted by `tagctl validate` so existing files keep
-loading, but `plan` never applies it: discovery does not record parent-child
-relationships (instance → volume, ASG → instance, VPC → anything). The
-`inherited` change reason only appears in the `--mock` planner.
+Inheritance rules copy a missing tag from the resource a resource hangs
+from: a volume from the instance it is attached to, a snapshot from its
+source volume.
+
+### How It Works
+
+```
+Resource: vol-0abc (no environment tag), attached to i-0123
+           ↓
+Parent: i-0123 has environment = "prod"
+           ↓
+Tag applied: environment = "prod"   (inherited: from attached instance i-0123)
+```
+
+### Configuration
+
+```yaml
+rules:
+  inherit:
+    - resource: aws_ebs_volume
+      from: attached_instance
+      tags: [environment, cost-center, owner]
+
+    # Snapshots take theirs from the volume they were made from
+    - resource: aws_ebs_snapshot
+      from: source_volume
+      tags: [environment, owner]
+
+    # No from: follow whichever parent the scan recorded
+    - resource: "aws_*"
+      tags: [cost-center]
+```
+
+| Field | Meaning |
+|-------|---------|
+| `resource` | Glob for the resource types the rule applies to (same syntax as [Resource Patterns](#resource-patterns)). Required |
+| `from` | Relation to follow, from the table below. Optional: without it every parent recorded for the resource is tried, in alphabetical order of relation |
+| `tags` | Tags to copy. Required, at least one |
+
+### Supported Relations
+
+The scan records the parent while it lists each resource, from fields the
+list call already returns, so inheritance costs no extra API calls.
+
+| `from` | Resource type | Parent |
+|--------|---------------|--------|
+| `attached_instance` | `aws_ebs_volume` | The instance it is attached to. Not recorded for a volume attached to several instances |
+| `attached_instance` | `aws_eip` | The instance the address is associated with |
+| `source_volume` | `aws_ebs_snapshot` | The volume it was created from |
+| `vpc` | `aws_instance`, `aws_subnet`, `aws_security_group`, `aws_nat_gateway`, `aws_vpc_endpoint` | The VPC it lives in |
+| `vpc` | `aws_internet_gateway` | The VPC it is attached to |
+
+Any other `from` value is rejected when the config loads.
+
+### What Gets Inherited
+
+- Only tags the resource is **missing** and the rule lists. An existing tag is
+  never overwritten.
+- The parent must be in the same scan. A parent that was deleted (the source
+  volume of an old snapshot), that sits in an ignored resource type or that
+  the scan missed hands down nothing.
+- A parent value that fails the policy is not copied: inheritance never
+  spreads an invalid value.
+- A parent that lacks the tag hands down what it would inherit itself, so a
+  snapshot reaches the instance through its volume (up to 8 levels).
+- The change is a normal `add` with reason `inherited` and the parent in its
+  source, for example `from attached instance i-0123`.
+
+<Warning>
+  Parents are recorded in the scan file. A scan written before tagctl recorded
+  them has none: `plan` then warns that `rules.inherit` could not be applied
+  instead of producing an empty plan silently. Run `tagctl scan` again.
+</Warning>
 
 ## Default Rules
 
@@ -216,7 +287,9 @@ When multiple rules could apply:
         ↓
 2. Inference rules (from another tag, then from the resource name)
         ↓
-3. Default rules (fallback values)
+3. Inheritance rules (from the parent resource)
+        ↓
+4. Default rules (fallback values)
 ```
 
 ### Example Flow
@@ -276,6 +349,12 @@ tagctl scan --verbose
     - Order matters—put specific patterns first
     - Test with `tagctl plan` before applying
     - Document naming conventions for your team
+  </Accordion>
+
+  <Accordion title="Inheritance rules">
+    - Name the relation with `from` when a resource type has more than one parent
+    - Fix the parents first: a child only inherits values that pass the policy
+    - Rescan before planning so the recorded parents are current
   </Accordion>
 
   <Accordion title="Default rules">

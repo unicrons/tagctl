@@ -70,6 +70,9 @@ type Plan struct {
 
 	// Summary contains aggregate statistics.
 	Summary PlanSummary `json:"summary"`
+
+	// Warnings explains rules the planner could not apply.
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 // PlanSummary contains aggregate plan statistics.

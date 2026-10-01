@@ -15,6 +15,8 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/unicrons/tagctl/internal/types"
 )
 
 // Config represents the complete tagctl configuration.
@@ -252,10 +254,11 @@ type NamePattern struct {
 
 // InheritRule copies tags from parent resources.
 type InheritRule struct {
-	// Resource is the resource type to apply this rule to.
+	// Resource is a glob pattern for the resource types the rule applies to.
 	Resource string `yaml:"resource" mapstructure:"resource"`
 
-	// From is the parent resource relationship.
+	// From is the relation to the parent, one of types.ParentRelations. Empty
+	// accepts any parent the scan recorded.
 	From string `yaml:"from" mapstructure:"from"`
 
 	// Tags to inherit from the parent.
@@ -447,10 +450,34 @@ func (r RulesConfig) validate() error {
 			}
 		}
 	}
+	for i, rule := range r.Inherit {
+		if err := rule.validate(); err != nil {
+			return fmt.Errorf("rules.inherit[%d]: %w", i, err)
+		}
+	}
 	for i, rule := range r.Defaults {
 		if err := rule.validate(); err != nil {
 			return fmt.Errorf("rules.defaults[%d]: %w", i, err)
 		}
+	}
+	return nil
+}
+
+func (r InheritRule) validate() error {
+	if r.Resource == "" {
+		return errors.New("resource is required")
+	}
+	if err := validateGlob(r.Resource); err != nil {
+		return fmt.Errorf("resource: %w", err)
+	}
+	if r.From != "" && !slices.Contains(types.ParentRelations, r.From) {
+		return fmt.Errorf("from: unknown relation %q (supported: %s)", r.From, strings.Join(types.ParentRelations, ", "))
+	}
+	if len(r.Tags) == 0 {
+		return errors.New("tags must name at least one tag")
+	}
+	if slices.Contains(r.Tags, "") {
+		return errors.New("tags: empty tag name")
 	}
 	return nil
 }
