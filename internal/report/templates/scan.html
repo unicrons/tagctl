@@ -80,11 +80,25 @@ td.arn{font:12px var(--mono);color:var(--dim);max-width:34ch;overflow:hidden;tex
 .pager button:focus-visible,.pager select:focus-visible{outline:2px solid var(--ind);outline-offset:2px}
 .pager .range{min-width:16ch}
 tr.f,tr.p{display:none}
+th.num,td.num{text-align:right;font-variant-numeric:tabular-nums}
+.pick{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--dim)}
+.pick select{font:500 13px var(--mono);color:var(--fg);background:#fff;border:1px solid var(--line);border-radius:10px;padding:5px 8px}
+.byval{max-height:420px;overflow-y:auto;max-width:760px}
+.byval thead th{position:sticky;top:0;background:var(--bg)}
+.val{font:13px var(--mono);color:var(--ind2);background:none;border:0;border-radius:6px;padding:2px 6px;margin-left:-6px;cursor:pointer;text-align:left;overflow-wrap:anywhere}
+.val:hover{background:var(--soft)}
+.val.none{color:var(--dim);font-style:italic}
+.val[aria-pressed="true"]{background:var(--ind2);color:#fff}
+.val:focus-visible,.pick select:focus-visible,.active button:focus-visible{outline:2px solid var(--ind);outline-offset:2px}
+.active{display:flex;align-items:center;gap:10px;margin:0 0 12px;font-size:13px;color:var(--dim)}
+.active[hidden]{display:none}
+.active b{font:500 13px var(--mono);color:var(--fg);overflow-wrap:anywhere}
+.active button{font:inherit;font-weight:500;background:#fff;color:var(--fg);border:1px solid var(--line);border-radius:10px;padding:4px 10px;cursor:pointer}
 .empty{color:var(--dim);padding:12px 0}
 footer{margin-top:44px;color:var(--dim);font-size:13px;border-top:1px solid var(--line);padding-top:14px;display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
 footer code{font:12px var(--mono)}
 @media (max-width:820px){h1{font-size:32px}}
-@media print{.filters,.pager{display:none}.wrap{padding:0}tr.p{display:table-row}}
+@media print{.filters,.pager,.active button{display:none}.wrap{padding:0}tr.p{display:table-row}.byval{max-height:none;overflow:visible}.byval thead th{position:static}}
 </style>
 </head>
 <body>
@@ -135,8 +149,29 @@ footer code{font:12px var(--mono)}
   </div>
 {{end}}
 
-  <h2>Findings</h2>
+{{if .ByValue}}
+  <h2 id="by-value">By tag value</h2>
+  <p class="sub">Resources grouped by the value they carry for a tag, and how many of them pass the whole policy. Select a value to filter the findings below to its resources.</p>
+  <div class="toolbar">
+    <label class="pick">Group by <select id="by-value-tag">{{range $i, $t := .ByValue}}<option value="{{$i}}"{{if $t.Selected}} selected{{end}}>{{$t.Tag}}</option>{{end}}</select></label>
+  </div>
+  <div class="scroll byval">
+  <table id="by-value-table">
+    <thead><tr><th>Value</th><th class="num">Resources</th><th class="num">Compliant</th><th class="num">Compliance</th></tr></thead>
+    {{range $i, $t := .ByValue}}
+    <tbody data-tag="{{$i}}" data-name="{{$t.Tag}}"{{if not $t.Selected}} hidden{{end}}>
+    {{range $t.Values}}
+      <tr><td><button type="button" class="val{{if .Untagged}} none{{end}}" data-v="{{.Index}}" aria-pressed="false">{{.Label}}</button></td><td class="num">{{.Resources}}</td><td class="num">{{.Compliant}}</td><td class="num">{{if .Resources}}{{printf "%.1f" .Pct}}%{{else}}—{{end}}</td></tr>
+    {{end}}
+    </tbody>
+    {{end}}
+  </table>
+  </div>
+{{end}}
+
+  <h2 id="findings">Findings</h2>
 {{if .Findings}}
+  <p class="active" id="value-filter" hidden>Resources with <b data-label></b><button type="button" data-clear>Clear</button></p>
   <div class="toolbar">
     <div class="filters">
       <button type="button" aria-pressed="true" data-f="all">All</button>
@@ -156,7 +191,7 @@ footer code{font:12px var(--mono)}
     <thead><tr><th>Resource</th><th>Type</th><th>Region</th><th>Tag</th><th>Value</th><th>Status</th><th>ARN</th></tr></thead>
     <tbody id="rows">
     {{range .Findings}}
-      <tr data-s="{{.Status}}"><td>{{.Resource}}</td><td class="mono">{{.Type}}</td><td>{{.Region}}</td><td class="mono">{{.Tag}}</td><td>{{if .Value}}{{.Value}}{{else}}—{{end}}</td><td><span class="chip {{.Status}}">{{.Label}}</span></td><td class="arn" title="{{.ARN}}">{{if .ARN}}{{.ARN}}{{else}}—{{end}}</td></tr>
+      <tr data-s="{{.Status}}" data-g="{{.Groups}}"><td>{{.Resource}}</td><td class="mono">{{.Type}}</td><td>{{.Region}}</td><td class="mono">{{.Tag}}</td><td>{{if .Value}}{{.Value}}{{else}}—{{end}}</td><td><span class="chip {{.Status}}">{{.Label}}</span></td><td class="arn" title="{{.ARN}}">{{if .ARN}}{{.ARN}}{{else}}—{{end}}</td></tr>
     {{end}}
     </tbody>
   </table>
@@ -185,17 +220,21 @@ footer code{font:12px var(--mono)}
   var all=Array.prototype.slice.call(rows.querySelectorAll('tr'));
   var pagers=Array.prototype.slice.call(document.querySelectorAll('[data-pager]'));
   var sizeSel=document.querySelector('[data-size]');
-  var state={filter:'all',size:parseInt(sizeSel.value,10),page:1};
+  var state={filter:'all',size:parseInt(sizeSel.value,10),page:1,tag:0,value:null};
 
-  function visible(){return all.filter(function(tr){return state.filter==='all'||tr.dataset.s===state.filter;});}
+  function matches(tr){
+    if(state.filter!=='all'&&tr.dataset.s!==state.filter)return false;
+    return state.value===null||tr.dataset.g.split(' ')[state.tag]===state.value;
+  }
 
   function render(){
-    var match=visible(),total=match.length;
+    var match=[];
+    all.forEach(function(tr){var m=matches(tr);tr.classList.add('p');tr.classList.toggle('f',!m);if(m)match.push(tr);});
+    var total=match.length;
     var size=state.size>0?state.size:Math.max(total,1);
     var pages=Math.max(1,Math.ceil(total/size));
     if(state.page>pages)state.page=pages;
     var start=(state.page-1)*size,end=Math.min(start+size,total);
-    all.forEach(function(tr){tr.classList.add('p');tr.classList.toggle('f',!(state.filter==='all'||tr.dataset.s===state.filter));});
     match.slice(start,end).forEach(function(tr){tr.classList.remove('p');});
     pagers.forEach(function(p){
       p.querySelector('[data-range]').textContent=total?(start+1)+'–'+end+' of '+total:'0 of 0';
@@ -215,6 +254,35 @@ footer code{font:12px var(--mono)}
     p.querySelector('[data-prev]').addEventListener('click',function(){state.page--;render();rows.closest('.scroll').scrollIntoView({block:'nearest'});});
     p.querySelector('[data-next]').addEventListener('click',function(){state.page++;render();rows.closest('.scroll').scrollIntoView({block:'nearest'});});
   });
+
+  var tagSel=document.getElementById('by-value-tag'),values=document.getElementById('by-value-table'),active=document.getElementById('value-filter');
+  if(tagSel&&values&&active){
+    var bodies=Array.prototype.slice.call(values.querySelectorAll('tbody'));
+    var pick=function(btn){
+      values.querySelectorAll('button[aria-pressed="true"]').forEach(function(b){b.setAttribute('aria-pressed','false');});
+      state.value=btn?btn.dataset.v:null;state.page=1;
+      active.hidden=!btn;
+      if(btn){
+        btn.setAttribute('aria-pressed','true');
+        var name=btn.closest('tbody').dataset.name;
+        active.querySelector('[data-label]').textContent=btn.classList.contains('none')?'no '+name+' tag':name+' = '+btn.textContent;
+      }
+      render();
+    };
+    var showTag=function(){
+      state.tag=parseInt(tagSel.value,10);
+      bodies.forEach(function(b){b.hidden=b.dataset.tag!==tagSel.value;});
+    };
+    tagSel.addEventListener('change',function(){showTag();pick(null);});
+    values.addEventListener('click',function(e){
+      var b=e.target.closest('button[data-v]');if(!b)return;
+      var on=b.getAttribute('aria-pressed')==='true';
+      pick(on?null:b);
+      if(!on)document.getElementById('findings').scrollIntoView({block:'start'});
+    });
+    active.querySelector('[data-clear]').addEventListener('click',function(){pick(null);});
+    showTag();
+  }
   render();
 })();
 </script>

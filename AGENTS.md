@@ -321,10 +321,15 @@ Scan and plan commands write to the `output/` directory (see `internal/cli/paths
 - `scan-YYYYMMDD-HHMMSS.json` — full scan results with all findings
 - `scan-YYYYMMDD-HHMMSS.csv` — findings CSV
 - `scan-YYYYMMDD-HHMMSS.html` — standalone HTML report: headline, per-tag
-  coverage chips, resource-type × tag matrix, accounts and a findings table
-  with status filter and client-side pager (50 rows by default; print ignores
-  the page and shows the whole filter). Rendered by `report.WriteHTML` from the
-  embedded `html/template` (auto-escaped; no external assets, opens offline)
+  coverage chips, resource-type × tag matrix, accounts, a by-tag-value table
+  and a findings table with status filter and client-side pager (50 rows by
+  default; print ignores the page and shows the whole filter). Rendered by
+  `report.WriteHTML` from the embedded `html/template` (auto-escaped; no
+  external assets, opens offline). The by-value table (`htmlByValue`) is
+  aggregated in Go per policy tag: resources by `Identity()`, compliant = no
+  FAILED finding, `(untagged)` row last, opening on `owner`/`team` when the
+  policy has one. Each finding row carries `data-g`, the value index per tag,
+  so the browser filters by comparing indexes and never re-aggregates
 - `plan-YYYYMMDD-HHMMSS.json` — remediation plan
 
 The gate flags (`--sarif`, `--junit`, `--ocsf`) on `scan`/`evaluate`/`terraform`

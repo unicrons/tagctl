@@ -231,7 +231,7 @@ Every scan automatically generates reports in the `output/` directory:
 |--------|------|-------------|
 | JSON | `scan-TIMESTAMP.json` | Complete scan results with all metadata and findings |
 | CSV | `scan-TIMESTAMP.csv` | All findings (PASS/FAILED) with resource ARNs |
-| HTML | `scan-TIMESTAMP.html` | Standalone visual report: per-tag coverage, resource-type × tag matrix, accounts and a findings table with status filter and pager (25–250 rows or all). No external assets, opens offline; printing shows every row of the active filter |
+| HTML | `scan-TIMESTAMP.html` | Standalone visual report: per-tag coverage, resource-type × tag matrix, accounts, a by-tag-value table (pick a policy tag, such as `owner`, to see resources, compliant resources and compliance per value plus an `(untagged)` row; selecting a value filters the findings to its resources) and a findings table with status filter and pager (25–250 rows or all). No external assets, opens offline; printing shows every row of the active filter |
 
 Each finding includes:
 - **Status**: `PASS` (tag present and valid) or `FAILED` (missing or invalid)
