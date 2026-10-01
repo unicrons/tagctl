@@ -285,10 +285,10 @@ func writeScanHTML(result *types.ScanResult, path string) error {
 }
 
 // outputPlanTable prints plan in table format.
-func outputPlanTable(plan *types.Plan, planFile string) error {
+func outputPlanTable(plan *types.Plan) {
 	if plan.IsEmpty() {
 		fmt.Println("No changes needed. All resources are compliant!")
-		return nil
+		return
 	}
 
 	fmt.Println("Planned changes:")
@@ -335,11 +335,6 @@ func outputPlanTable(plan *types.Plan, planFile string) error {
 	fmt.Printf("         %d tags will be added\n", plan.Summary.TagsAdded)
 	fmt.Printf("         %d tags will be updated\n", plan.Summary.TagsUpdated)
 	fmt.Printf("         %d tags will be removed\n", plan.Summary.TagsRemoved)
-	fmt.Println()
-	fmt.Printf("Plan saved to: %s\n", planFile)
-	fmt.Println("Run 'tagctl apply' to execute this plan.")
-
-	return nil
 }
 
 // outputPlanJSON prints plan in JSON format.

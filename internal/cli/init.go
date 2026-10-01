@@ -29,7 +29,10 @@ func init() {
 func runInit(cmd *cobra.Command, args []string) error {
 	configName, _ := cmd.Flags().GetString("name")
 
-	// Print banner
+	if _, err := outputFormatFor(cmd, formatTable); err != nil {
+		return err
+	}
+
 	printBanner()
 
 	// Check if file already exists
@@ -42,12 +45,11 @@ func runInit(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to create config file: %w", err)
 	}
 
-	fmt.Printf("%s✓ Created %s%s\n", colorGreen, configName, colorReset)
-	fmt.Println()
-	fmt.Printf("%sNext steps:%s\n", colorBold, colorReset)
-	fmt.Printf("  1. Edit %s%s%s to add your cloud accounts\n", colorCyan, configName, colorReset)
-	fmt.Printf("  2. Define your required tags in the policy section\n")
-	fmt.Printf("  3. Run '%stagctl scan%s' to check compliance\n", colorGreen, colorReset)
+	fmt.Fprintf(os.Stderr, "%s✓ Created %s%s\n\n", colorGreen, configName, colorReset)
+	fmt.Fprintf(os.Stderr, "%sNext steps:%s\n", colorBold, colorReset)
+	fmt.Fprintf(os.Stderr, "  1. Edit %s%s%s to add your cloud accounts\n", colorCyan, configName, colorReset)
+	fmt.Fprintf(os.Stderr, "  2. Define your required tags in the policy section\n")
+	fmt.Fprintf(os.Stderr, "  3. Run '%stagctl scan%s' to check compliance\n", colorGreen, colorReset)
 
 	return nil
 }

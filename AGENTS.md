@@ -37,6 +37,7 @@ internal/
 │   ├── init.go           # Config scaffolding
 │   ├── validate.go       # Config validation
 │   ├── output.go         # Table/JSON/CSV/HTML output
+│   ├── format.go         # -o validation per command (outputFormatFor)
 │   ├── paths.go          # output/ directory and file naming
 │   ├── progress.go       # Progress reporting
 │   ├── auth.go           # AWS auth flags shared by scan/apply/cost
@@ -137,8 +138,16 @@ go test -v -run TestEvaluate ./internal/engine/
 ## Global Flags
 
 - `-c, --config` — config file (default `./tagctl.yaml`)
-- `-o, --output` — output format: `table`, `json`, `csv`
+- `-o, --output` — stdout format, case-insensitive, checked by each command with
+  `outputFormatFor` (first listed is the default when unset): scan
+  `table|json|csv`; plan, diff, normalize, terraform, cost `table|json`;
+  evaluate `json`; apply, init, validate, version `table`. Anything else exits 2
 - `-l, --log-level` — `error`, `info`, `debug`
+
+stdout carries only the selected output. Banner, spinners, prompts, warnings and
+"wrote X" notices go to stderr (`fmt.Fprint(os.Stderr, ...)`). A gate report on
+`-` replaces the command's stdout output; `gateOptions.stdoutFormat` rejects two
+reports on `-` or one next to an explicit `-o`
 
 ## Configuration File (tagctl.yaml)
 

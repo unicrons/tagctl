@@ -68,6 +68,10 @@ func runTerraform(cmd *cobra.Command, args []string) error {
 	statePath, _ := cmd.Flags().GetString("state")
 	changedOnly, _ := cmd.Flags().GetBool("changed-only")
 	gateOpts := readGateFlags(cmd)
+	format, err := gateOpts.stdoutFormat(cmd, formatTable, formatJSON)
+	if err != nil {
+		return err
+	}
 
 	if statePath != "" && cmd.Flags().Changed("plan") {
 		return fmt.Errorf("use --plan or --state, not both")
@@ -89,12 +93,15 @@ func runTerraform(cmd *cobra.Command, args []string) error {
 	resources := parsed.Resources
 
 	if len(resources) == 0 {
-		fmt.Println("No taggable resources found in the Terraform input.")
+		fmt.Fprintln(os.Stderr, "No taggable resources found in the Terraform input.")
 		if len(parsed.Unreadable) > 0 {
 			fmt.Fprintf(os.Stderr, "%d resources were skipped because their tags are only known after apply.\n", len(parsed.Unreadable))
 		}
 		if changedOnly {
-			fmt.Println("With --changed-only, only resources being created or updated are checked.")
+			fmt.Fprintln(os.Stderr, "With --changed-only, only resources being created or updated are checked.")
+		}
+		if format == formatJSON {
+			return printJSON(types.NewScanResult())
 		}
 		return nil
 	}
@@ -111,11 +118,12 @@ func runTerraform(cmd *cobra.Command, args []string) error {
 
 	result := evaluator.EvaluateResources(resources)
 
-	if strings.ToLower(outputFormat) == formatJSON {
+	switch format {
+	case formatJSON:
 		if err := printJSON(result); err != nil {
 			return err
 		}
-	} else {
+	case formatTable:
 		printTerraformResult(result, source, changedOnly)
 	}
 

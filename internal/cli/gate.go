@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -17,9 +18,9 @@ func addGateFlags(cmd *cobra.Command) {
 	cmd.Flags().Float64("fail-under", 0, "exit 1 if compliance is below this percentage (0 disables the check)")
 	cmd.Flags().Bool("fail-on-new", false, "exit 1 if any finding regressed against --baseline")
 	cmd.Flags().String("baseline", "", "baseline scan file to compare against for --fail-on-new")
-	cmd.Flags().String("sarif", "", "also write findings as SARIF to this path (- for stdout)")
-	cmd.Flags().String("junit", "", "also write findings as JUnit XML to this path (- for stdout)")
-	cmd.Flags().String("ocsf", "", "also write findings as OCSF Compliance Finding events to this path (- for stdout)")
+	cmd.Flags().String("sarif", "", "also write findings as SARIF to this path (- for stdout, instead of the command's output)")
+	cmd.Flags().String("junit", "", "also write findings as JUnit XML to this path (- for stdout, instead of the command's output)")
+	cmd.Flags().String("ocsf", "", "also write findings as OCSF Compliance Finding events to this path (- for stdout, instead of the command's output)")
 }
 
 // gateOptions holds the parsed gate flags for one command run.
@@ -46,6 +47,37 @@ func readGateFlags(cmd *cobra.Command) gateOptions {
 		sarifPath: sarifPath,
 		junitPath: junitPath,
 		ocsfPath:  ocsfPath,
+	}
+}
+
+// stdoutFormat resolves what the command prints on stdout: its -o format, or
+// "" when a report is written there instead. Only one report may take stdout.
+func (o gateOptions) stdoutFormat(cmd *cobra.Command, supported ...string) (string, error) {
+	format, err := outputFormatFor(cmd, supported...)
+	if err != nil {
+		return "", err
+	}
+
+	var onStdout []string
+	for _, report := range []struct{ flag, path string }{
+		{"--sarif", o.sarifPath},
+		{"--junit", o.junitPath},
+		{"--ocsf", o.ocsfPath},
+	} {
+		if report.path == "-" {
+			onStdout = append(onStdout, report.flag)
+		}
+	}
+
+	switch {
+	case len(onStdout) == 0:
+		return format, nil
+	case len(onStdout) > 1:
+		return "", fmt.Errorf("%s both write to stdout: send at most one report to -", strings.Join(onStdout, " and "))
+	case cmd.Flags().Changed("output"):
+		return "", fmt.Errorf("%s - replaces the %s output on stdout: drop -o or write the report to a file", onStdout[0], format)
+	default:
+		return "", nil
 	}
 }
 

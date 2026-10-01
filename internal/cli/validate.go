@@ -25,6 +25,10 @@ Examples:
 }
 
 func runValidate(cmd *cobra.Command, args []string) error {
+	if _, err := outputFormatFor(cmd, formatTable); err != nil {
+		return err
+	}
+
 	configFile := viper.ConfigFileUsed()
 	if configFile == "" {
 		return fmt.Errorf("no config file found. Run 'tagctl init' to create one")

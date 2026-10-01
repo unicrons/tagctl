@@ -49,6 +49,11 @@ func init() {
 func runDiff(cmd *cobra.Command, args []string) error {
 	failOnRegression, _ := cmd.Flags().GetBool("fail-on-regression")
 
+	format, err := outputFormatFor(cmd, formatTable, formatJSON)
+	if err != nil {
+		return err
+	}
+
 	baselinePath, currentPath, err := resolveDiffInputs(args)
 	if err != nil {
 		return err
@@ -70,7 +75,7 @@ func runDiff(cmd *cobra.Command, args []string) error {
 
 	result := engine.Diff(baseline, current)
 
-	if strings.ToLower(outputFormat) == formatJSON {
+	if format == formatJSON {
 		if err := printJSON(result); err != nil {
 			return err
 		}

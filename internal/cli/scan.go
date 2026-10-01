@@ -69,11 +69,14 @@ func runScan(cmd *cobra.Command, args []string) error {
 	allowPartial, _ := cmd.Flags().GetBool("allow-partial")
 	regions, _ := cmd.Flags().GetStringSlice("region")
 	gateOpts := readGateFlags(cmd)
+	format, err := gateOpts.stdoutFormat(cmd, formatTable, formatJSON, formatCSV)
+	if err != nil {
+		return err
+	}
 
 	ctx, stop := signalContext()
 	defer stop()
 
-	// Always print the banner
 	printBanner()
 
 	// Load configuration
@@ -94,8 +97,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 			printDemoModeWarning()
 		}
 
-		fmt.Println("Scanning cloud resources (demo mode)...")
-		fmt.Println()
+		fmt.Fprint(os.Stderr, "Scanning cloud resources (demo mode)...\n\n")
 
 		scanner := engine.NewMockScanner()
 		result, err = scanner.Scan(ctx)
@@ -111,7 +113,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 
 	outputPaths := writeScanReports(result)
 
-	if err := printScanResult(result, verbose); err != nil {
+	if err := printScanResult(result, format, verbose); err != nil {
 		return err
 	}
 
@@ -178,9 +180,9 @@ const (
 	colorDim    = "\033[2m"
 )
 
-// printBanner prints the tagctl banner with colors and version.
+// printBanner prints the tagctl banner with colors and version to stderr.
 func printBanner() {
-	fmt.Printf(`
+	fmt.Fprintf(os.Stderr, `
 %s%s  ████████╗ █████╗  ██████╗  ██████╗████████╗██╗     %s
 %s  ╚══██╔══╝██╔══██╗██╔════╝ ██╔════╝╚══██╔══╝██║     %s
 %s     ██║   ███████║██║  ███╗██║        ██║   ██║     %s
@@ -202,9 +204,9 @@ func printBanner() {
 	)
 }
 
-// printDemoModeWarning prints a warning explaining that mock data is being used.
+// printDemoModeWarning warns on stderr that mock data is being used.
 func printDemoModeWarning() {
-	fmt.Printf(`%s%s┌─────────────────────────────────────────────────────────────────┐%s
+	fmt.Fprintf(os.Stderr, `%s%s┌─────────────────────────────────────────────────────────────────┐%s
 %s│                         ⚠  DEMO MODE                           │%s
 %s├─────────────────────────────────────────────────────────────────┤%s
 %s│  No cloud providers configured. Showing example data.          │%s
@@ -233,19 +235,19 @@ func printDemoModeWarning() {
 	)
 }
 
-// printOutputFilesBanner prints the location of generated output files.
+// printOutputFilesBanner prints the location of generated output files to stderr.
 func printOutputFilesBanner(paths *ScanOutputPaths) {
 	// Get absolute paths for clearer output
 	absJSON := getAbsolutePath(paths.JSON)
 	absCSV := getAbsolutePath(paths.CSV)
 	absHTML := getAbsolutePath(paths.HTML)
 
-	fmt.Println()
-	fmt.Printf("%s%sDetailed results saved to:%s\n", colorBold, colorCyan, colorReset)
-	fmt.Printf("  %s•%s JSON: %s%s%s\n", colorGreen, colorReset, colorDim, absJSON, colorReset)
-	fmt.Printf("  %s•%s CSV:  %s%s%s\n", colorGreen, colorReset, colorDim, absCSV, colorReset)
-	fmt.Printf("  %s•%s HTML: %s%s%s\n", colorGreen, colorReset, colorDim, absHTML, colorReset)
-	fmt.Println()
+	fmt.Fprintln(os.Stderr)
+	fmt.Fprintf(os.Stderr, "%s%sDetailed results saved to:%s\n", colorBold, colorCyan, colorReset)
+	fmt.Fprintf(os.Stderr, "  %s•%s JSON: %s%s%s\n", colorGreen, colorReset, colorDim, absJSON, colorReset)
+	fmt.Fprintf(os.Stderr, "  %s•%s CSV:  %s%s%s\n", colorGreen, colorReset, colorDim, absCSV, colorReset)
+	fmt.Fprintf(os.Stderr, "  %s•%s HTML: %s%s%s\n", colorGreen, colorReset, colorDim, absHTML, colorReset)
+	fmt.Fprintln(os.Stderr)
 }
 
 // getAbsolutePath returns the absolute path, or the original if it fails.
@@ -283,9 +285,11 @@ func writeScanReports(result *types.ScanResult) *ScanOutputPaths {
 	return outputPaths
 }
 
-// printScanResult renders a scan to stdout in the requested format.
-func printScanResult(result *types.ScanResult, verbose bool) error {
-	switch outputFormat {
+// printScanResult renders a scan to stdout in format; "" prints nothing.
+func printScanResult(result *types.ScanResult, format string, verbose bool) error {
+	switch format {
+	case "":
+		return nil
 	case formatJSON:
 		return outputScanJSON(result)
 	case formatCSV:

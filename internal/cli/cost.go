@@ -62,6 +62,11 @@ func runCost(cmd *cobra.Command, args []string) error {
 	tagFlags, _ := cmd.Flags().GetStringSlice("tag")
 	failUnder, _ := cmd.Flags().GetFloat64("fail-under")
 
+	format, err := outputFormatFor(cmd, formatTable, formatJSON)
+	if err != nil {
+		return err
+	}
+
 	if days < 1 {
 		return fmt.Errorf("--days must be at least 1")
 	}
@@ -104,7 +109,7 @@ func runCost(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	if strings.ToLower(outputFormat) == formatJSON {
+	if format == formatJSON {
 		if err := printJSON(report); err != nil {
 			return err
 		}
