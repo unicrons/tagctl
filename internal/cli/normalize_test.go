@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -21,7 +22,7 @@ func normalizeCommand(t *testing.T, args ...string) *cobra.Command {
 	cmd.Flags().Bool("abbreviations", true, "")
 	cmd.Flags().StringSlice("ignore-tag", nil, "")
 	cmd.SetArgs(args)
-	cmd.SetOut(os.NewFile(0, os.DevNull))
+	cmd.SetOut(io.Discard)
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("parsing %v: %v", args, err)
 	}
