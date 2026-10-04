@@ -93,7 +93,7 @@ internal/
     ├── plan.go           # Plan, TagChange, PlanSummary
     ├── diff.go           # DiffResult, TagDelta, AccountDelta
     ├── normalize.go      # NormalizeResult, ValueCluster
-    └── cost.go           # CostReport, TagCost
+    └── cost.go           # CostReport, TagCost, CostTrend (periods, projection)
 test/
 ├── testdata/             # Config and fixture files
 └── testutil/             # Shared test helpers
@@ -142,7 +142,7 @@ go test -v -run TestEvaluate ./internal/engine/
 - `-c, --config` — config file (default `./tagctl.yaml`)
 - `-o, --output` — stdout format, case-insensitive, checked by each command with
   `outputFormatFor` (first listed is the default when unset): scan
-  `table|json|csv`; plan, diff, normalize, terraform, cost `table|json`;
+  `table|json|csv`; cost `table|json|csv`; plan, diff, normalize, terraform `table|json`;
   evaluate `json`; apply, init, validate, version `table`. Anything else exits 2
 - `-l, --log-level` — `error`, `info`, `debug`
 
@@ -338,10 +338,15 @@ Scan and plan commands write to the `output/` directory (see `internal/cli/paths
 - `scan-YYYYMMDD-HHMMSS.json` — full scan results with all findings
 - `scan-YYYYMMDD-HHMMSS.csv` — findings CSV
 - `scan-YYYYMMDD-HHMMSS.html` — standalone HTML report: headline, per-tag
-  coverage chips, resource-type × tag matrix, accounts and a findings table
-  with status filter and client-side pager (50 rows by default; print ignores
-  the page and shows the whole filter). Rendered by `report.WriteHTML` from the
-  embedded `html/template` (auto-escaped; no external assets, opens offline)
+  coverage chips, resource-type × tag matrix, accounts, a by-tag-value table
+  and a findings table with status filter and client-side pager (50 rows by
+  default; print ignores the page and shows the whole filter). Rendered by
+  `report.WriteHTML` from the embedded `html/template` (auto-escaped; no
+  external assets, opens offline). The by-value table (`htmlByValue`) is
+  aggregated in Go per policy tag: resources by `Identity()`, compliant = no
+  FAILED finding, `(untagged)` row last, opening on `owner`/`team` when the
+  policy has one. Each finding row carries `data-g`, the value index per tag,
+  so the browser filters by comparing indexes and never re-aggregates
 - `plan-YYYYMMDD-HHMMSS.json` — remediation plan
 
 The gate flags (`--sarif`, `--junit`, `--ocsf`) on `scan`/`evaluate`/`terraform`
@@ -511,3 +516,10 @@ Install with: `make hooks`
     `lightsailRegions`; both are addressed by their own tag API, not the
     Tagging API. `idAddressedTypes` in the applier is the short list of types
     tagged by ID (EC2 family, S3); everything else is tagged by ARN
+
+12. **Cost Explorer bills per request**: `cost` runs one `GetCostAndUsage`
+    query per tag (plus its pages). `--trend` switches that query to `DAILY`
+    and buckets the days in `types.CostPeriods` (daily up to 14 days, weekly
+    beyond; periods align to the window end, a leading remainder is `Partial`
+    and excluded from `CostChange`/`CostProjection`). Never add a call per
+    period. `cost` has no mock mode; `costExplorerAPI` is mocked in tests

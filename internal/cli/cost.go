@@ -1,8 +1,12 @@
 package cli
 
 import (
+	"encoding/csv"
 	"fmt"
+	"io"
+	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -25,7 +29,9 @@ resource can never be assigned to a team, however diligently you tag afterwards,
 so the number this reports is a permanent loss rather than a backlog item.
 
 Reports, per required tag, the spend it does and does not account for, and the
-biggest spenders behind each value.
+biggest spenders behind each value. With --trend the window is also split into
+periods (daily up to 14 days, weekly beyond), with the change between the first
+and last full period and a linear estimate of the next one.
 
 Note that a tag must be activated as a cost allocation tag in the Billing
 console before Cost Explorer will group by it. A tag that has never been
@@ -41,6 +47,9 @@ Examples:
   # Specific tags, whatever the policy says
   tagctl cost --tag owner --tag cost-center
 
+  # Is the unattributed spend growing? Per period, with an estimate of the next
+  tagctl cost --trend
+
   # Another account, by profile or by role
   tagctl cost --profile billing
   tagctl cost --role arn:aws:iam::123456789012:role/CostReader
@@ -53,6 +62,7 @@ Examples:
 func init() {
 	costCmd.Flags().Int("days", 30, "how many days back to report on")
 	costCmd.Flags().StringSlice("tag", nil, "tag to report on (repeatable; defaults to the policy's required tags)")
+	costCmd.Flags().Bool("trend", false, "split the window into periods (daily up to 14 days, weekly beyond) and estimate the next one")
 	costCmd.Flags().Float64("fail-under", 0, "exit 1 if any tag accounts for less than this percentage of spend")
 	addAWSAuthFlags(costCmd)
 }
@@ -61,8 +71,9 @@ func runCost(cmd *cobra.Command, args []string) error {
 	days, _ := cmd.Flags().GetInt("days")
 	tagFlags, _ := cmd.Flags().GetStringSlice("tag")
 	failUnder, _ := cmd.Flags().GetFloat64("fail-under")
+	trend, _ := cmd.Flags().GetBool("trend")
 
-	format, err := outputFormatFor(cmd, formatTable, formatJSON)
+	format, err := outputFormatFor(cmd, formatTable, formatJSON, formatCSV)
 	if err != nil {
 		return err
 	}
@@ -104,17 +115,26 @@ func runCost(cmd *cobra.Command, args []string) error {
 	end := time.Now().UTC().Truncate(24 * time.Hour)
 	start := end.AddDate(0, 0, -days)
 
-	report, err := provider.CostReport(ctx, tags, start, end)
+	var granularity types.CostGranularity
+	if trend {
+		granularity = trendGranularity(days)
+	}
+
+	report, err := provider.CostReport(ctx, tags, start, end, granularity)
 	if err != nil {
 		return err
 	}
 
-	if format == formatJSON {
-		if err := printJSON(report); err != nil {
-			return err
-		}
-	} else {
-		printCostReport(report)
+	switch format {
+	case formatJSON:
+		err = printJSON(report)
+	case formatCSV:
+		err = writeCostCSV(os.Stdout, report)
+	default:
+		printCostReport(os.Stdout, report)
+	}
+	if err != nil {
+		return err
 	}
 
 	if failUnder > 0 {
@@ -122,6 +142,17 @@ func runCost(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+// maxDailyTrendDays is the longest window still reported day by day.
+const maxDailyTrendDays = 14
+
+// trendGranularity picks the period length that keeps a trend readable.
+func trendGranularity(days int) types.CostGranularity {
+	if days <= maxDailyTrendDays {
+		return types.CostDaily
+	}
+	return types.CostWeekly
 }
 
 // requiredTagNames lists the tags the policy requires.
@@ -183,28 +214,31 @@ func sortedTagCosts(report *types.CostReport) []*types.TagCost {
 	return tags
 }
 
-func printCostReport(report *types.CostReport) {
-	fmt.Printf("Period: %s to %s (%d days)\n",
-		report.Start.Format("2006-01-02"), report.End.Format("2006-01-02"), report.Days())
-	fmt.Printf("Total spend: %s\n\n", money(report.Total, report.Currency))
+const costDateLayout = "2006-01-02"
+
+func printCostReport(w io.Writer, report *types.CostReport) {
+	fmt.Fprintf(w, "Period: %s to %s (%d days)\n",
+		report.Start.Format(costDateLayout), report.End.Format(costDateLayout), report.Days())
+	fmt.Fprintf(w, "Total spend: %s\n\n", money(report.Total, report.Currency))
 
 	if report.Total == 0 {
-		fmt.Println("No spend recorded for this period.")
+		fmt.Fprintln(w, "No spend recorded for this period.")
 		return
 	}
 
 	for _, tag := range sortedTagCosts(report) {
-		fmt.Printf("  %s\n", tag.Tag)
-		fmt.Printf("      attributed:   %14s  (%.1f%%)\n",
+		fmt.Fprintf(w, "  %s\n", tag.Tag)
+		fmt.Fprintf(w, "      attributed:   %14s  (%.1f%%)\n",
 			money(tag.Attributed, report.Currency), tag.CoveragePct())
-		fmt.Printf("      unattributed: %14s  (%.1f%%)\n",
+		fmt.Fprintf(w, "      unattributed: %14s  (%.1f%%)\n",
 			money(tag.Unattributed, report.Currency), 100-tag.CoveragePct())
 
-		printTopValues(tag, report.Currency)
-		fmt.Println()
+		printTopValues(w, tag, report.Currency)
+		printCostTrend(w, tag.Trend, report.Currency)
+		fmt.Fprintln(w)
 	}
 
-	printCostSummary(report)
+	printCostSummary(w, report)
 }
 
 // topValueCount is how many tag values are listed per tag.
@@ -212,7 +246,7 @@ const topValueCount = 5
 
 // printTopValues lists the biggest spenders for a tag, skipping the
 // unattributed bucket, which is already reported above.
-func printTopValues(tag *types.TagCost, currency string) {
+func printTopValues(w io.Writer, tag *types.TagCost, currency string) {
 	shown := 0
 
 	for _, value := range tag.Values {
@@ -220,9 +254,9 @@ func printTopValues(tag *types.TagCost, currency string) {
 			continue
 		}
 		if shown == 0 {
-			fmt.Printf("      top values:\n")
+			fmt.Fprintf(w, "      top values:\n")
 		}
-		fmt.Printf("        %-28s %14s\n", truncate(value.Value, 28), money(value.Amount, currency))
+		fmt.Fprintf(w, "        %-28s %14s\n", truncate(value.Value, 28), money(value.Amount, currency))
 		shown++
 		if shown == topValueCount {
 			break
@@ -230,25 +264,148 @@ func printTopValues(tag *types.TagCost, currency string) {
 	}
 }
 
-func printCostSummary(report *types.CostReport) {
+// printCostTrend lists a tag's periods, the change across them and the
+// estimate for the next one.
+func printCostTrend(w io.Writer, trend *types.CostTrend, currency string) {
+	if trend == nil {
+		return
+	}
+
+	fmt.Fprintf(w, "      trend (%s):\n", trend.Granularity)
+	fmt.Fprintf(w, "        %-10s  %4s  %14s  %14s  %8s\n", "from", "days", "attributed", "unattributed", "coverage")
+	for _, period := range trend.Periods {
+		note := ""
+		if period.Partial {
+			note = "  partial"
+		}
+		fmt.Fprintf(w, "        %-10s  %4d  %14s  %14s  %7.1f%%%s\n",
+			period.Start.Format(costDateLayout), period.Days(),
+			money(period.Attributed, currency), money(period.Unattributed, currency),
+			period.CoveragePct(), note)
+	}
+
+	if trend.Change == nil || trend.Projection == nil {
+		fmt.Fprintln(w, "        Too few full periods for a change or an estimate.")
+		return
+	}
+
+	fmt.Fprintf(w, "        change, first to last full period: unattributed %s, coverage %+.1f points\n",
+		signedMoney(trend.Change.Unattributed, currency), trend.Change.CoveragePoints)
+	fmt.Fprintf(w, "        estimate for the %d days from %s: %s unattributed (%s projection, not billed spend)\n",
+		int(trend.Projection.End.Sub(trend.Projection.Start).Hours()/24),
+		trend.Projection.Start.Format(costDateLayout),
+		money(trend.Projection.Unattributed, currency), trend.Projection.Method)
+}
+
+func printCostSummary(w io.Writer, report *types.CostReport) {
 	worst := report.WorstCoverage()
 	if worst == nil {
 		return
 	}
 
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	fmt.Printf("Worst attribution: %s, leaving %s unattributable over %d days.\n",
+	fmt.Fprintln(w, "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Fprintf(w, "Worst attribution: %s, leaving %s unattributable over %d days.\n",
 		worst.Tag, money(worst.Unattributed, report.Currency), report.Days())
 
 	if report.Days() > 0 {
 		annual := worst.Unattributed / float64(report.Days()) * 365
-		fmt.Printf("At this rate that is %s a year of spend nobody can be billed for.\n",
+		fmt.Fprintf(w, "At this rate that is %s a year of spend nobody can be billed for.\n",
 			money(annual, report.Currency))
 	}
 
-	fmt.Println()
-	fmt.Println("Cost allocation tags are not retroactive: this spend cannot be")
-	fmt.Println("attributed later. Run 'tagctl plan' to start tagging what is live.")
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Cost allocation tags are not retroactive: this spend cannot be")
+	fmt.Fprintln(w, "attributed later. Run 'tagctl plan' to start tagging what is live.")
+}
+
+// Values of the kind column in the trend CSV.
+const (
+	periodActual   = "actual"
+	periodPartial  = "partial"
+	periodEstimate = "estimate"
+)
+
+const costCSVTagColumn = "tag"
+
+var (
+	costCSVHeader      = []string{costCSVTagColumn, "attributed", "unattributed", "coverage_percent", "currency"}
+	costTrendCSVHeader = []string{costCSVTagColumn, "period_start", "period_end", "kind", "attributed", "unattributed", "coverage_percent", "currency"}
+)
+
+// writeCostCSV writes one row per tag, or one per tag and period when the
+// report carries a trend; the projection is the row of kind "estimate".
+func writeCostCSV(w io.Writer, report *types.CostReport) error {
+	if err := csv.NewWriter(w).WriteAll(costCSVRows(report)); err != nil {
+		return fmt.Errorf("failed to write cost CSV: %w", err)
+	}
+	return nil
+}
+
+func costCSVRows(report *types.CostReport) [][]string {
+	tags := sortedTagCosts(report)
+
+	if hasTrend(tags) {
+		rows := make([][]string, 0, len(tags)+1)
+		rows = append(rows, costTrendCSVHeader)
+		for _, tag := range tags {
+			rows = append(rows, trendCSVRows(tag, report.Currency)...)
+		}
+		return rows
+	}
+
+	rows := make([][]string, 0, len(tags)+1)
+	rows = append(rows, costCSVHeader)
+	for _, tag := range tags {
+		rows = append(rows, []string{
+			csvSafe(tag.Tag), csvAmount(tag.Attributed), csvAmount(tag.Unattributed),
+			csvPercent(tag.CoveragePct()), report.Currency,
+		})
+	}
+	return rows
+}
+
+func hasTrend(tags []*types.TagCost) bool {
+	for _, tag := range tags {
+		if tag.Trend != nil {
+			return true
+		}
+	}
+	return false
+}
+
+func trendCSVRows(tag *types.TagCost, currency string) [][]string {
+	if tag.Trend == nil {
+		return nil
+	}
+	name := csvSafe(tag.Tag)
+
+	rows := make([][]string, 0, len(tag.Trend.Periods)+1)
+	for _, period := range tag.Trend.Periods {
+		kind := periodActual
+		if period.Partial {
+			kind = periodPartial
+		}
+		rows = append(rows, []string{
+			name, period.Start.Format(costDateLayout), period.End.Format(costDateLayout), kind,
+			csvAmount(period.Attributed), csvAmount(period.Unattributed), csvPercent(period.CoveragePct()), currency,
+		})
+	}
+
+	if projection := tag.Trend.Projection; projection != nil {
+		rows = append(rows, []string{
+			name, projection.Start.Format(costDateLayout), projection.End.Format(costDateLayout), periodEstimate,
+			"", csvAmount(projection.Unattributed), "", currency,
+		})
+	}
+	return rows
+}
+
+func csvAmount(value float64) string {
+	return strconv.FormatFloat(value, 'f', 2, 64)
+}
+
+func csvPercent(value float64) string {
+	return strconv.FormatFloat(value, 'f', 1, 64)
 }
 
 // money formats an amount with its currency.
@@ -257,6 +414,14 @@ func money(amount float64, currency string) string {
 		currency = "USD"
 	}
 	return fmt.Sprintf("%.2f %s", amount, currency)
+}
+
+// signedMoney formats a change with an explicit sign.
+func signedMoney(amount float64, currency string) string {
+	if currency == "" {
+		currency = "USD"
+	}
+	return fmt.Sprintf("%+.2f %s", amount, currency)
 }
 
 // truncate shortens a value so the columns stay aligned.
