@@ -447,6 +447,64 @@ consistency of the bulk tag API, or an IAM action missing from the policy. If
 you could not check that, say so in the pull request so reviewers know the
 change has not run against AWS.
 
+## Releasing
+
+A release is a tag. Pushing `vX.Y.Z` runs `.github/workflows/release.yml`,
+where GoReleaser (`.goreleaser.yaml`) does the rest:
+
+```bash
+git switch main && git pull
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+| Output | Where |
+|--------|-------|
+| `tagctl_<os>_<arch>.tar.gz` (`.zip` on Windows) for Linux, macOS and Windows on amd64 and arm64, plus `checksums.txt` | The GitHub Release, with notes grouped by commit type |
+| Build provenance attestation for every archive | `gh attestation verify <archive> --repo unicrons/tagctl` |
+| Multi-arch image (linux/amd64, linux/arm64) tagged `vX.Y.Z` and `latest` | `ghcr.io/unicrons/tagctl` |
+| Homebrew cask | `unicrons/homebrew-tap`, once the tap is set up |
+
+A tag with a pre-release suffix (`v0.2.0-rc.1`) is published as a GitHub
+pre-release, does not move the image `latest` tag and is not sent to the tap.
+
+The job runs in the `release` environment, which GitHub creates on the first
+run. Add required reviewers to it in the repository settings to gate releases
+behind an approval.
+
+### One-time setup
+
+The binaries and the image need nothing beyond the workflow. Two things do,
+and only an organization owner can do them:
+
+1. **Make the image public.** GitHub creates the `tagctl` container package
+   as private on the first release. Open the package settings and change its
+   visibility to public, otherwise `docker pull` needs a login.
+2. **Create the Homebrew tap.** Until both steps below are done the release
+   skips the tap and still succeeds; the cask is only written to `dist/`.
+   - Create the public repository `unicrons/homebrew-tap` with an initial
+     commit (GoReleaser pushes `Casks/tagctl.rb` to its default branch).
+   - Create a fine-grained personal access token limited to that repository
+     with **Contents: read and write**, and save it as the Actions secret
+     `HOMEBREW_TAP_TOKEN` (repository secret, or a secret of the `release`
+     environment). The next release publishes the cask.
+
+### Checking a pipeline change
+
+Nothing here publishes; the artifacts land in `dist/` and the images stay in
+the local Docker daemon:
+
+```bash
+brew install goreleaser
+goreleaser check
+goreleaser release --snapshot --clean --skip=publish
+./dist/tagctl_darwin_arm64_v8.0/tagctl version   # the directory of your platform
+```
+
+The root `Dockerfile` is the release image and only builds inside GoReleaser's
+context, where the binaries are already compiled; `docker build .` on a plain
+checkout fails on its `COPY`.
+
 ## Contributing
 
 <Steps>

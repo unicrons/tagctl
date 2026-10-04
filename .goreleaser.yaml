@@ -59,6 +59,26 @@ dockers_v2:
       org.opencontainers.image.source: https://github.com/unicrons/tagctl
       org.opencontainers.image.licenses: Apache-2.0
 
+homebrew_casks:
+  - name: tagctl
+    description: Audit, fix and enforce cloud resource tags
+    homepage: https://github.com/unicrons/tagctl
+    repository:
+      owner: unicrons
+      name: homebrew-tap
+      # GoReleaser accepts nothing but a single .Env reference here.
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    # Without the tap token the cask is only written to dist/; "auto" keeps
+    # pre-releases out of the tap.
+    skip_upload: '{{ if envOrDefault "HOMEBREW_TAP_TOKEN" "" }}auto{{ else }}true{{ end }}'
+    hooks:
+      post:
+        # The binaries are not notarized: Gatekeeper would refuse to run them.
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/tagctl"]
+          end
+
 changelog:
   sort: asc
   filters:

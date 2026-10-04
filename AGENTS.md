@@ -508,6 +508,14 @@ linux/amd64 and linux/arm64, tags `vX.Y.Z` and, except for a pre-release,
 binaries per platform: distroless static, `nonroot` user, no shell, base image
 pinned by digest (Dependabot `docker` ecosystem bumps it).
 
+`homebrew_casks` pushes `Casks/tagctl.rb` to `unicrons/homebrew-tap` with the
+`HOMEBREW_TAP_TOKEN` secret. `skip_upload` is templated on that variable: empty
+means `true` (the cask is only written to `dist/`, the release still succeeds),
+set means `auto` (pre-releases stay out of the tap). `repository.token` must be
+exactly `{{ .Env.HOMEBREW_TAP_TOKEN }}`; GoReleaser rejects any other template
+there. The owner-only setup (tap repository, secret, image visibility) is in
+"Releasing" in `docs/development.mdx`.
+
 Check a pipeline change without publishing: `goreleaser check`, then
 `goreleaser release --snapshot --clean --skip=publish` (artifacts in `dist/`).
 
