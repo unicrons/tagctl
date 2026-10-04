@@ -32,7 +32,7 @@ jobs:
 
       - name: Detect changed areas
         id: filter
-        uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad # v3.0.4
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         with:
           # Non-Go inputs of the build and tests: embedded templates, fixtures,
           # and the IAM files and aws.mdx blocks permissions_test.go compares.
