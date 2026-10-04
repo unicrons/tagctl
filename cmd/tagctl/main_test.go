@@ -78,3 +78,17 @@ func TestMain_ExitsTwoAndPrintsTheErrorOnAUsageError(t *testing.T) {
 		t.Errorf("stderr = %q, want the error naming the unknown command", stderr)
 	}
 }
+
+func TestMain_StripsControlCharactersFromTheError(t *testing.T) {
+	code, stderr := runMain(t, "apply --output-dir no-plans\x1b]0;owned\x07")
+
+	if code != 2 {
+		t.Errorf("exit code = %d, want 2", code)
+	}
+	if !strings.Contains(stderr, "Error: output directory no-plans?]0;owned? not found") {
+		t.Errorf("stderr = %q, want the error with its control characters replaced", stderr)
+	}
+	if strings.ContainsAny(stderr, "\x1b\x07") {
+		t.Errorf("stderr carries a control character from the error: %q", stderr)
+	}
+}

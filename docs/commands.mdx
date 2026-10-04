@@ -12,7 +12,7 @@ These flags work with all commands:
 |------|-------|---------|-------------|
 | `--config` | `-c` | `./tagctl.yaml` | Path to configuration file |
 | `--output` | `-o` | `table` | Format printed on stdout, case-insensitive: `table`, `json` or `csv` for `scan` and `cost`; `table` or `json` for `plan`, `diff`, `normalize` and `terraform`; `json` for `evaluate`, which is also its default; `table` for the other commands. Any other value exits `2` |
-| `--log-level` | `-l` | `error` | Log level: `error`, `info`, `debug`; an unknown value falls back to `info` with a warning |
+| `--log-level` | `-l` | `error` | Log level: `error`, `info`, `debug`, case-insensitive. Any other value exits `2` |
 | `--version` | - | - | Print the version and exit |
 | `--help` | `-h` | - | Show help for command |
 
@@ -34,6 +34,27 @@ notices about files written (`Detailed results saved to`, `Plan saved to`,
 `Plan written to`, `Created tagctl.yaml`) go to stderr. `validate` prints its
 warnings on stdout, since they are part of the report it was asked for.
 
+The table output of `scan`, `plan`, `diff`, `normalize`, `terraform`, `cost`
+(its `--trend` section included) and `validate`, the report and plan paths
+`scan` and `plan` print on stderr, every log line and the final `Error:` line
+replace control characters in resource names, tag keys and values with `?`, so
+a hostile tag value cannot send escape sequences to your terminal. JSON and CSV
+output keep the original values.
+
+### Colour
+
+Colour is decided per stream. ANSI colour codes are written to stdout or stderr
+only when that stream is a terminal, so `tagctl scan > report.txt` and CI logs
+get plain text. Setting `NO_COLOR` to any non-empty value turns colour off on a
+terminal too:
+
+```bash
+NO_COLOR=1 tagctl scan
+```
+
+Spinners animate only when stderr is a terminal. Otherwise each step prints its
+message once, followed by its outcome (`✓` or `✗`).
+
 ## Exit codes
 
 Every command exits with one of three codes, so a pipeline can tell a policy
@@ -43,12 +64,12 @@ that failed from a check that could not run:
 |------|---------|
 | `0` | Success, and every gate that was requested passed |
 | `1` | A policy gate failed: `--fail-under` or `--fail-on-new` on `scan`, `evaluate` and `terraform`, `--fail-under` on `cost`, `diff --fail-on-regression`, `normalize --fail-on-drift` |
-| `2` | Any other error: an unknown flag or wrong arguments, an `--output` format the command does not print, more than one report sent to `-`, an invalid config, an unreadable input or baseline file, `--fail-on-new` without `--baseline`, a [partial scan](#partial-scans) without `--allow-partial`, an `apply` with failed changes |
+| `2` | Any other error: an unknown flag or wrong arguments, an `--output` format the command does not print, an unknown `--log-level`, more than one report sent to `-`, an invalid config, an unreadable input or baseline file, `--fail-on-new` without `--baseline`, a [partial scan](#partial-scans) without `--allow-partial`, an `apply` with failed changes |
 
 The reason is printed to stderr after `Error:`. An unknown command
 (`tagctl nosuch`) exits `2`, but `tagctl help <topic>` with an unknown topic
-prints the usage and exits `0`. Ctrl-C or SIGTERM makes `scan`, `apply` and
-`cost` stop and exit `2`; any other command is ended by the signal itself.
+prints the usage and exits `0`. Ctrl-C or SIGTERM makes `scan`, `plan`, `apply`
+and `cost` stop and exit `2`; any other command is ended by the signal itself.
 
 ## tagctl init
 
@@ -424,6 +445,10 @@ Plan saved to: output/plan-20260202-105148.json
 Run 'tagctl apply' to execute this plan.
 ```
 </Accordion>
+
+When the config has no cloud provider, `plan` prints an example plan (demo
+mode) and writes no file, `--out` and `--output-dir` included, so `apply` can
+never pick up example data as a real plan.
 
 ### Change Symbols
 
@@ -1266,7 +1291,7 @@ from a report into a build step.
 | `--baseline <file>` | Baseline scan `--fail-on-new` compares against |
 | `--sarif <path>` | Also write findings as SARIF (`-` for stdout) |
 | `--junit <path>` | Also write findings as JUnit XML (`-` for stdout) |
-| `--ocsf <path>` | Also write findings as OCSF Compliance Finding events (`-` for stdout) |
+| `--ocsf <path>` | Also write findings as OCSF Compliance Finding events: one event per line (NDJSON) when the path ends in `.ndjson` or `.jsonl`, a JSON array otherwise (`-` for stdout, always an array) |
 | `--summary <path>` | Also write a [Markdown summary](#markdown-summary) (`-` for stdout) |
 
 Reports are written **before** the gate runs, so a failing build still uploads
@@ -1343,6 +1368,8 @@ JUnit XML is understood by essentially every CI system.
   actual values, and the ARN, so it can be acted on without opening the scan.
 - The `classname` is `provider.account.region`, leaving out the parts a
   resource does not have: a Terraform plan gives `aws`.
+- No `time` attribute is written: tagctl does not time individual checks. Each
+  suite carries the scan `timestamp`.
 
 ### OCSF
 
@@ -1358,6 +1385,9 @@ with a standard", which is exactly what a tag policy check is.
   an id.
 - The policy rule travels in `compliance.requirements`; the tag name is the
   `compliance.control`.
+- A path ending in `.ndjson` or `.jsonl` gets **one event per line**, the form
+  log shippers and most OCSF consumers ingest. Any other path, and `-`, gets a
+  pretty-printed JSON array.
 
 The full field mapping, an example event and ingestion notes are in
 [OCSF output](/integrations/ocsf).

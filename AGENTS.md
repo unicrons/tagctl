@@ -40,6 +40,7 @@ internal/
 │   ├── format.go         # -o validation per command (outputFormatFor)
 │   ├── paths.go          # output/ directory and file naming
 │   ├── progress.go       # Progress reporting
+│   ├── color.go          # paletteFor: ANSI codes per stream
 │   ├── auth.go           # AWS auth flags shared by scan/apply/cost
 │   └── providers.go      # Provider initialization
 ├── config/config.go      # YAML config parsing and validation
@@ -145,12 +146,20 @@ go test -v -run TestEvaluate ./internal/engine/
   `outputFormatFor` (first listed is the default when unset): scan
   `table|json|csv`; cost `table|json|csv`; plan, diff, normalize, terraform `table|json`;
   evaluate `json`; apply, init, validate, version `table`. Anything else exits 2
-- `-l, --log-level` — `error`, `info`, `debug`
+- `-l, --log-level` — `error`, `info`, `debug`; anything else exits 2
 
 stdout carries only the selected output. Banner, spinners, prompts, warnings and
 "wrote X" notices go to stderr (`fmt.Fprint(os.Stderr, ...)`). A gate report on
 `-` replaces the command's stdout output; `gateOptions.stdoutFormat` rejects two
 reports on `-` or one next to an explicit `-o`
+
+Colour is per stream: `log.UseColor(w)` is the single decision (a terminal and
+`NO_COLOR` empty). CLI code takes its codes from `paletteFor(w)`
+(`internal/cli/color.go`), whose fields are empty when colour is off; never
+write a raw ANSI code. Spinners animate only on a terminal. Values from cloud
+data or user files go through `printable()` before reaching a table or a
+stderr notice; log lines (`log.write`) and the `Error:` line in `main` go
+through `log.Printable`, which keeps line breaks and tabs
 
 ## Configuration File (tagctl.yaml)
 
@@ -363,7 +372,8 @@ flag points. SARIF anchors results to the config file read
 (`viper.ConfigFileUsed()`, or `evaluate --policy`) relative to the working
 directory, sets `automationDetails.id` `tagctl/<command>/` and marks a partial
 scan `invocations[0].executionSuccessful: false`. OCSF emits one
-Compliance Finding (class 2003, schema 1.4.0) per finding, passes included;
+Compliance Finding (class 2003, schema 1.4.0) per finding, passes included, as
+NDJSON when the path ends in `.ndjson`/`.jsonl` and as a JSON array otherwise;
 `finding_info.uid` (`<resource identity>#<tag>`) and `analytic.uid` are the
 same ids SARIF uses, keep them aligned. The full mapping is the contract in
 `docs/integrations/ocsf.mdx`; extend it whenever a field changes.

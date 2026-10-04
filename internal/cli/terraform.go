@@ -209,9 +209,9 @@ func printTerraformResult(result *types.ScanResult, source string, changedOnly b
 	sort.Strings(addresses)
 
 	for _, address := range addresses {
-		fmt.Printf("  %s\n", address)
+		fmt.Printf("  %s\n", printable(address))
 		for _, finding := range byAddress[address] {
-			fmt.Printf("      ✗ %s\n", finding.Message())
+			fmt.Printf("      ✗ %s\n", printable(finding.Message()))
 		}
 	}
 

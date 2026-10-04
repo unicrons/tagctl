@@ -45,11 +45,12 @@ func runInit(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to create config file: %w", err)
 	}
 
-	fmt.Fprintf(os.Stderr, "%s✓ Created %s%s\n\n", colorGreen, configName, colorReset)
-	fmt.Fprintf(os.Stderr, "%sNext steps:%s\n", colorBold, colorReset)
-	fmt.Fprintf(os.Stderr, "  1. Edit %s%s%s to add your cloud accounts\n", colorCyan, configName, colorReset)
+	c := paletteFor(os.Stderr)
+	fmt.Fprintf(os.Stderr, "%s✓ Created %s%s\n\n", c.green, configName, c.reset)
+	fmt.Fprintf(os.Stderr, "%sNext steps:%s\n", c.bold, c.reset)
+	fmt.Fprintf(os.Stderr, "  1. Edit %s%s%s to add your cloud accounts\n", c.cyan, configName, c.reset)
 	fmt.Fprintf(os.Stderr, "  2. Define your required tags in the policy section\n")
-	fmt.Fprintf(os.Stderr, "  3. Run '%stagctl scan%s' to check compliance\n", colorGreen, colorReset)
+	fmt.Fprintf(os.Stderr, "  3. Run '%stagctl scan%s' to check compliance\n", c.green, c.reset)
 
 	return nil
 }

@@ -57,7 +57,7 @@ func outputScanTable(result *types.ScanResult, verbose bool) error {
 		for _, acc := range result.ByAccount {
 			bar := renderProgressBar(acc.CompliancePct, 10)
 			fmt.Fprintf(w, "  %s/%s\t%d\t%d\t%.0f%% %s\n",
-				acc.Provider, acc.Account, acc.Total, acc.Compliant, acc.CompliancePct, bar)
+				printable(acc.Provider), printable(acc.Account), acc.Total, acc.Compliant, acc.CompliancePct, bar)
 		}
 		_ = w.Flush()
 		fmt.Println()
@@ -73,7 +73,7 @@ func outputScanTable(result *types.ScanResult, verbose bool) error {
 			if tag.Required {
 				bar := renderProgressBar(tag.CompliancePct, 10)
 				fmt.Fprintf(w, "  %s\t%d\t%d\t%d\t%.0f%% %s\n",
-					tag.Tag, tag.Present, tag.Missing, tag.Invalid, tag.CompliancePct, bar)
+					printable(tag.Tag), tag.Present, tag.Missing, tag.Invalid, tag.CompliancePct, bar)
 			}
 		}
 		_ = w.Flush()
@@ -108,8 +108,9 @@ func outputScanTable(result *types.ScanResult, verbose bool) error {
 		}
 
 		// Summary
-		fmt.Printf("Summary: \033[32m%d PASS\033[0m | \033[31m%d FAILED\033[0m\n",
-			passFindings, failFindings)
+		c := paletteFor(os.Stdout)
+		fmt.Printf("Summary: %s%d PASS%s | %s%d FAILED%s\n",
+			c.green, passFindings, c.reset, c.red, failFindings, c.reset)
 		fmt.Println()
 	}
 
@@ -162,8 +163,16 @@ func writeFindingsCSV(w io.Writer, result *types.ScanResult) error {
 	return cw.Error()
 }
 
+// csvSafe quotes a cell a spreadsheet would run as a formula. Spreadsheets
+// skip leading whitespace before the trigger character, so it is skipped here too.
 func csvSafe(cell string) string {
-	if cell != "" && strings.ContainsRune("=+-@\t\r", rune(cell[0])) {
+	if cell == "" {
+		return cell
+	}
+	body := strings.TrimLeftFunc(cell, func(r rune) bool {
+		return unicode.IsSpace(r) || unicode.IsControl(r)
+	})
+	if strings.ContainsRune("\t\r\n", rune(cell[0])) || (body != "" && strings.ContainsRune("=+-@", rune(body[0]))) {
 		return "'" + cell
 	}
 	return cell
@@ -198,12 +207,13 @@ func printFindingsTable(out io.Writer, findings []types.Finding) {
 		rows = append(rows, []string{
 			status,
 			truncate(printable(f.Resource.DisplayName()), maxResourceWidth),
-			f.Resource.Type,
+			printable(f.Resource.Type),
 			printable(f.Tag),
 			truncate(printable(value), maxValueWidth),
 		})
 	}
 
+	c := paletteFor(out)
 	widths := make([]int, len(rows[0]))
 	for _, row := range rows {
 		for i, cell := range row {
@@ -219,11 +229,11 @@ func printFindingsTable(out io.Writer, findings []types.Finding) {
 				padded += strings.Repeat(" ", widths[i]-utf8.RuneCountInString(cell)+2)
 			}
 			if i == 0 && n >= 2 {
-				colour := "\033[31m"
+				colour := c.red
 				if cell == "PASS" {
-					colour = "\033[32m"
+					colour = c.green
 				}
-				padded = colour + cell + "\033[0m" + padded[len(cell):]
+				padded = colour + cell + c.reset + padded[len(cell):]
 			}
 			line.WriteString(padded)
 		}
@@ -303,7 +313,7 @@ func outputPlanTable(plan *types.Plan) {
 
 	for resourceID, changes := range resourceChanges {
 		res := changes[0].Resource
-		fmt.Printf("%s (%s)\n", res.Type, res.DisplayName())
+		fmt.Printf("%s (%s)\n", printable(res.Type), printable(res.DisplayName()))
 
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 		for _, c := range changes {

@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -48,10 +47,12 @@ func init() {
 	addOutputDirFlag(planCmd, "directory to read the latest scan from and write the plan to")
 }
 
+// planContext builds the context a plan runs under; tests replace it.
+var planContext = signalContext
+
 func runPlan(cmd *cobra.Command, args []string) error {
 	outFile, _ := cmd.Flags().GetString("out")
 	scanFile, _ := cmd.Flags().GetString("scan")
-	ctx := context.Background()
 
 	format, err := outputFormatFor(cmd, formatTable, formatJSON)
 	if err != nil {
@@ -63,6 +64,9 @@ func runPlan(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	ctx, stop := planContext()
+	defer stop()
+
 	printBanner()
 
 	cfg, err := loadConfig()
@@ -70,13 +74,16 @@ func runPlan(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	// Check if we should use mock mode
 	if !hasConfiguredProviders(cfg) {
 		printDemoModeWarning()
 		fmt.Fprint(os.Stderr, "Analyzing resources for auto-fix opportunities (demo mode)...\n\n")
 
-		plan := getMockPlan()
-		return savePlanAndOutput(plan, outputDir, outFile, format)
+		// A demo plan on disk would be picked up by apply as a real one.
+		if err = printPlan(getMockPlan(), format); err != nil {
+			return err
+		}
+		fmt.Fprint(os.Stderr, "\nDemo plan: example data only, not saved.\n")
+		return nil
 	}
 
 	// Load scan results from file with spinner
@@ -88,7 +95,7 @@ func runPlan(cmd *cobra.Command, args []string) error {
 		spinner.Fail("Failed to load scan results")
 		return fmt.Errorf("failed to load scan results: %w", err)
 	}
-	spinner.Success(fmt.Sprintf("Loaded scan from %s", scanPath))
+	spinner.Success(fmt.Sprintf("Loaded scan from %s", printable(scanPath)))
 	warnPartialScan(os.Stderr, scanPath, scanResult, "resources it missed get no changes in this plan")
 
 	log.Info("Using scan results from: %s", scanPath)
@@ -105,6 +112,9 @@ func runPlan(cmd *cobra.Command, args []string) error {
 	}
 
 	plan, err := planner.Plan(ctx, scanResult)
+	if err == nil {
+		err = ctx.Err()
+	}
 	if err != nil {
 		spinner.Fail("Failed to generate plan")
 		return fmt.Errorf("failed to generate plan: %w", err)
@@ -206,22 +216,26 @@ func savePlanAndOutput(plan *types.Plan, outputDir, outFile, format string) erro
 		return fmt.Errorf("failed to write plan file: %w", err)
 	}
 
-	if format == formatJSON {
-		if err := outputPlanJSON(plan); err != nil {
-			return err
-		}
-	} else {
-		outputPlanTable(plan)
+	if err := printPlan(plan, format); err != nil {
+		return err
 	}
 
 	if !plan.IsEmpty() {
-		fmt.Fprintf(os.Stderr, "\nPlan saved to: %s\nRun 'tagctl apply' to execute this plan.\n", planFile)
+		fmt.Fprintf(os.Stderr, "\nPlan saved to: %s\nRun 'tagctl apply' to execute this plan.\n", printable(planFile))
 	}
 	return nil
 }
 
-// getMockPlan returns a mock plan for demonstration purposes.
-// TODO: Remove this when real planner is implemented.
+// printPlan renders a plan to stdout in format.
+func printPlan(plan *types.Plan, format string) error {
+	if format == formatJSON {
+		return outputPlanJSON(plan)
+	}
+	outputPlanTable(plan)
+	return nil
+}
+
+// getMockPlan returns the example plan shown when no provider is configured.
 func getMockPlan() *types.Plan {
 	plan := &types.Plan{
 		ID:        fmt.Sprintf("plan-%s", time.Now().Format("20060102-150405")),

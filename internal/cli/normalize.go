@@ -265,7 +265,7 @@ func printNormalizeTable(result *types.NormalizeResult, source string) {
 			anchor = "allowed by policy"
 		}
 		fmt.Printf("  %s → %q  (%s, %d %s)\n",
-			cluster.Tag, cluster.Canonical, anchor, cluster.CanonicalCount, pluralResources(cluster.CanonicalCount))
+			printable(cluster.Tag), cluster.Canonical, anchor, cluster.CanonicalCount, pluralResources(cluster.CanonicalCount))
 
 		for _, variant := range cluster.Variants {
 			fmt.Printf("      %-24q %3d %-9s [%s]\n",
@@ -292,7 +292,7 @@ func writeNormalizeExamples(w io.Writer, result *types.NormalizeResult) {
 
 			ids := make([]string, 0, len(variant.Resources))
 			for _, resource := range variant.Resources {
-				ids = append(ids, resource.ID)
+				ids = append(ids, printable(resource.ID))
 			}
 			sort.Strings(ids)
 
@@ -308,7 +308,7 @@ func writeNormalizeExamples(w io.Writer, result *types.NormalizeResult) {
 				note = " (transitive, not in the plan)"
 			}
 
-			fmt.Fprintf(w, "  %s=%q%s: %s%s\n", cluster.Tag, variant.Value, note, strings.Join(shown, ", "), suffix)
+			fmt.Fprintf(w, "  %s=%q%s: %s%s\n", printable(cluster.Tag), variant.Value, note, strings.Join(shown, ", "), suffix)
 		}
 	}
 

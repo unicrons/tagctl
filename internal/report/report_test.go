@@ -395,6 +395,24 @@ func TestWriteJUnit_Structure(t *testing.T) {
 	}
 }
 
+func TestWriteJUnit_OmitsTheTimeAttribute(t *testing.T) {
+	scan := scanOf(
+		failed("i-1", "aws_instance", "111", tagOwner, types.ReasonMissing),
+		passed("i-2", "aws_instance", "111", tagOwner),
+	)
+
+	var buf bytes.Buffer
+	if err := WriteJUnit(&buf, scan); err != nil {
+		t.Fatalf("WriteJUnit() error = %v", err)
+	}
+	if strings.Contains(buf.String(), " time=") {
+		t.Errorf("report claims a duration tagctl never measured:\n%s", buf.String())
+	}
+	if !strings.Contains(buf.String(), " timestamp=") {
+		t.Errorf("report lost the suite timestamp:\n%s", buf.String())
+	}
+}
+
 func TestWriteJUnit_FailureCarriesContext(t *testing.T) {
 	finding := failed("i-1", "aws_instance", "111", tagEnv, types.ReasonInvalidValue)
 	finding.Expected = "dev, staging, prod"
@@ -529,12 +547,19 @@ func TestGate_FailOnNew(t *testing.T) {
 	}
 }
 
-// Without a baseline there is nothing to compare against, so the check is
-// skipped rather than silently passing on a scan that may have regressed.
-func TestGate_FailOnNewWithoutBaseline(t *testing.T) {
-	result := Gate{FailOnNew: true}.Evaluate(&types.ScanResult{CompliancePct: 10}, nil)
-	if !result.Passed {
-		t.Errorf("gate failed with no baseline to compare against: %v", result.Reasons)
+func TestGate_FailOnNewWithoutBaselineFailsClosed(t *testing.T) {
+	result := Gate{FailOnNew: true}.Evaluate(&types.ScanResult{CompliancePct: 100}, nil)
+	if result.Passed {
+		t.Fatal("gate passed with no baseline to compare against")
+	}
+	if err := result.Error(); err == nil || !strings.Contains(err.Error(), "no baseline") {
+		t.Errorf("Error() = %v, want it to name the missing baseline", err)
+	}
+}
+
+func TestGate_NilDiffIsIgnoredWithoutFailOnNew(t *testing.T) {
+	if result := (Gate{FailUnder: 50}).Evaluate(&types.ScanResult{CompliancePct: 80}, nil); !result.Passed {
+		t.Errorf("gate failed without FailOnNew: %v", result.Reasons)
 	}
 }
 

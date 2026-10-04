@@ -238,23 +238,14 @@ func discoverResources(ctx context.Context, cfg *config.Config, regions, resourc
 		spinner.Success(fmt.Sprintf("Discovered %d resources", result.TotalResources))
 	}
 	if result != nil && len(resourceTypes) > 0 && result.TotalResources == 0 {
-		fmt.Fprintf(os.Stderr, "Warning: no discovered resource matches --%s %s\n", flagResourceType, strings.Join(resourceTypes, ", "))
+		fmt.Fprintf(os.Stderr, "Warning: no discovered resource matches --%s %s\n", flagResourceType, printable(strings.Join(resourceTypes, ", ")))
 	}
 	return result, err
 }
 
-// ANSI color codes
-const (
-	colorReset  = "\033[0m"
-	colorCyan   = "\033[36m"
-	colorYellow = "\033[33m"
-	colorGreen  = "\033[32m"
-	colorBold   = "\033[1m"
-	colorDim    = "\033[2m"
-)
-
 // printBanner prints the tagctl banner with colors and version to stderr.
 func printBanner() {
+	c := paletteFor(os.Stderr)
 	fmt.Fprintf(os.Stderr, `
 %s%s  ████████╗ █████╗  ██████╗  ██████╗████████╗██╗     %s
 %s  ╚══██╔══╝██╔══██╗██╔════╝ ██╔════╝╚══██╔══╝██║     %s
@@ -266,19 +257,20 @@ func printBanner() {
 %s                                            v%s%s
 
 `,
-		colorBold, colorCyan, colorReset,
-		colorCyan, colorReset,
-		colorCyan, colorReset,
-		colorCyan, colorReset,
-		colorCyan, colorReset,
-		colorCyan, colorReset,
-		colorDim, colorReset,
-		colorDim, appVersion, colorReset,
+		c.bold, c.cyan, c.reset,
+		c.cyan, c.reset,
+		c.cyan, c.reset,
+		c.cyan, c.reset,
+		c.cyan, c.reset,
+		c.cyan, c.reset,
+		c.dim, c.reset,
+		c.dim, appVersion, c.reset,
 	)
 }
 
 // printDemoModeWarning warns on stderr that mock data is being used.
 func printDemoModeWarning() {
+	c := paletteFor(os.Stderr)
 	fmt.Fprintf(os.Stderr, `%s%s┌─────────────────────────────────────────────────────────────────┐%s
 %s│                         ⚠  DEMO MODE                           │%s
 %s├─────────────────────────────────────────────────────────────────┤%s
@@ -293,33 +285,34 @@ func printDemoModeWarning() {
 %s└─────────────────────────────────────────────────────────────────┘%s
 
 `,
-		colorBold, colorYellow, colorReset,
-		colorYellow, colorReset,
-		colorYellow, colorReset,
-		colorYellow, colorReset,
-		colorYellow, colorReset,
-		colorYellow, colorReset,
-		colorYellow, colorGreen, colorYellow, colorReset,
-		colorYellow, colorReset,
-		colorYellow, colorGreen, colorYellow, colorReset,
-		colorYellow, colorReset,
-		colorYellow, colorCyan, colorYellow, colorReset,
-		colorYellow, colorReset,
+		c.bold, c.yellow, c.reset,
+		c.yellow, c.reset,
+		c.yellow, c.reset,
+		c.yellow, c.reset,
+		c.yellow, c.reset,
+		c.yellow, c.reset,
+		c.yellow, c.green, c.yellow, c.reset,
+		c.yellow, c.reset,
+		c.yellow, c.green, c.yellow, c.reset,
+		c.yellow, c.reset,
+		c.yellow, c.cyan, c.yellow, c.reset,
+		c.yellow, c.reset,
 	)
 }
 
 // printOutputFilesBanner prints the location of generated output files to stderr.
 func printOutputFilesBanner(paths *ScanOutputPaths) {
 	// Get absolute paths for clearer output
-	absJSON := getAbsolutePath(paths.JSON)
-	absCSV := getAbsolutePath(paths.CSV)
-	absHTML := getAbsolutePath(paths.HTML)
+	absJSON := printable(getAbsolutePath(paths.JSON))
+	absCSV := printable(getAbsolutePath(paths.CSV))
+	absHTML := printable(getAbsolutePath(paths.HTML))
+	c := paletteFor(os.Stderr)
 
 	fmt.Fprintln(os.Stderr)
-	fmt.Fprintf(os.Stderr, "%s%sDetailed results saved to:%s\n", colorBold, colorCyan, colorReset)
-	fmt.Fprintf(os.Stderr, "  %s•%s JSON: %s%s%s\n", colorGreen, colorReset, colorDim, absJSON, colorReset)
-	fmt.Fprintf(os.Stderr, "  %s•%s CSV:  %s%s%s\n", colorGreen, colorReset, colorDim, absCSV, colorReset)
-	fmt.Fprintf(os.Stderr, "  %s•%s HTML: %s%s%s\n", colorGreen, colorReset, colorDim, absHTML, colorReset)
+	fmt.Fprintf(os.Stderr, "%s%sDetailed results saved to:%s\n", c.bold, c.cyan, c.reset)
+	fmt.Fprintf(os.Stderr, "  %s•%s JSON: %s%s%s\n", c.green, c.reset, c.dim, absJSON, c.reset)
+	fmt.Fprintf(os.Stderr, "  %s•%s CSV:  %s%s%s\n", c.green, c.reset, c.dim, absCSV, c.reset)
+	fmt.Fprintf(os.Stderr, "  %s•%s HTML: %s%s%s\n", c.green, c.reset, c.dim, absHTML, c.reset)
 	fmt.Fprintln(os.Stderr)
 }
 

@@ -39,9 +39,8 @@ func (r *GateResult) Error() error {
 	return fmt.Errorf("compliance gate failed: %s", strings.Join(r.Reasons, "; "))
 }
 
-// Evaluate applies the gate to a scan. The diff may be nil when no baseline
-// was supplied, in which case the FailOnNew check is skipped rather than
-// treated as a pass, since there is nothing to compare against.
+// Evaluate applies the gate to a scan. FailOnNew with a nil diff fails: with
+// no baseline there is nothing to prove the scan did not regress.
 func (g Gate) Evaluate(scan *types.ScanResult, diff *types.DiffResult) *GateResult {
 	result := &GateResult{Passed: true}
 
@@ -51,7 +50,12 @@ func (g Gate) Evaluate(scan *types.ScanResult, diff *types.DiffResult) *GateResu
 			fmt.Sprintf("compliance is %.1f%%, below the required %.1f%%", scan.CompliancePct, g.FailUnder))
 	}
 
-	if g.FailOnNew && diff != nil && diff.HasRegressions() {
+	switch {
+	case !g.FailOnNew:
+	case diff == nil:
+		result.Passed = false
+		result.Reasons = append(result.Reasons, "no baseline to compare against, so new failures cannot be ruled out")
+	case diff.HasRegressions():
 		result.Passed = false
 		result.Reasons = append(result.Reasons,
 			fmt.Sprintf("%d finding(s) regressed since the baseline", len(diff.Regressions)))
