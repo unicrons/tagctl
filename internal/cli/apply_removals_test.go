@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"maps"
@@ -104,6 +105,64 @@ func TestApply_PlanWithOnlyRemovalsDoesNothingWithoutAllowRemovals(t *testing.T)
 	if !strings.Contains(run.stdout, "Skipped: 2 removal(s)") {
 		t.Errorf("stdout does not report the skipped removals:\n%s", run.stdout)
 	}
+}
+
+func TestReviewChanges_ShowsARemovalAsARemoval(t *testing.T) {
+	var out bytes.Buffer
+
+	if _, err := reviewChanges(context.Background(), &out, strings.NewReader("y\n"), &types.Plan{Changes: renameChanges()}); err != nil {
+		t.Fatal(err)
+	}
+
+	if want := "  + environment: \"prod\"\n  - Env: \"prod\"\n  - temp: \"1\"\n"; !strings.Contains(out.String(), want) {
+		t.Errorf("review output lacks %q:\n%s", want, out.String())
+	}
+	if strings.Contains(out.String(), "+ Env") || strings.Contains(out.String(), "+ temp") {
+		t.Errorf("review shows a removal as an addition:\n%s", out.String())
+	}
+}
+
+func TestApplyInteractive_ReviewsRemovalsOnlyWithAllowRemovals(t *testing.T) {
+	dir := t.TempDir()
+	config := writeFixture(t, dir, "tagctl.yaml", "policy:\n  required:\n    - name: environment\n")
+	plan := writeRenamePlan(t, dir, renameChanges()...)
+
+	t.Run("without the flag", func(t *testing.T) {
+		answerApplyPrompts(t, "y\n", true)
+
+		run := execute(t, "apply", "--config", config, "--plan", plan, "--mock", "--interactive")
+
+		if run.err != nil {
+			t.Fatalf("apply error = %v\n%s", run.err, run.stderr)
+		}
+		if strings.Contains(run.stderr, "Env") || strings.Contains(run.stderr, "temp") {
+			t.Errorf("the review offers a removal without --allow-removals:\n%s", run.stderr)
+		}
+		if strings.Contains(run.stdout, "remove ") || !strings.Contains(run.stdout, "Applied successfully: 1 changes") {
+			t.Errorf("stdout = %q, want only the addition applied", run.stdout)
+		}
+		if !strings.Contains(run.stdout, "Skipped: 2 removal(s)") {
+			t.Errorf("stdout does not report the skipped removals:\n%s", run.stdout)
+		}
+	})
+
+	t.Run("with the flag", func(t *testing.T) {
+		answerApplyPrompts(t, "y\n", true)
+
+		run := execute(t, "apply", "--config", config, "--plan", plan, "--mock", "--interactive", "--allow-removals")
+
+		if run.err != nil {
+			t.Fatalf("apply error = %v\n%s", run.err, run.stderr)
+		}
+		if want := "  + environment: \"prod\"\n  - Env: \"prod\"\n  - temp: \"1\"\nApply these changes?"; !strings.Contains(run.stderr, want) {
+			t.Errorf("stderr lacks %q:\n%s", want, run.stderr)
+		}
+		for _, want := range []string{"(remove Env)", "(remove temp)", "Applied successfully: 3 changes"} {
+			if !strings.Contains(run.stdout, want) {
+				t.Errorf("stdout lacks %q:\n%s", want, run.stdout)
+			}
+		}
+	})
 }
 
 const kubernetesRenameConfig = `clouds:

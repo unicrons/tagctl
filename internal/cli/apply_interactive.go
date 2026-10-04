@@ -129,11 +129,14 @@ func resourceLabel(r types.Resource) string {
 func printResourceChanges(out io.Writer, position, total int, group resourceChanges) {
 	fmt.Fprintf(out, "\n[%d/%d] %s\n", position, total, resourceLabel(group.resource))
 	for _, c := range group.changes {
-		if c.Action == types.ActionUpdate {
+		switch c.Action {
+		case types.ActionUpdate:
 			fmt.Fprintf(out, "  ~ %s: %q -> %q\n", printable(c.Tag), printable(c.OldValue), printable(c.NewValue))
-			continue
+		case types.ActionRemove:
+			fmt.Fprintf(out, "  - %s: %q\n", printable(c.Tag), printable(c.OldValue))
+		default:
+			fmt.Fprintf(out, "  + %s: %q\n", printable(c.Tag), printable(c.NewValue))
 		}
-		fmt.Fprintf(out, "  + %s: %q\n", printable(c.Tag), printable(c.NewValue))
 	}
 }
 

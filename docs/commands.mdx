@@ -678,6 +678,10 @@ Apply these changes? [y]es / [n]o / [a]ll remaining / [q]uit:
 | `a`, `all` | Approve this resource and every remaining one without asking again |
 | `q`, `quit` | Skip this resource and every remaining one; resources already approved are still applied |
 
+With `--allow-removals`, a tag the plan removes is listed with the value it
+holds, as `- Env: "prod"`. Without the flag the removals are left out of the
+review and reported as skipped after the result.
+
 Any other answer repeats the question. Nothing is written until the review
 ends: the approved changes are then applied together and the rest are reported
 as skipped, never as applied or failed.

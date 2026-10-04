@@ -28,6 +28,7 @@ internal/
 │   ├── plan.go           # Plan command
 │   ├── apply.go          # Apply command
 │   ├── apply_interactive.go # apply --interactive: per-resource review
+│   ├── apply_removals.go # apply --allow-removals: removal filter and summary
 │   ├── evaluate.go       # Evaluate command (Prowler integration)
 │   ├── diff.go           # Compliance drift between two scans
 │   ├── normalize.go      # Tag value drift detection
@@ -244,7 +245,9 @@ ignore:
 applier: one prompt per `Resource.Identity()` on stderr, answers read from
 `applyInput` (tests replace it and `stdinIsTerminal`). The approved changes
 become a filtered copy of the plan, checked again with `engine.ValidatePlan`;
-skipped changes are counted apart, never as applied or failed.
+skipped changes are counted apart, never as applied or failed. The review runs
+on the plan `withoutRemovals` returned, so it only offers a removal (`- tag`)
+with `--allow-removals`.
 
 ### Exit codes
 
