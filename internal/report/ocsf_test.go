@@ -3,6 +3,7 @@ package report
 import (
 	"bytes"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/unicrons/tagctl/internal/types"
@@ -48,6 +49,15 @@ func TestWriteOCSF_ClassIdentity(t *testing.T) {
 		if e.Time != scanOf().ScannedAt.UnixMilli() {
 			t.Errorf("time = %d, want the scan time in epoch milliseconds", e.Time)
 		}
+	}
+}
+
+func TestWriteOCSF_DeclaresTheProfilesItsFieldsUse(t *testing.T) {
+	events := decodeOCSF(t, scanOf(passed("i-1", "aws_instance", "111", tagOwner)))
+
+	got := strings.Join(events[0].Metadata.Profiles, ",")
+	if got != "cloud,datetime" {
+		t.Errorf("metadata.profiles = %q, want cloud,datetime (cloud object and time_dt)", got)
 	}
 }
 
@@ -208,6 +218,67 @@ func TestWriteOCSF_ReadsLegacyViolations(t *testing.T) {
 
 	if len(events) != 1 || events[0].Compliance.StatusID != 3 {
 		t.Fatalf("events = %+v, want one failed event from the legacy violation", events)
+	}
+}
+
+func TestWriteOCSF_LinesWritesOneEventPerLine(t *testing.T) {
+	scan := scanOf(
+		failed("i-1", "aws_instance", "111", tagOwner, types.ReasonMissing),
+		passed("i-2", "aws_s3_bucket", "111", tagOwner),
+	)
+
+	var buf bytes.Buffer
+	if err := WriteOCSF(&buf, scan, OCSFOptions{Version: "1.2.3", Lines: true}); err != nil {
+		t.Fatalf("WriteOCSF() error = %v", err)
+	}
+	if !bytes.HasSuffix(buf.Bytes(), []byte("\n")) {
+		t.Error("the last event is not terminated by a newline")
+	}
+
+	lines := bytes.Split(bytes.TrimSuffix(buf.Bytes(), []byte("\n")), []byte("\n"))
+	if len(lines) != 2 {
+		t.Fatalf("got %d lines, want one per finding:\n%s", len(lines), buf.String())
+	}
+
+	want := decodeOCSF(t, scan)
+	for i, line := range lines {
+		var event OCSFComplianceFinding
+		if err := json.Unmarshal(line, &event); err != nil {
+			t.Fatalf("line %d is not one JSON event: %v\n%s", i+1, err, line)
+		}
+		if event.FindingInfo.UID != want[i].FindingInfo.UID || event.Compliance.StatusID != want[i].Compliance.StatusID {
+			t.Errorf("line %d = %s/%d, want the same event the array carries (%s/%d)", i+1,
+				event.FindingInfo.UID, event.Compliance.StatusID, want[i].FindingInfo.UID, want[i].Compliance.StatusID)
+		}
+	}
+}
+
+func TestWriteOCSF_LinesEmptyScanWritesNothing(t *testing.T) {
+	var buf bytes.Buffer
+	if err := WriteOCSF(&buf, scanOf(), OCSFOptions{Lines: true}); err != nil {
+		t.Fatalf("WriteOCSF() error = %v", err)
+	}
+	if buf.Len() != 0 {
+		t.Errorf("output = %q, want no lines", buf.String())
+	}
+}
+
+func TestOCSFLinesPath(t *testing.T) {
+	for path, want := range map[string]bool{
+		"out.ndjson":            true,
+		"out.jsonl":             true,
+		"dir/tagctl.OCSF.JSONL": true,
+		"out.NDJSON":            true,
+		"out.ocsf.json":         false,
+		"out.json":              false,
+		"ndjson":                false,
+		"out.ndjson.json":       false,
+		"-":                     false,
+		"":                      false,
+	} {
+		if got := OCSFLinesPath(path); got != want {
+			t.Errorf("OCSFLinesPath(%q) = %v, want %v", path, got, want)
+		}
 	}
 }
 

@@ -2,6 +2,7 @@ package report
 
 import (
 	"bytes"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -94,6 +95,31 @@ func TestWriteHTML_MarksPartialScan(t *testing.T) {
 		if !strings.Contains(partial.String(), want) {
 			t.Errorf("output missing %q", want)
 		}
+	}
+}
+
+func TestWriteHTML_OptionalTagNoResourceCarriesReadsNotUsed(t *testing.T) {
+	scan := scanOf(failed("i-1", "aws_instance", "123", tagOwner, types.ReasonMissing))
+	scan.TotalResources = 1
+	scan.ByTag = map[string]*types.TagStats{
+		tagOwner:  {Tag: tagOwner, Required: true, Missing: 1},
+		"project": {Tag: "project", CompliancePct: 100},
+	}
+
+	var buf bytes.Buffer
+	if err := WriteHTML(&buf, scan, HTMLOptions{}); err != nil {
+		t.Fatalf("WriteHTML: %v", err)
+	}
+	out := buf.String()
+
+	if got := strings.Count(out, `<div class="tag zero">`); got != 1 {
+		t.Errorf("rendered %d zero-coverage tag chips, want 1 (the required tag only)", got)
+	}
+	if !strings.Contains(out, `<span>project</span><b>not used</b>`) {
+		t.Error("optional tag no resource carries does not read as not used")
+	}
+	if strings.Contains(out, "0 of 0 tagged") {
+		t.Error("optional tag no resource carries still renders a 0 of 0 count")
 	}
 }
 
@@ -265,6 +291,256 @@ func TestBuildHTMLReport_ReadsLegacyViolations(t *testing.T) {
 	}
 	if r.Invalid != 1 || r.Missing != 0 {
 		t.Errorf("invalid=%d missing=%d, want 1/0", r.Invalid, r.Missing)
+	}
+}
+
+func tagged(f types.Finding, tags map[string]string) types.Finding {
+	f.Resource.Tags = tags
+	f.Actual = tags[f.Tag]
+	return f
+}
+
+// ownerScan has four instances: two of alice (one failing environment), one of
+// bob and one with no owner at all.
+func ownerScan() *types.ScanResult {
+	alice := map[string]string{tagOwner: "alice", tagEnv: "prod"}
+	aliceNoEnv := map[string]string{tagOwner: "alice"}
+	bob := map[string]string{tagOwner: "bob", tagEnv: "prod"}
+	nobody := map[string]string{tagEnv: "dev"}
+
+	scan := scanOf(
+		tagged(passed("i-1", "aws_instance", "123", tagOwner), alice),
+		tagged(passed("i-1", "aws_instance", "123", tagEnv), alice),
+		tagged(passed("i-2", "aws_instance", "123", tagOwner), aliceNoEnv),
+		tagged(failed("i-2", "aws_instance", "123", tagEnv, types.ReasonMissing), aliceNoEnv),
+		tagged(passed("i-3", "aws_instance", "123", tagOwner), bob),
+		tagged(passed("i-3", "aws_instance", "123", tagEnv), bob),
+		tagged(failed("i-4", "aws_instance", "123", tagOwner, types.ReasonMissing), nobody),
+		tagged(passed("i-4", "aws_instance", "123", tagEnv), nobody),
+	)
+	scan.TotalResources, scan.CompliantCount = 4, 2
+	scan.ByTag = map[string]*types.TagStats{
+		tagOwner: {Tag: tagOwner, Required: true, Present: 3, Missing: 1, CompliancePct: 75},
+		tagEnv:   {Tag: tagEnv, Required: true, Present: 3, Missing: 1, CompliancePct: 75},
+	}
+	return scan
+}
+
+func ownerValues(t *testing.T, r HTMLReport) HTMLTagValues {
+	t.Helper()
+	for _, group := range r.ByValue {
+		if group.Tag == tagOwner {
+			return group
+		}
+	}
+	t.Fatalf("no by-value group for owner in %+v", r.ByValue)
+	return HTMLTagValues{}
+}
+
+func TestBuildHTMLReport_ByValueCountsResourcesAndCompliance(t *testing.T) {
+	r := BuildHTMLReport(ownerScan(), HTMLOptions{})
+
+	if len(r.ByValue) != len(r.Tags) {
+		t.Fatalf("got %d by-value groups, want one per policy tag (%d)", len(r.ByValue), len(r.Tags))
+	}
+
+	want := []HTMLTagValue{
+		{Label: "alice", Index: 0, Resources: 2, Compliant: 1, Pct: 50},
+		{Label: "bob", Index: 1, Resources: 1, Compliant: 1, Pct: 100},
+		{Label: "(untagged)", Untagged: true, Index: 2, Resources: 1, Compliant: 0, Pct: 0},
+	}
+	got := ownerValues(t, r).Values
+	if len(got) != len(want) {
+		t.Fatalf("owner values = %+v, want %+v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("owner value %d = %+v, want %+v", i, got[i], want[i])
+		}
+	}
+}
+
+func TestBuildHTMLReport_ByValueOpensOnOwner(t *testing.T) {
+	r := BuildHTMLReport(ownerScan(), HTMLOptions{})
+
+	for _, group := range r.ByValue {
+		if group.Selected != (group.Tag == tagOwner) {
+			t.Errorf("tag %q selected = %v, want only owner selected", group.Tag, group.Selected)
+		}
+	}
+}
+
+func TestBuildHTMLReport_ByValueOpensOnFirstTagWithoutOwnerOrTeam(t *testing.T) {
+	scan := scanOf(
+		passed("i-1", "aws_instance", "123", tagEnv),
+		passed("i-1", "aws_instance", "123", "project"),
+	)
+
+	r := BuildHTMLReport(scan, HTMLOptions{})
+
+	if !r.ByValue[0].Selected || r.ByValue[1].Selected {
+		t.Errorf("by-value = %+v, want only the first tag selected", r.ByValue)
+	}
+}
+
+func TestBuildHTMLReport_FindingGroupsPointAtTheValueOfTheirResource(t *testing.T) {
+	r := BuildHTMLReport(ownerScan(), HTMLOptions{})
+
+	ownerAt := -1
+	for i, group := range r.ByValue {
+		if group.Tag == tagOwner {
+			ownerAt = i
+		}
+	}
+	owners := ownerValues(t, r).Values
+
+	// Findings keep the scan order: two per instance, i-1 to i-4.
+	wantOwner := []string{"alice", "alice", "alice", "alice", "bob", "bob", "(untagged)", "(untagged)"}
+	for i, f := range r.Findings {
+		parts := strings.Fields(f.Groups)
+		if len(parts) != len(r.ByValue) {
+			t.Fatalf("finding %d groups = %q, want one index per policy tag", i, f.Groups)
+		}
+		index, err := strconv.Atoi(parts[ownerAt])
+		if err != nil {
+			t.Fatalf("finding %d groups = %q: %v", i, f.Groups, err)
+		}
+		if got := owners[index].Label; got != wantOwner[i] {
+			t.Errorf("finding %d filters under owner %q, want %q", i, got, wantOwner[i])
+		}
+	}
+}
+
+func TestBuildHTMLReport_ByValueGroupsByIdentityNotID(t *testing.T) {
+	tags := map[string]string{tagOwner: "alice"}
+	west := tagged(passed("log-group", "aws_cloudwatch_log_group", "123", tagOwner), tags)
+	west.Resource.Region = "us-west-2"
+	scan := scanOf(
+		tagged(passed("log-group", "aws_cloudwatch_log_group", "123", tagOwner), tags),
+		west,
+	)
+
+	r := BuildHTMLReport(scan, HTMLOptions{})
+
+	if alice := ownerValues(t, r).Values[0]; alice.Resources != 2 || alice.Compliant != 2 {
+		t.Errorf("alice = %+v, want the two same-named resources counted apart", alice)
+	}
+}
+
+func TestBuildHTMLReport_ByValueReadsValueFromFindingWithoutResourceTags(t *testing.T) {
+	scan := scanOf(
+		withValue(passed("i-1", "aws_instance", "123", tagOwner), "alice"),
+		withValue(failed("i-2", "aws_instance", "123", tagOwner, types.ReasonInvalidFormat), "nobody"),
+	)
+
+	values := ownerValues(t, BuildHTMLReport(scan, HTMLOptions{})).Values
+
+	if len(values) != 3 || values[0].Label != "alice" || values[1].Label != "nobody" {
+		t.Fatalf("values = %+v, want alice, nobody and the untagged row", values)
+	}
+	if values[1].Compliant != 0 {
+		t.Errorf("nobody = %+v, want its failing resource not compliant", values[1])
+	}
+}
+
+func TestBuildHTMLReport_ByValueKeepsAnEmptyUntaggedRow(t *testing.T) {
+	scan := scanOf(tagged(passed("i-1", "aws_instance", "123", tagOwner), map[string]string{tagOwner: "alice"}))
+
+	values := ownerValues(t, BuildHTMLReport(scan, HTMLOptions{})).Values
+
+	last := values[len(values)-1]
+	if !last.Untagged || last.Resources != 0 || last.Index != len(values)-1 {
+		t.Errorf("last row = %+v, want an untagged row with no resources", last)
+	}
+}
+
+func TestBuildHTMLReport_ByValueLargestGroupFirstThenByName(t *testing.T) {
+	var findings []types.Finding
+	for id, owner := range map[string]string{"i-1": "zoe", "i-2": "bob", "i-3": "amy", "i-4": "bob"} {
+		findings = append(findings, tagged(passed(id, "aws_instance", "123", tagOwner), map[string]string{tagOwner: owner}))
+	}
+
+	values := ownerValues(t, BuildHTMLReport(scanOf(findings...), HTMLOptions{})).Values
+
+	got := []string{values[0].Label, values[1].Label, values[2].Label}
+	if got[0] != "bob" || got[1] != "amy" || got[2] != "zoe" {
+		t.Errorf("order = %v, want bob (2 resources), then amy and zoe by name", got)
+	}
+}
+
+func TestBuildHTMLReport_NoByValueWithoutFindings(t *testing.T) {
+	if r := BuildHTMLReport(scanOf(), HTMLOptions{}); r.ByValue != nil {
+		t.Errorf("by-value = %+v for a scan with no findings, want none", r.ByValue)
+	}
+}
+
+func TestWriteHTML_ByValueSectionRendersSelectorAndFilterHooks(t *testing.T) {
+	var buf bytes.Buffer
+	if err := WriteHTML(&buf, ownerScan(), HTMLOptions{}); err != nil {
+		t.Fatalf("WriteHTML: %v", err)
+	}
+	out := buf.String()
+
+	for _, want := range []string{
+		`<h2 id="by-value">`,
+		`<select id="by-value-tag">`,
+		`<option value="1" selected>owner</option>`,
+		`<table id="by-value-table">`,
+		`<tbody data-tag="1" data-name="owner">`,
+		`<tbody data-tag="0" data-name="environment" hidden>`,
+		`<button type="button" class="val" data-v="0" aria-pressed="false">alice</button></td><td class="num">2</td><td class="num">1</td><td class="num">50.0%</td>`,
+		`<button type="button" class="val none" data-v="2" aria-pressed="false">(untagged)</button></td><td class="num">1</td><td class="num">0</td><td class="num">0.0%</td>`,
+		`<p class="active" id="value-filter" hidden>`,
+		`<h2 id="findings">`,
+		`<tr data-s="fail" data-g="1 2">`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q", want)
+		}
+	}
+	for _, external := range []string{"<script src", "<link ", "http://", "https://"} {
+		if strings.Contains(out, external) {
+			t.Errorf("output references an external asset: %q", external)
+		}
+	}
+}
+
+func TestWriteHTML_ByValueEscapesTagValuesAndNames(t *testing.T) {
+	const value = `<script>alert(1)</script>`
+	const name = `team"><script>alert(2)</script>`
+	scan := scanOf(tagged(passed("i-1", "aws_instance", "123", name), map[string]string{name: value}))
+
+	var buf bytes.Buffer
+	if err := WriteHTML(&buf, scan, HTMLOptions{}); err != nil {
+		t.Fatalf("WriteHTML: %v", err)
+	}
+	out := buf.String()
+
+	for _, raw := range []string{"<script>alert(1)", "<script>alert(2)"} {
+		if strings.Contains(out, raw) {
+			t.Errorf("output contains unescaped %q", raw)
+		}
+	}
+	for _, want := range []string{
+		`aria-pressed="false">&lt;script&gt;alert(1)&lt;/script&gt;</button>`,
+		`data-name="team&#34;&gt;&lt;script&gt;alert(2)&lt;/script&gt;"`,
+		`selected>team&#34;&gt;&lt;script&gt;alert(2)&lt;/script&gt;</option>`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing escaped %q", want)
+		}
+	}
+}
+
+func TestWriteHTML_NoByValueSectionWithoutFindings(t *testing.T) {
+	var buf bytes.Buffer
+	if err := WriteHTML(&buf, scanOf(), HTMLOptions{}); err != nil {
+		t.Fatalf("WriteHTML: %v", err)
+	}
+	for _, id := range []string{`id="by-value"`, `id="by-value-table"`, `id="value-filter"`} {
+		if strings.Contains(buf.String(), id) {
+			t.Errorf("output has %s for a scan with no findings", id)
+		}
 	}
 }
 

@@ -22,19 +22,18 @@ jobs:
       pull-requests: read
     outputs:
       go: ${{ steps.filter.outputs.go }}
-      go_files: ${{ steps.filter.outputs.go_files }}
       docs: ${{ steps.filter.outputs.docs }}
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 20
+          persist-credentials: false
 
       - name: Detect changed areas
         id: filter
         uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad # v3.0.4
         with:
-          list-files: shell
           # Non-Go inputs of the build and tests: embedded templates, fixtures,
           # and the IAM files and aws.mdx blocks permissions_test.go compares.
           filters: |
@@ -64,13 +63,16 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Check commit subjects and PR title
         env:
+          BASE_REF: ${{ github.base_ref }}
           PR_TITLE: ${{ github.event.pull_request.title }}
-        run: scripts/check-commits.sh "origin/${{ github.base_ref }}" "$PR_TITLE"
+        run: scripts/check-commits.sh "origin/$BASE_REF" "$PR_TITLE"
 
-  # Pushes to main only re-run Test: the pull request already ran every other job.
+  # Pushes to main only re-run Test and Build, which save the Go caches pull
+  # requests restore: the pull request already ran every other job.
   lint:
     name: Lint
     runs-on: ubuntu-latest
@@ -80,15 +82,28 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Run shellcheck
         run: shellcheck scripts/*.sh .githooks/*
+
+      - name: Run ruff
+        run: pipx run ruff==0.15.12 check scripts/
 
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-          cache: true
+          cache: false
+
+      - name: Restore the Go build cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-build-${{ runner.os }}-${{ hashFiles('go.mod', 'go.sum') }}
 
       - name: Check formatting
         run: |
@@ -116,18 +131,36 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-          cache: true
+          cache: false
+
+      - name: Cache the race build
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-test-${{ runner.os }}-${{ hashFiles('go.mod', 'go.sum') }}
 
       - name: Download dependencies
         run: go mod download
 
       - name: Run tests
-        run: go test -v -race -coverprofile=coverage.out ./...
+        run: go test -v -race -shuffle=on -coverprofile=coverage.out ./...
+
+      - name: Check coverage threshold
+        env:
+          MIN_COVERAGE: "74.3"
+        run: |
+          total=$(go tool cover -func=coverage.out | awk '/^total:/ {sub("%", "", $3); print $3}')
+          echo "total coverage: ${total}% (minimum ${MIN_COVERAGE}%)"
+          awk -v t="$total" -v m="$MIN_COVERAGE" 'BEGIN { exit !(t >= m) }'
 
       - name: Upload coverage
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
@@ -136,20 +169,44 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
 
-  secrets:
-    name: Secrets Scan
+  # A job of its own: the race build and three plain builds of the AWS SDK do
+  # not fit on one runner's disk. Lint and Gosec restore the cache saved here.
+  build:
+    name: Build
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
+    needs: changes
+    if: needs.changes.outputs.go == 'true'
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 0
+          persist-credentials: false
 
-      - name: TruffleHog Secrets Scan
-        uses: trufflesecurity/trufflehog@363923b901c911a9164f50b6c423f47c15372b1c # v3.97.4
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          extra_args: --only-verified
+          go-version-file: go.mod
+          cache: false
+
+      - name: Cache the builds
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-build-${{ runner.os }}-${{ hashFiles('go.mod', 'go.sum') }}
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Build
+        run: go build ./...
+
+      - name: Cross-compile
+        run: |
+          for target in windows/amd64 darwin/arm64; do
+            GOOS="${target%/*}" GOARCH="${target#*/}" go build ./...
+          done
 
   gosec:
     name: Gosec
@@ -159,26 +216,25 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-          cache: true
+          cache: false
 
-      - name: Resolve changed packages
-        id: pkgs
-        env:
-          GO_FILES: ${{ needs.changes.outputs.go_files }}
-        run: |
-          dirs=$(for f in $GO_FILES; do
-            case "$f" in *.go) d=$(dirname "$f"); [ -d "$d" ] && echo "./$d";; esac
-          done | sort -u | tr '\n' ' ')
-          echo "dirs=${dirs:-./...}" >> "$GITHUB_OUTPUT"
-          echo "scanning: ${dirs:-./...}"
+      - name: Restore the Go build cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-build-${{ runner.os }}-${{ hashFiles('go.mod', 'go.sum') }}
 
       - name: Run gosec
-        run: go run github.com/securego/gosec/v2/cmd/gosec@v2.29.0 -exclude=G104 ${{ steps.pkgs.outputs.dirs }}
+        run: go run github.com/securego/gosec/v2/cmd/gosec@v2.29.0 -exclude=G104 ./...
 
       - name: Run govulncheck
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
@@ -191,6 +247,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -198,7 +256,7 @@ jobs:
           node-version: '22'
 
       - name: Install Mint CLI
-        run: npm install -g mint@4.2.313
+        run: npm install -g mint@4.2.313 # zizmor: ignore[adhoc-packages] pinned CLI, no lockfile to install from
 
       - name: Validate build
         working-directory: docs

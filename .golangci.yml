@@ -3,10 +3,14 @@ run:
   modules-download-mode: readonly
 linters:
   enable:
+    - bodyclose
+    - errorlint
     - goconst
+    - gocritic
     - gocyclo
     - gosec
     - misspell
+    - nilerr
     - prealloc
     - unconvert
     - unparam
@@ -37,15 +41,11 @@ linters:
       - std-error-handling
     rules:
       - linters:
-          - errcheck
           - goconst
           - gocyclo
           - gosec
           - prealloc
         path: _test\.go
-      - linters:
-          - errorlint
-        text: non-wrapping format verb
       - linters:
           - goconst
         path: internal/(engine/(scanner|planner|applier)|cli/plan)\.go

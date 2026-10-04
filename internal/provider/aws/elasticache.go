@@ -29,7 +29,7 @@ type elastiCacheCluster struct {
 
 // listElastiCacheClusters lists all ElastiCache clusters in a region.
 func (p *Provider) listElastiCacheClusters(ctx context.Context, region string) ([]types.Resource, error) {
-	return p.listElastiCacheClustersFrom(ctx, p.getElastiCacheClient(region), region)
+	return p.listElastiCacheClustersFrom(ctx, regionalClient(p, region, elasticache.NewFromConfig), region)
 }
 
 // listElastiCacheClustersFrom lists ElastiCache clusters using the given client.
@@ -52,13 +52,15 @@ func (p *Provider) listElastiCacheClustersFrom(ctx context.Context, client elast
 		}
 	}
 
-	resources := forEachConcurrently(clusters, func(c elastiCacheCluster) []types.Resource {
-		tags, err := p.resourceTags(region, c.arn, func() (map[string]string, error) {
+	resources := forEachConcurrently(ctx, clusters, func(c elastiCacheCluster) []types.Resource {
+		tags, err := p.resourceTags(ctx, region, c.arn, func() (map[string]string, error) {
 			output, err := client.ListTagsForResource(ctx, &elasticache.ListTagsForResourceInput{ResourceName: aws.String(c.arn)})
 			if err != nil {
 				return nil, err
 			}
-			return elastiCacheTagsToMap(output.TagList), nil
+			return tagsToMap(output.TagList,
+				func(t ectypes.Tag) *string { return t.Key },
+				func(t ectypes.Tag) *string { return t.Value }), nil
 		})
 		if err != nil {
 			p.skipResource(ctx, "ElastiCache", region, "cluster "+c.id, err)
@@ -88,8 +90,12 @@ func (p *Provider) applyElastiCacheTags(ctx context.Context, arn string, tags ma
 		tagList = append(tagList, ectypes.Tag{Key: aws.String(k), Value: aws.String(v)})
 	}
 
-	client := p.getElastiCacheClient(extractRegionFromARN(arn))
-	_, err := client.AddTagsToResource(ctx, &elasticache.AddTagsToResourceInput{
+	region, err := regionForARN(arn)
+	if err != nil {
+		return provider.NewProviderError(providerName, "apply_elasticache_tags", arn, err)
+	}
+	client := regionalClient(p, region, elasticache.NewFromConfig)
+	_, err = client.AddTagsToResource(ctx, &elasticache.AddTagsToResourceInput{
 		ResourceName: aws.String(arn),
 		Tags:         tagList,
 	})
@@ -99,15 +105,4 @@ func (p *Provider) applyElastiCacheTags(ctx context.Context, arn string, tags ma
 
 	log.Debug("AWS ElastiCache: Applied %d tags to %s", len(tags), arn)
 	return nil
-}
-
-// elastiCacheTagsToMap converts ElastiCache tags to a map.
-func elastiCacheTagsToMap(tags []ectypes.Tag) map[string]string {
-	result := make(map[string]string)
-	for _, tag := range tags {
-		if tag.Key != nil && tag.Value != nil {
-			result[*tag.Key] = *tag.Value
-		}
-	}
-	return result
 }

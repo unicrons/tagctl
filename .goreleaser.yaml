@@ -1,0 +1,108 @@
+version: 2
+
+project_name: tagctl
+
+builds:
+  - main: ./cmd/tagctl
+    binary: tagctl
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X github.com/unicrons/tagctl/internal/cli.Version={{ .Version }}
+      - -X github.com/unicrons/tagctl/internal/cli.Commit={{ .ShortCommit }}
+      - -X github.com/unicrons/tagctl/internal/cli.Date={{ .Date }}
+
+archives:
+  # No version in the name, so releases/latest/download/<name> stays a stable URL.
+  - name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files:
+      - LICENSE
+      - README.md
+      - tagctl.yaml.example
+
+checksum:
+  name_template: checksums.txt
+
+dockers_v2:
+  - images:
+      - ghcr.io/unicrons/tagctl
+    tags:
+      - "v{{ .Version }}"
+      - "{{ if not .Prerelease }}latest{{ end }}"
+    platforms:
+      - linux/amd64
+      - linux/arm64
+    labels:
+      org.opencontainers.image.title: "{{ .ProjectName }}"
+      org.opencontainers.image.description: Audit, fix and enforce cloud resource tags
+      org.opencontainers.image.source: https://github.com/unicrons/tagctl
+      org.opencontainers.image.licenses: Apache-2.0
+      org.opencontainers.image.version: "{{ .Version }}"
+      org.opencontainers.image.revision: "{{ .FullCommit }}"
+      org.opencontainers.image.created: "{{ .Date }}"
+    annotations:
+      org.opencontainers.image.description: Audit, fix and enforce cloud resource tags
+      org.opencontainers.image.source: https://github.com/unicrons/tagctl
+      org.opencontainers.image.licenses: Apache-2.0
+
+homebrew_casks:
+  - name: tagctl
+    description: Audit, fix and enforce cloud resource tags
+    homepage: https://github.com/unicrons/tagctl
+    repository:
+      owner: unicrons
+      name: homebrew-tap
+      # GoReleaser accepts nothing but a single .Env reference here.
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    # Without the tap token the cask is only written to dist/; "auto" keeps
+    # pre-releases out of the tap.
+    skip_upload: '{{ if envOrDefault "HOMEBREW_TAP_TOKEN" "" }}auto{{ else }}true{{ end }}'
+    hooks:
+      post:
+        # The binaries are not notarized: Gatekeeper would refuse to run them.
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/tagctl"]
+          end
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^Merge '
+      - '^chore\(merge\)'
+  groups:
+    - title: Features
+      regexp: '^.*?feat(\([^)]+\))?!?:.+$'
+      order: 0
+    - title: Bug fixes
+      regexp: '^.*?fix(\([^)]+\))?!?:.+$'
+      order: 1
+    - title: Performance
+      regexp: '^.*?perf(\([^)]+\))?!?:.+$'
+      order: 2
+    - title: Documentation
+      regexp: '^.*?docs(\([^)]+\))?!?:.+$'
+      order: 3
+    - title: Dependencies
+      regexp: '^.*?deps(\([^)]+\))?!?:.+$'
+      order: 4
+    - title: Other changes
+      order: 999
+
+release:
+  prerelease: auto

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -172,10 +173,23 @@ type OCSFUnmapped struct {
 type OCSFOptions struct {
 	// Version is the tagctl version recorded in metadata.product.
 	Version string
+
+	// Lines writes one compact event per line (NDJSON) instead of an array.
+	Lines bool
 }
 
-// WriteOCSF renders every finding of a scan as an array of OCSF Compliance
-// Finding events (class_uid 2003, schema 1.4.0).
+// OCSFLinesPath reports whether a report path asks for NDJSON by its extension.
+func OCSFLinesPath(path string) bool {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".ndjson", ".jsonl":
+		return true
+	}
+	return false
+}
+
+// WriteOCSF renders every finding of a scan as OCSF Compliance Finding events
+// (class_uid 2003, schema 1.4.0): an indented array, or one per line with
+// opts.Lines.
 //
 // Passing findings are emitted too, with compliance.status Pass: a compliance
 // consumer needs the denominator, and a resource that stops appearing is
@@ -194,6 +208,15 @@ func WriteOCSF(w io.Writer, scan *types.ScanResult, opts OCSFOptions) error {
 	}
 
 	encoder := json.NewEncoder(w)
+	if opts.Lines {
+		for i := range events {
+			if err := encoder.Encode(&events[i]); err != nil {
+				return fmt.Errorf("failed to encode OCSF finding: %w", err)
+			}
+		}
+		return nil
+	}
+
 	encoder.SetIndent("", "  ")
 	if err := encoder.Encode(events); err != nil {
 		return fmt.Errorf("failed to encode OCSF findings: %w", err)
@@ -246,7 +269,7 @@ func ocsfEvent(f *types.Finding, scannedAt time.Time, opts OCSFOptions) OCSFComp
 				Version:    opts.Version,
 				URLString:  "https://github.com/unicrons/tagctl",
 			},
-			Profiles: []string{"cloud"},
+			Profiles: []string{"cloud", "datetime"},
 		},
 		Observables: []OCSFObservable{{
 			Name:   "resources[0].uid",

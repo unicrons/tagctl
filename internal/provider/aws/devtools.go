@@ -2,7 +2,6 @@ package aws
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/amplify"
@@ -60,19 +59,18 @@ func (p *Provider) listAmplifyApps(ctx context.Context, region string) ([]types.
 
 func (p *Provider) listAmplifyAppsFrom(ctx context.Context, client amplifyAPI, region string) ([]types.Resource, error) {
 	var resources []types.Resource
-	var next *string
-	for {
-		output, err := client.ListApps(ctx, &amplify.ListAppsInput{NextToken: next})
+	err := paginate(func(token *string) (*string, error) {
+		output, err := client.ListApps(ctx, &amplify.ListAppsInput{NextToken: token})
 		if err != nil {
-			return nil, provider.NewProviderError(providerName, "list_amplify_apps", "", err)
+			return nil, err
 		}
 		for _, app := range output.Apps {
 			resources = append(resources, p.resource(region, "aws_amplify_app", aws.ToString(app.AppId), aws.ToString(app.Name), aws.ToString(app.AppArn), app.Tags, app.CreateTime))
 		}
-		if output.NextToken == nil || len(output.Apps) == 0 {
-			break
-		}
-		next = output.NextToken
+		return output.NextToken, nil
+	})
+	if err != nil {
+		return nil, provider.NewProviderError(providerName, "list_amplify_apps", "", err)
 	}
 	log.Debug("AWS Amplify: Found %d apps in %s", len(resources), region)
 	return resources, nil
@@ -103,7 +101,7 @@ func (p *Provider) listGuardrails(ctx context.Context, region string) ([]types.R
 }
 
 func (p *Provider) listGuardrailsFrom(ctx context.Context, client bedrockAPI, region string) ([]types.Resource, error) {
-	if !p.requireBulkTags(region, "Bedrock") {
+	if !p.requireBulkTags(ctx, region, "Bedrock") {
 		return nil, nil
 	}
 	var resources []types.Resource
@@ -114,7 +112,7 @@ func (p *Provider) listGuardrailsFrom(ctx context.Context, client bedrockAPI, re
 			return nil, provider.NewProviderError(providerName, "list_guardrails", "", err)
 		}
 		for _, g := range output.Guardrails {
-			resources = append(resources, p.bulkResource(region, "aws_bedrock_guardrail", aws.ToString(g.Id), aws.ToString(g.Name), aws.ToString(g.Arn), g.CreatedAt))
+			resources = append(resources, p.bulkResource(ctx, region, "aws_bedrock_guardrail", aws.ToString(g.Id), aws.ToString(g.Name), aws.ToString(g.Arn), g.CreatedAt))
 		}
 	}
 	log.Debug("AWS Bedrock: Found %d guardrails in %s", len(resources), region)
@@ -126,7 +124,7 @@ func (p *Provider) listCodeArtifactResources(ctx context.Context, region string)
 }
 
 func (p *Provider) listCodeArtifactResourcesFrom(ctx context.Context, client codeArtifactAPI, region string) ([]types.Resource, error) {
-	if !p.requireBulkTags(region, "CodeArtifact") {
+	if !p.requireBulkTags(ctx, region, "CodeArtifact") {
 		return nil, nil
 	}
 	var resources []types.Resource
@@ -138,7 +136,7 @@ func (p *Provider) listCodeArtifactResourcesFrom(ctx context.Context, client cod
 		}
 		for _, d := range output.Domains {
 			name := aws.ToString(d.Name)
-			resources = append(resources, p.bulkResource(region, "aws_codeartifact_domain", name, name, aws.ToString(d.Arn), d.CreatedTime))
+			resources = append(resources, p.bulkResource(ctx, region, "aws_codeartifact_domain", name, name, aws.ToString(d.Arn), d.CreatedTime))
 		}
 	}
 	repos := codeartifact.NewListRepositoriesPaginator(client, &codeartifact.ListRepositoriesInput{})
@@ -149,7 +147,7 @@ func (p *Provider) listCodeArtifactResourcesFrom(ctx context.Context, client cod
 		}
 		for _, r := range output.Repositories {
 			name := aws.ToString(r.Name)
-			resources = append(resources, p.bulkResource(region, "aws_codeartifact_repository", aws.ToString(r.DomainName)+"/"+name, name, aws.ToString(r.Arn), nil))
+			resources = append(resources, p.bulkResource(ctx, region, "aws_codeartifact_repository", aws.ToString(r.DomainName)+"/"+name, name, aws.ToString(r.Arn), nil))
 		}
 	}
 	log.Debug("AWS CodeArtifact: Found %d domains and repositories in %s", len(resources), region)
@@ -161,7 +159,7 @@ func (p *Provider) listCodeCommitRepositories(ctx context.Context, region string
 }
 
 func (p *Provider) listCodeCommitRepositoriesFrom(ctx context.Context, client codeCommitAPI, region string) ([]types.Resource, error) {
-	if !p.requireBulkTags(region, "CodeCommit") {
+	if !p.requireBulkTags(ctx, region, "CodeCommit") {
 		return nil, nil
 	}
 	var resources []types.Resource
@@ -173,8 +171,8 @@ func (p *Provider) listCodeCommitRepositoriesFrom(ctx context.Context, client co
 		}
 		for _, r := range output.Repositories {
 			name := aws.ToString(r.RepositoryName)
-			arn := fmt.Sprintf("arn:aws:codecommit:%s:%s:%s", region, p.accountID, name)
-			resources = append(resources, p.bulkResource(region, "aws_codecommit_repository", name, name, arn, nil))
+			arn := p.buildARN("codecommit", region, p.accountID, name)
+			resources = append(resources, p.bulkResource(ctx, region, "aws_codecommit_repository", name, name, arn, nil))
 		}
 	}
 	log.Debug("AWS CodeCommit: Found %d repositories in %s", len(resources), region)
@@ -186,7 +184,7 @@ func (p *Provider) listPipelines(ctx context.Context, region string) ([]types.Re
 }
 
 func (p *Provider) listPipelinesFrom(ctx context.Context, client codePipelineAPI, region string) ([]types.Resource, error) {
-	if !p.requireBulkTags(region, "CodePipeline") {
+	if !p.requireBulkTags(ctx, region, "CodePipeline") {
 		return nil, nil
 	}
 	var resources []types.Resource
@@ -198,8 +196,8 @@ func (p *Provider) listPipelinesFrom(ctx context.Context, client codePipelineAPI
 		}
 		for _, pl := range output.Pipelines {
 			name := aws.ToString(pl.Name)
-			arn := fmt.Sprintf("arn:aws:codepipeline:%s:%s:%s", region, p.accountID, name)
-			resources = append(resources, p.bulkResource(region, "aws_codepipeline", name, name, arn, pl.Created))
+			arn := p.buildARN("codepipeline", region, p.accountID, name)
+			resources = append(resources, p.bulkResource(ctx, region, "aws_codepipeline", name, name, arn, pl.Created))
 		}
 	}
 	log.Debug("AWS CodePipeline: Found %d pipelines in %s", len(resources), region)
@@ -211,7 +209,7 @@ func (p *Provider) listPortfolios(ctx context.Context, region string) ([]types.R
 }
 
 func (p *Provider) listPortfoliosFrom(ctx context.Context, client serviceCatalogAPI, region string) ([]types.Resource, error) {
-	if !p.requireBulkTags(region, "Service Catalog") {
+	if !p.requireBulkTags(ctx, region, "Service Catalog") {
 		return nil, nil
 	}
 	var resources []types.Resource
@@ -222,7 +220,7 @@ func (p *Provider) listPortfoliosFrom(ctx context.Context, client serviceCatalog
 			return nil, provider.NewProviderError(providerName, "list_portfolios", "", err)
 		}
 		for _, pf := range output.PortfolioDetails {
-			resources = append(resources, p.bulkResource(region, "aws_servicecatalog_portfolio", aws.ToString(pf.Id), aws.ToString(pf.DisplayName), aws.ToString(pf.ARN), pf.CreatedTime))
+			resources = append(resources, p.bulkResource(ctx, region, "aws_servicecatalog_portfolio", aws.ToString(pf.Id), aws.ToString(pf.DisplayName), aws.ToString(pf.ARN), pf.CreatedTime))
 		}
 	}
 	log.Debug("AWS Service Catalog: Found %d portfolios in %s", len(resources), region)
@@ -234,7 +232,7 @@ func (p *Provider) listWorkloads(ctx context.Context, region string) ([]types.Re
 }
 
 func (p *Provider) listWorkloadsFrom(ctx context.Context, client wellArchitectedAPI, region string) ([]types.Resource, error) {
-	if !p.requireBulkTags(region, "Well-Architected") {
+	if !p.requireBulkTags(ctx, region, "Well-Architected") {
 		return nil, nil
 	}
 	var resources []types.Resource
@@ -245,7 +243,7 @@ func (p *Provider) listWorkloadsFrom(ctx context.Context, client wellArchitected
 			return nil, provider.NewProviderError(providerName, "list_workloads", "", err)
 		}
 		for _, w := range output.WorkloadSummaries {
-			resources = append(resources, p.bulkResource(region, "aws_wellarchitected_workload", aws.ToString(w.WorkloadId), aws.ToString(w.WorkloadName), aws.ToString(w.WorkloadArn), nil))
+			resources = append(resources, p.bulkResource(ctx, region, "aws_wellarchitected_workload", aws.ToString(w.WorkloadId), aws.ToString(w.WorkloadName), aws.ToString(w.WorkloadArn), nil))
 		}
 	}
 	log.Debug("AWS Well-Architected: Found %d workloads in %s", len(resources), region)

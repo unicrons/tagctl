@@ -3,7 +3,6 @@ package cli
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -11,25 +10,15 @@ import (
 )
 
 var (
-	cfgFile      string
-	outputFormat string
-	logLevel     string
-	appVersion   string
-	appBuildTime string
+	cfgFile  string
+	logLevel string
+
+	// logLevelErr is the --log-level error initConfig cannot return itself.
+	logLevelErr error
 )
 
 // Execute runs the root command.
-func Execute(version, buildTime string) error {
-	appVersion = version
-	appBuildTime = buildTime
-
-	// Enable --version flag with custom template
-	rootCmd.Version = version
-	rootCmd.SetVersionTemplate(banner + `
-  Version: {{.Version}}
-  Built:   ` + buildTime + `
-
-`)
+func Execute() error {
 	return rootCmd.Execute()
 }
 
@@ -64,6 +53,9 @@ Exit codes:
   2  any other error (bad flag, invalid config, unreadable input, partial scan, failed apply)`,
 	SilenceUsage:  true,
 	SilenceErrors: true,
+	PersistentPreRunE: func(*cobra.Command, []string) error {
+		return logLevelErr
+	},
 }
 
 func init() {
@@ -71,12 +63,8 @@ func init() {
 
 	// Global flags
 	rootCmd.PersistentFlags().StringVarP(&cfgFile, "config", "c", "", "config file (default: ./tagctl.yaml)")
-	rootCmd.PersistentFlags().StringVarP(&outputFormat, "output", "o", "table", "output format (table, json, csv)")
+	rootCmd.PersistentFlags().StringP("output", "o", "table", "output format on stdout: table, json or csv, as the command supports")
 	rootCmd.PersistentFlags().StringVarP(&logLevel, "log-level", "l", "error", "log level (error, info, debug)")
-
-	// Bind flags to viper
-	// The flag is defined just above, so BindPFlag cannot fail here.
-	_ = viper.BindPFlag("output", rootCmd.PersistentFlags().Lookup("output"))
 
 	// Add subcommands
 	rootCmd.AddCommand(versionCmd)
@@ -93,9 +81,8 @@ func init() {
 }
 
 func initConfig() {
-	// Set log level
-	if err := log.SetLevelFromString(logLevel); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: %v, using 'info'\n", err)
+	if logLevelErr = log.SetLevelFromString(logLevel); logLevelErr != nil {
+		logLevelErr = fmt.Errorf("--log-level: %w", logLevelErr)
 	}
 
 	viper.SetConfigType("yaml")
@@ -113,18 +100,4 @@ func initConfig() {
 	if err := viper.ReadInConfig(); err != nil {
 		log.Debug("reading config: %v", err)
 	}
-}
-
-func printVersion() {
-	fmt.Print(banner)
-	fmt.Printf("  Version: %s\n", appVersion)
-	fmt.Printf("  Built:   %s\n\n", appBuildTime)
-}
-
-var versionCmd = &cobra.Command{
-	Use:   "version",
-	Short: "Print version information",
-	Run: func(cmd *cobra.Command, args []string) {
-		printVersion()
-	},
 }

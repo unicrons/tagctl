@@ -2,7 +2,7 @@ package aws
 
 import (
 	"context"
-	"fmt"
+	"maps"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
@@ -22,7 +22,7 @@ type dynamoDBAPI interface {
 
 // listDynamoDBTables lists all DynamoDB tables in a region.
 func (p *Provider) listDynamoDBTables(ctx context.Context, region string) ([]types.Resource, error) {
-	return p.listDynamoDBTablesFrom(ctx, p.getDynamoDBClient(region), region)
+	return p.listDynamoDBTablesFrom(ctx, regionalClient(p, region, dynamodb.NewFromConfig), region)
 }
 
 // listDynamoDBTablesFrom lists DynamoDB tables using the given client.
@@ -39,10 +39,10 @@ func (p *Provider) listDynamoDBTablesFrom(ctx context.Context, client dynamoDBAP
 		names = append(names, output.TableNames...)
 	}
 
-	resources := forEachConcurrently(names, func(name string) []types.Resource {
-		arn := fmt.Sprintf("arn:aws:dynamodb:%s:%s:table/%s", region, p.accountID, name)
+	resources := forEachConcurrently(ctx, names, func(name string) []types.Resource {
+		arn := p.buildARN("dynamodb", region, p.accountID, "table/"+name)
 
-		tags, err := p.resourceTags(region, arn, func() (map[string]string, error) {
+		tags, err := p.resourceTags(ctx, region, arn, func() (map[string]string, error) {
 			return getDynamoDBTags(ctx, client, arn)
 		})
 		if err != nil {
@@ -78,11 +78,9 @@ func getDynamoDBTags(ctx context.Context, client dynamoDBAPI, arn string) (map[s
 		if err != nil {
 			return nil, err
 		}
-		for _, tag := range output.Tags {
-			if tag.Key != nil && tag.Value != nil {
-				tags[*tag.Key] = *tag.Value
-			}
-		}
+		maps.Copy(tags, tagsToMap(output.Tags,
+			func(t ddbtypes.Tag) *string { return t.Key },
+			func(t ddbtypes.Tag) *string { return t.Value }))
 		if output.NextToken == nil {
 			return tags, nil
 		}
@@ -97,8 +95,12 @@ func (p *Provider) applyDynamoDBTags(ctx context.Context, arn string, tags map[s
 		tagList = append(tagList, ddbtypes.Tag{Key: aws.String(k), Value: aws.String(v)})
 	}
 
-	client := p.getDynamoDBClient(extractRegionFromARN(arn))
-	_, err := client.TagResource(ctx, &dynamodb.TagResourceInput{
+	region, err := regionForARN(arn)
+	if err != nil {
+		return provider.NewProviderError(providerName, "apply_dynamodb_tags", arn, err)
+	}
+	client := regionalClient(p, region, dynamodb.NewFromConfig)
+	_, err = client.TagResource(ctx, &dynamodb.TagResourceInput{
 		ResourceArn: aws.String(arn),
 		Tags:        tagList,
 	})

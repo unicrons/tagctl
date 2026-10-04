@@ -1,0 +1,99 @@
+name: tagctl
+description: Audit cloud resource tags against a policy and gate the build on the result.
+author: unicrons
+branding:
+  icon: tag
+  color: purple
+
+inputs:
+  args:
+    description: >-
+      Arguments passed to tagctl, for example
+      "scan --fail-under 80 --sarif tagctl.sarif". Split into words like a
+      shell command line (quotes group words); nothing is expanded or executed.
+    required: true
+  version:
+    description: >-
+      tagctl version to install: a release tag, branch or commit SHA. Defaults
+      to the ref the action is pinned to.
+    required: false
+    default: ""
+  config:
+    description: Path to the tagctl config file, relative to working-directory. Empty uses ./tagctl.yaml when present.
+    required: false
+    default: ""
+  working-directory:
+    description: Directory tagctl runs in. Reports under output/ are written here.
+    required: false
+    default: "."
+  go-version:
+    description: Go version used to build tagctl, in actions/setup-go syntax.
+    required: false
+    default: stable
+
+outputs:
+  exit-code:
+    description: "tagctl exit code: 0 success, 1 a gate failed, 2 any other error."
+    value: ${{ steps.run.outputs.exit-code }}
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Go
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version: ${{ inputs.go-version }}
+        cache: false
+
+    - name: Install tagctl
+      shell: bash
+      env:
+        TAGCTL_VERSION: ${{ inputs.version }}
+        ACTION_REF: ${{ github.action_ref }}
+        ACTION_PATH: ${{ github.action_path }}
+      run: |
+        set -euo pipefail
+        bin_dir="$RUNNER_TEMP/tagctl-bin"
+        mkdir -p "$bin_dir"
+        version="${TAGCTL_VERSION:-$ACTION_REF}"
+        if [ -n "$version" ]; then
+          echo "Installing tagctl@$version"
+          GOBIN="$bin_dir" go install "github.com/unicrons/tagctl/cmd/tagctl@$version"
+        else
+          # No ref means the action runs from a checkout (uses: ./).
+          echo "Building tagctl from $ACTION_PATH"
+          (cd "$ACTION_PATH" && go build -o "$bin_dir/tagctl$(go env GOEXE)" ./cmd/tagctl)
+        fi
+
+    - name: Run tagctl
+      id: run
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        TAGCTL_ARGS: ${{ inputs.args }}
+        TAGCTL_CONFIG: ${{ inputs.config }}
+      run: |
+        set -euo pipefail
+        argv=()
+        if [[ "$TAGCTL_ARGS" =~ [^[:space:]] ]]; then
+          if ! parsed=$(printf '%s\n' "$TAGCTL_ARGS" | xargs printf '%s\n'); then
+            echo "::error::the args input has an unterminated quote"
+            echo "exit-code=2" >> "$GITHUB_OUTPUT"
+            exit 2
+          fi
+          while IFS= read -r arg; do
+            argv+=("$arg")
+          done <<< "$parsed"
+        fi
+        if [ "${#argv[@]}" -eq 0 ]; then
+          echo "::error::the args input is empty"
+          echo "exit-code=2" >> "$GITHUB_OUTPUT"
+          exit 2
+        fi
+        if [ -n "$TAGCTL_CONFIG" ]; then
+          argv+=(--config "$TAGCTL_CONFIG")
+        fi
+        code=0
+        "$RUNNER_TEMP/tagctl-bin/tagctl" "${argv[@]}" || code=$?
+        echo "exit-code=$code" >> "$GITHUB_OUTPUT"
+        exit "$code"

@@ -63,17 +63,35 @@ func resetFlags(cmd *cobra.Command) {
 // executeExitCode runs tagctl with args and returns the code main exits with.
 func executeExitCode(t *testing.T, args ...string) int {
 	t.Helper()
+	return ExitCode(execute(t, args...).err)
+}
 
-	devNull, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
+// execution is what one tagctl run wrote to each stream and returned.
+type execution struct {
+	stdout, stderr string
+	err            error
+}
+
+// execute runs tagctl with args, capturing stdout and stderr.
+func execute(t *testing.T, args ...string) execution {
+	t.Helper()
+
+	dir := t.TempDir()
+	stdout, err := os.Create(filepath.Join(dir, "stdout"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	originalStdout, originalDir := os.Stdout, OutputDir
-	os.Stdout, OutputDir = devNull, t.TempDir()
+	stderr, err := os.Create(filepath.Join(dir, "stderr"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	originalStdout, originalStderr, originalDir := os.Stdout, os.Stderr, OutputDir
+	os.Stdout, os.Stderr, OutputDir = stdout, stderr, t.TempDir()
 	log.SetOutput(io.Discard)
 	t.Cleanup(func() {
-		os.Stdout, OutputDir = originalStdout, originalDir
-		_ = devNull.Close()
+		os.Stdout, os.Stderr, OutputDir = originalStdout, originalStderr, originalDir
+		_ = stdout.Close()
+		_ = stderr.Close()
 		log.SetOutput(os.Stderr)
 		viper.Reset()
 		resetFlags(rootCmd)
@@ -81,7 +99,18 @@ func executeExitCode(t *testing.T, args ...string) int {
 	})
 
 	rootCmd.SetArgs(args)
-	return ExitCode(rootCmd.Execute())
+	runErr := rootCmd.Execute()
+
+	return execution{stdout: readCaptured(t, stdout), stderr: readCaptured(t, stderr), err: runErr}
+}
+
+func readCaptured(t *testing.T, f *os.File) string {
+	t.Helper()
+	data, err := os.ReadFile(f.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
 }
 
 func TestExecute_ExitCodes(t *testing.T) {

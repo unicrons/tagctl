@@ -3,6 +3,8 @@ package aws
 import (
 	"context"
 	"errors"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -220,5 +222,72 @@ func TestListSubnets_Empty(t *testing.T) {
 	}
 	if len(resources) != 0 {
 		t.Errorf("got %d resources, want 0", len(resources))
+	}
+}
+
+type mockCreateTagsClient struct {
+	err    error
+	inputs []*ec2.CreateTagsInput
+}
+
+func (m *mockCreateTagsClient) CreateTags(_ context.Context, params *ec2.CreateTagsInput, _ ...func(*ec2.Options)) (*ec2.CreateTagsOutput, error) {
+	m.inputs = append(m.inputs, params)
+	return &ec2.CreateTagsOutput{}, m.err
+}
+
+func TestApplyEC2Tags_MakesOneCallInTheResourceRegion(t *testing.T) {
+	mock := &mockCreateTagsClient{}
+	var regions []string
+	clientFor := func(region string) ec2CreateTagsAPI {
+		regions = append(regions, region)
+		return mock
+	}
+
+	err := applyEC2TagsWith(context.Background(), clientFor, "i-0abc", "eu-west-1", map[string]string{"owner": "x"})
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	if !slices.Equal(regions, []string{"eu-west-1"}) {
+		t.Errorf("clients requested for %v, want only eu-west-1", regions)
+	}
+	if len(mock.inputs) != 1 {
+		t.Fatalf("CreateTags called %d times, want 1", len(mock.inputs))
+	}
+	in := mock.inputs[0]
+	if !slices.Equal(in.Resources, []string{"i-0abc"}) || len(in.Tags) != 1 || aws.ToString(in.Tags[0].Key) != "owner" || aws.ToString(in.Tags[0].Value) != "x" {
+		t.Errorf("CreateTags input = %+v", in)
+	}
+}
+
+func TestApplyEC2Tags_NotFoundInItsRegionIsNotRetriedElsewhere(t *testing.T) {
+	notFound := errors.New("InvalidInstanceID.NotFound: The instance ID 'i-0abc' does not exist")
+	mock := &mockCreateTagsClient{err: notFound}
+	calls := 0
+	clientFor := func(string) ec2CreateTagsAPI {
+		calls++
+		return mock
+	}
+
+	err := applyEC2TagsWith(context.Background(), clientFor, "i-0abc", "eu-west-1", map[string]string{"owner": "x"})
+	if !errors.Is(err, notFound) {
+		t.Errorf("err = %v, want the CreateTags error", err)
+	}
+	if calls != 1 || len(mock.inputs) != 1 {
+		t.Errorf("%d clients and %d calls, want one of each", calls, len(mock.inputs))
+	}
+}
+
+func TestApplyTags_EC2IDWithoutARegionFailsWithoutACall(t *testing.T) {
+	p := &Provider{regions: []string{"us-east-1", "eu-west-1"}}
+	for _, region := range []string{"", regionGlobal} {
+		for _, id := range []string{"i-0abc", "vol-0abc", "sg-0abc", "subnet-0abc"} {
+			err := p.ApplyTagsInRegion(context.Background(), id, region, map[string]string{"owner": "x"})
+			if err == nil || !strings.Contains(err.Error(), "need the region") {
+				t.Errorf("ApplyTagsInRegion(%q, %q) err = %v, want a missing region error", id, region, err)
+			}
+		}
+	}
+	if err := p.ApplyTags(context.Background(), "i-0abc", map[string]string{"owner": "x"}); err == nil {
+		t.Error("ApplyTags(i-0abc) without a region succeeded")
 	}
 }

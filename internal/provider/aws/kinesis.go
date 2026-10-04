@@ -2,10 +2,12 @@ package aws
 
 import (
 	"context"
+	"maps"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/kinesis"
+	kinesistypes "github.com/aws/aws-sdk-go-v2/service/kinesis/types"
 
 	"github.com/unicrons/tagctl/internal/log"
 	"github.com/unicrons/tagctl/internal/provider"
@@ -28,7 +30,7 @@ type kinesisStream struct {
 
 // listKinesisStreams lists all Kinesis data streams in a region.
 func (p *Provider) listKinesisStreams(ctx context.Context, region string) ([]types.Resource, error) {
-	return p.listKinesisStreamsFrom(ctx, p.getKinesisClient(region), region)
+	return p.listKinesisStreamsFrom(ctx, regionalClient(p, region, kinesis.NewFromConfig), region)
 }
 
 // listKinesisStreamsFrom lists Kinesis streams using the given client.
@@ -51,8 +53,8 @@ func (p *Provider) listKinesisStreamsFrom(ctx context.Context, client kinesisAPI
 		}
 	}
 
-	resources := forEachConcurrently(streams, func(s kinesisStream) []types.Resource {
-		tags, err := p.resourceTags(region, s.arn, func() (map[string]string, error) {
+	resources := forEachConcurrently(ctx, streams, func(s kinesisStream) []types.Resource {
+		tags, err := p.resourceTags(ctx, region, s.arn, func() (map[string]string, error) {
 			return getKinesisTags(ctx, client, s.arn)
 		})
 		if err != nil {
@@ -88,11 +90,9 @@ func getKinesisTags(ctx context.Context, client kinesisAPI, arn string) (map[str
 		if err != nil {
 			return nil, err
 		}
-		for _, tag := range output.Tags {
-			if tag.Key != nil && tag.Value != nil {
-				tags[*tag.Key] = *tag.Value
-			}
-		}
+		maps.Copy(tags, tagsToMap(output.Tags,
+			func(t kinesistypes.Tag) *string { return t.Key },
+			func(t kinesistypes.Tag) *string { return t.Value }))
 		if !aws.ToBool(output.HasMoreTags) || len(output.Tags) == 0 {
 			return tags, nil
 		}
@@ -102,8 +102,12 @@ func getKinesisTags(ctx context.Context, client kinesisAPI, arn string) (map[str
 
 // applyKinesisTags applies tags to a Kinesis stream addressed by ARN.
 func (p *Provider) applyKinesisTags(ctx context.Context, arn string, tags map[string]string) error {
-	client := p.getKinesisClient(extractRegionFromARN(arn))
-	_, err := client.AddTagsToStream(ctx, &kinesis.AddTagsToStreamInput{
+	region, err := regionForARN(arn)
+	if err != nil {
+		return provider.NewProviderError(providerName, "apply_kinesis_tags", arn, err)
+	}
+	client := regionalClient(p, region, kinesis.NewFromConfig)
+	_, err = client.AddTagsToStream(ctx, &kinesis.AddTagsToStreamInput{
 		StreamARN: aws.String(arn),
 		Tags:      tags,
 	})

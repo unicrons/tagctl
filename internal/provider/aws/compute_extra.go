@@ -2,7 +2,7 @@ package aws
 
 import (
 	"context"
-	"fmt"
+	"errors"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/appstream"
@@ -49,6 +49,7 @@ type drsAPI interface {
 }
 
 type lightsailAPI interface {
+	GetRegions(ctx context.Context, params *lightsail.GetRegionsInput, optFns ...func(*lightsail.Options)) (*lightsail.GetRegionsOutput, error)
 	GetInstances(ctx context.Context, params *lightsail.GetInstancesInput, optFns ...func(*lightsail.Options)) (*lightsail.GetInstancesOutput, error)
 	TagResource(ctx context.Context, params *lightsail.TagResourceInput, optFns ...func(*lightsail.Options)) (*lightsail.TagResourceOutput, error)
 }
@@ -66,9 +67,9 @@ type workSpacesAPI interface {
 	DescribeWorkspaces(ctx context.Context, params *workspaces.DescribeWorkspacesInput, optFns ...func(*workspaces.Options)) (*workspaces.DescribeWorkspacesOutput, error)
 }
 
-// lightsailRegions are the regions where Lightsail has an endpoint; calling
-// it anywhere else fails at DNS.
-var lightsailRegions = map[string]bool{
+// lightsailFallbackRegions stand in for GetRegions when it cannot be called.
+// They may lag behind Lightsail: a region missing here is not scanned.
+var lightsailFallbackRegions = map[string]bool{
 	"us-east-1": true, "us-east-2": true, "us-west-2": true,
 	"ca-central-1": true,
 	"eu-west-1":    true, "eu-west-2": true, "eu-west-3": true, "eu-central-1": true, "eu-north-1": true,
@@ -81,39 +82,35 @@ func (p *Provider) listAppStreamResources(ctx context.Context, region string) ([
 }
 
 func (p *Provider) listAppStreamResourcesFrom(ctx context.Context, client appStreamAPI, region string) ([]types.Resource, error) {
-	if !p.requireBulkTags(region, "AppStream") {
+	if !p.requireBulkTags(ctx, region, "AppStream") {
 		return nil, nil
 	}
 	var resources []types.Resource
-	var next *string
-	for {
-		output, err := client.DescribeFleets(ctx, &appstream.DescribeFleetsInput{NextToken: next})
+	if err := paginate(func(token *string) (*string, error) {
+		output, err := client.DescribeFleets(ctx, &appstream.DescribeFleetsInput{NextToken: token})
 		if err != nil {
-			return nil, provider.NewProviderError(providerName, "list_appstream_fleets", "", err)
+			return nil, err
 		}
 		for _, f := range output.Fleets {
 			name := aws.ToString(f.Name)
-			resources = append(resources, p.bulkResource(region, "aws_appstream_fleet", name, name, aws.ToString(f.Arn), f.CreatedTime))
+			resources = append(resources, p.bulkResource(ctx, region, "aws_appstream_fleet", name, name, aws.ToString(f.Arn), f.CreatedTime))
 		}
-		if output.NextToken == nil || len(output.Fleets) == 0 {
-			break
-		}
-		next = output.NextToken
+		return output.NextToken, nil
+	}); err != nil {
+		return nil, provider.NewProviderError(providerName, "list_appstream_fleets", "", err)
 	}
-	next = nil
-	for {
-		output, err := client.DescribeStacks(ctx, &appstream.DescribeStacksInput{NextToken: next})
+	if err := paginate(func(token *string) (*string, error) {
+		output, err := client.DescribeStacks(ctx, &appstream.DescribeStacksInput{NextToken: token})
 		if err != nil {
-			return nil, provider.NewProviderError(providerName, "list_appstream_stacks", "", err)
+			return nil, err
 		}
 		for _, s := range output.Stacks {
 			name := aws.ToString(s.Name)
-			resources = append(resources, p.bulkResource(region, "aws_appstream_stack", name, name, aws.ToString(s.Arn), s.CreatedTime))
+			resources = append(resources, p.bulkResource(ctx, region, "aws_appstream_stack", name, name, aws.ToString(s.Arn), s.CreatedTime))
 		}
-		if output.NextToken == nil || len(output.Stacks) == 0 {
-			break
-		}
-		next = output.NextToken
+		return output.NextToken, nil
+	}); err != nil {
+		return nil, provider.NewProviderError(providerName, "list_appstream_stacks", "", err)
 	}
 	log.Debug("AWS AppStream: Found %d fleets and stacks in %s", len(resources), region)
 	return resources, nil
@@ -163,7 +160,7 @@ func (p *Provider) listDirectConnectConnectionsFrom(ctx context.Context, client 
 	resources := make([]types.Resource, 0, len(output.Connections))
 	for _, c := range output.Connections {
 		id := aws.ToString(c.ConnectionId)
-		arn := fmt.Sprintf("arn:aws:directconnect:%s:%s:dxcon/%s", region, p.accountID, id)
+		arn := p.buildARN("directconnect", region, p.accountID, "dxcon/"+id)
 		tags := tagsToMap(c.Tags,
 			func(t directconnecttypes.Tag) *string { return t.Key },
 			func(t directconnecttypes.Tag) *string { return t.Value })
@@ -185,7 +182,7 @@ func (p *Provider) listLifecyclePoliciesFrom(ctx context.Context, client dlmAPI,
 	resources := make([]types.Resource, 0, len(output.Policies))
 	for _, pol := range output.Policies {
 		id := aws.ToString(pol.PolicyId)
-		arn := fmt.Sprintf("arn:aws:dlm:%s:%s:policy/%s", region, p.accountID, id)
+		arn := p.buildARN("dlm", region, p.accountID, "policy/"+id)
 		name := aws.ToString(pol.Description)
 		if name == "" {
 			name = id
@@ -208,7 +205,7 @@ func (p *Provider) listSourceServersFrom(ctx context.Context, client drsAPI, reg
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
-			if notSubscribed(err) {
+			if notSubscribed(err, "UninitializedAccountException") {
 				log.Debug("AWS DRS: not initialised in %s, skipping", region)
 				return nil, nil
 			}
@@ -230,19 +227,49 @@ func (p *Provider) listSourceServersFrom(ctx context.Context, client drsAPI, reg
 }
 
 func (p *Provider) listLightsailInstances(ctx context.Context, region string) ([]types.Resource, error) {
-	if !lightsailRegions[region] {
+	endpoints := p.lightsailEndpoints(ctx, func() lightsailAPI {
+		return regionalClient(p, p.globalRegion(), lightsail.NewFromConfig)
+	})
+	if !endpoints[region] {
 		return nil, nil
 	}
 	return p.listLightsailInstancesFrom(ctx, regionalClient(p, region, lightsail.NewFromConfig), region)
 }
 
+// lightsailEndpoints returns the regions where Lightsail has an endpoint;
+// calling it anywhere else fails at DNS. GetRegions is asked once per
+// provider, and only in the commercial partition, the one Lightsail is in.
+func (p *Provider) lightsailEndpoints(ctx context.Context, client func() lightsailAPI) map[string]bool {
+	p.lightsailOnce.Do(func() {
+		p.lightsailRegions = lightsailFallbackRegions
+		if p.partitionID() != partitionAWS {
+			return
+		}
+		output, err := client().GetRegions(ctx, &lightsail.GetRegionsInput{})
+		if err == nil && len(output.Regions) == 0 {
+			err = errors.New("no region returned")
+		}
+		if err != nil {
+			if ctx.Err() == nil {
+				log.Error("AWS Lightsail: cannot list its regions (lightsail:GetRegions), using the built-in list, which may lack newer regions: %v", err)
+			}
+			return
+		}
+		regions := make(map[string]bool, len(output.Regions))
+		for _, r := range output.Regions {
+			regions[string(r.Name)] = true
+		}
+		p.lightsailRegions = regions
+	})
+	return p.lightsailRegions
+}
+
 func (p *Provider) listLightsailInstancesFrom(ctx context.Context, client lightsailAPI, region string) ([]types.Resource, error) {
 	var resources []types.Resource
-	var next *string
-	for {
-		output, err := client.GetInstances(ctx, &lightsail.GetInstancesInput{PageToken: next})
+	err := paginate(func(token *string) (*string, error) {
+		output, err := client.GetInstances(ctx, &lightsail.GetInstancesInput{PageToken: token})
 		if err != nil {
-			return nil, provider.NewProviderError(providerName, "list_lightsail_instances", "", err)
+			return nil, err
 		}
 		for _, inst := range output.Instances {
 			name := aws.ToString(inst.Name)
@@ -251,10 +278,10 @@ func (p *Provider) listLightsailInstancesFrom(ctx context.Context, client lights
 				func(t lightsailtypes.Tag) *string { return t.Value })
 			resources = append(resources, p.resource(region, "aws_lightsail_instance", name, name, aws.ToString(inst.Arn), tags, inst.CreatedAt))
 		}
-		if output.NextPageToken == nil || len(output.Instances) == 0 {
-			break
-		}
-		next = output.NextPageToken
+		return output.NextPageToken, nil
+	})
+	if err != nil {
+		return nil, provider.NewProviderError(providerName, "list_lightsail_instances", "", err)
 	}
 	log.Debug("AWS Lightsail: Found %d instances in %s", len(resources), region)
 	return resources, nil
@@ -263,9 +290,9 @@ func (p *Provider) listLightsailInstancesFrom(ctx context.Context, client lights
 // applyLightsailTags tags a Lightsail resource, which the Resource Groups
 // Tagging API does not cover. Lightsail addresses resources by name.
 func (p *Provider) applyLightsailTags(ctx context.Context, arn string, tags map[string]string) error {
-	region := extractRegionFromARN(arn)
-	if region == "" {
-		region = defaultRegion
+	region, err := regionForARN(arn)
+	if err != nil {
+		return provider.NewProviderError(providerName, "apply_lightsail_tags", arn, err)
 	}
 	return applyLightsailTagsWith(ctx, regionalClient(p, region, lightsail.NewFromConfig), arn, tags)
 }
@@ -295,7 +322,7 @@ func (p *Provider) listSSMResources(ctx context.Context, region string) ([]types
 // the account's own documents (tags inline).
 func (p *Provider) listSSMResourcesFrom(ctx context.Context, client ssmAPI, region string) ([]types.Resource, error) {
 	var resources []types.Resource
-	if p.requireBulkTags(region, "SSM parameters") {
+	if p.requireBulkTags(ctx, region, "SSM parameters") {
 		params := ssm.NewDescribeParametersPaginator(client, &ssm.DescribeParametersInput{})
 		for params.HasMorePages() {
 			output, err := params.NextPage(ctx)
@@ -304,7 +331,7 @@ func (p *Provider) listSSMResourcesFrom(ctx context.Context, client ssmAPI, regi
 			}
 			for _, prm := range output.Parameters {
 				name := aws.ToString(prm.Name)
-				resources = append(resources, p.bulkResource(region, "aws_ssm_parameter", name, name, aws.ToString(prm.ARN), prm.LastModifiedDate))
+				resources = append(resources, p.bulkResource(ctx, region, "aws_ssm_parameter", name, name, aws.ToString(prm.ARN), prm.LastModifiedDate))
 			}
 		}
 	}
@@ -319,7 +346,7 @@ func (p *Provider) listSSMResourcesFrom(ctx context.Context, client ssmAPI, regi
 		}
 		for _, d := range output.DocumentIdentifiers {
 			name := aws.ToString(d.Name)
-			arn := fmt.Sprintf("arn:aws:ssm:%s:%s:document/%s", region, p.accountID, name)
+			arn := p.buildARN("ssm", region, p.accountID, "document/"+name)
 			tags := tagsToMap(d.Tags,
 				func(t ssmtypes.Tag) *string { return t.Key },
 				func(t ssmtypes.Tag) *string { return t.Value })
@@ -335,7 +362,7 @@ func (p *Provider) listResponsePlans(ctx context.Context, region string) ([]type
 }
 
 func (p *Provider) listResponsePlansFrom(ctx context.Context, client ssmIncidentsAPI, region string) ([]types.Resource, error) {
-	if !p.requireBulkTags(region, "Incident Manager") {
+	if !p.requireBulkTags(ctx, region, "Incident Manager") {
 		return nil, nil
 	}
 	var resources []types.Resource
@@ -347,7 +374,7 @@ func (p *Provider) listResponsePlansFrom(ctx context.Context, client ssmIncident
 		}
 		for _, rp := range output.ResponsePlanSummaries {
 			name := aws.ToString(rp.Name)
-			resources = append(resources, p.bulkResource(region, "aws_ssmincidents_response_plan", name, name, aws.ToString(rp.Arn), nil))
+			resources = append(resources, p.bulkResource(ctx, region, "aws_ssmincidents_response_plan", name, name, aws.ToString(rp.Arn), nil))
 		}
 	}
 	log.Debug("AWS Incident Manager: Found %d response plans in %s", len(resources), region)
@@ -359,7 +386,7 @@ func (p *Provider) listWorkSpaces(ctx context.Context, region string) ([]types.R
 }
 
 func (p *Provider) listWorkSpacesFrom(ctx context.Context, client workSpacesAPI, region string) ([]types.Resource, error) {
-	if !p.requireBulkTags(region, "WorkSpaces") {
+	if !p.requireBulkTags(ctx, region, "WorkSpaces") {
 		return nil, nil
 	}
 	var resources []types.Resource
@@ -374,12 +401,12 @@ func (p *Provider) listWorkSpacesFrom(ctx context.Context, client workSpacesAPI,
 				continue
 			}
 			id := aws.ToString(ws.WorkspaceId)
-			arn := fmt.Sprintf("arn:aws:workspaces:%s:%s:workspace/%s", region, p.accountID, id)
+			arn := p.buildARN("workspaces", region, p.accountID, "workspace/"+id)
 			name := aws.ToString(ws.UserName)
 			if name == "" {
 				name = id
 			}
-			resources = append(resources, p.bulkResource(region, "aws_workspaces_workspace", id, name, arn, nil))
+			resources = append(resources, p.bulkResource(ctx, region, "aws_workspaces_workspace", id, name, arn, nil))
 		}
 	}
 	log.Debug("AWS WorkSpaces: Found %d workspaces in %s", len(resources), region)

@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -28,8 +29,15 @@ that a missing-tag check never catches.
 
 Values are grouped by three signals:
   • casing        — they differ only in case, separators or spacing
-  • typo          — they are within the configured edit distance
+  • typo          — they are within the configured edit distance, with at most
+                    one edit per 3 letters or digits of the shorter value
+                    ("prod" / "prd")
   • abbreviation  — one is a prefix of the other ("prod" / "production")
+
+Values with different digits never match, so "us-east-1", "us-east-2" and
+"us-east-10" stay apart. A value that joined a group through another variant,
+without matching the canonical spelling itself, is reported as "transitive" and
+left out of the plan.
 
 A value your policy already allows is never rewritten, and is preferred as the
 canonical spelling. Two values the policy both allows are never collapsed into
@@ -72,6 +80,11 @@ func runNormalize(cmd *cobra.Command, args []string) error {
 	outPath, _ := cmd.Flags().GetString("out")
 	failOnDrift, _ := cmd.Flags().GetBool("fail-on-drift")
 
+	format, err := outputFormatFor(cmd, formatTable, formatJSON)
+	if err != nil {
+		return err
+	}
+
 	resources, source, err := loadNormalizeResources(scanPath, resourcesPath)
 	if err != nil {
 		return err
@@ -84,7 +97,7 @@ func runNormalize(cmd *cobra.Command, args []string) error {
 
 	result := engine.NewNormalizer(opts).Normalize(resources)
 
-	if strings.ToLower(outputFormat) == formatJSON {
+	if format == formatJSON {
 		if err := printJSON(result); err != nil {
 			return err
 		}
@@ -228,8 +241,8 @@ func writeNormalizePlan(result *types.NormalizeResult, path string) error {
 		return fmt.Errorf("failed to write plan file: %w", err)
 	}
 
-	fmt.Printf("\nPlan written to %s (%d change(s))\n", path, len(plan.Changes))
-	fmt.Println("Review it, then run: tagctl apply --plan " + path)
+	fmt.Fprintf(os.Stderr, "\nPlan written to %s (%d change(s))\n", path, len(plan.Changes))
+	fmt.Fprintln(os.Stderr, "Review it, then run: tagctl apply --plan "+path)
 
 	return nil
 }
@@ -252,7 +265,7 @@ func printNormalizeTable(result *types.NormalizeResult, source string) {
 			anchor = "allowed by policy"
 		}
 		fmt.Printf("  %s → %q  (%s, %d %s)\n",
-			cluster.Tag, cluster.Canonical, anchor, cluster.CanonicalCount, pluralResources(cluster.CanonicalCount))
+			printable(cluster.Tag), cluster.Canonical, anchor, cluster.CanonicalCount, pluralResources(cluster.CanonicalCount))
 
 		for _, variant := range cluster.Variants {
 			fmt.Printf("      %-24q %3d %-9s [%s]\n",
@@ -261,14 +274,14 @@ func printNormalizeTable(result *types.NormalizeResult, source string) {
 		fmt.Println()
 	}
 
-	printNormalizeExamples(result)
+	writeNormalizeExamples(os.Stdout, result)
 
 	fmt.Println("Run with --out <file> to write a plan, then 'tagctl apply' to fix them.")
 }
 
-// printNormalizeExamples names a few affected resources, so the report can be
+// writeNormalizeExamples names a few affected resources, so the report can be
 // sanity-checked without opening the scan file.
-func printNormalizeExamples(result *types.NormalizeResult) {
+func writeNormalizeExamples(w io.Writer, result *types.NormalizeResult) {
 	const maxExamples = 3
 
 	for _, cluster := range result.Clusters {
@@ -279,7 +292,7 @@ func printNormalizeExamples(result *types.NormalizeResult) {
 
 			ids := make([]string, 0, len(variant.Resources))
 			for _, resource := range variant.Resources {
-				ids = append(ids, resource.ID)
+				ids = append(ids, printable(resource.ID))
 			}
 			sort.Strings(ids)
 
@@ -290,11 +303,16 @@ func printNormalizeExamples(result *types.NormalizeResult) {
 				suffix = fmt.Sprintf(" and %d more", len(ids)-maxExamples)
 			}
 
-			fmt.Printf("  %s=%q: %s%s\n", cluster.Tag, variant.Value, strings.Join(shown, ", "), suffix)
+			note := ""
+			if variant.Match == types.MatchTransitive {
+				note = " (transitive, not in the plan)"
+			}
+
+			fmt.Fprintf(w, "  %s=%q%s: %s%s\n", printable(cluster.Tag), variant.Value, note, strings.Join(shown, ", "), suffix)
 		}
 	}
 
-	fmt.Println()
+	fmt.Fprintf(w, "\n")
 }
 
 // pluralResources agrees the noun with the count.

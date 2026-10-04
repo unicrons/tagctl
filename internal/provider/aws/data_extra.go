@@ -2,7 +2,6 @@ package aws
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/athena"
@@ -86,7 +85,7 @@ func (p *Provider) listWorkGroups(ctx context.Context, region string) ([]types.R
 }
 
 func (p *Provider) listWorkGroupsFrom(ctx context.Context, client athenaAPI, region string) ([]types.Resource, error) {
-	if !p.requireBulkTags(region, "Athena") {
+	if !p.requireBulkTags(ctx, region, "Athena") {
 		return nil, nil
 	}
 	var resources []types.Resource
@@ -98,8 +97,8 @@ func (p *Provider) listWorkGroupsFrom(ctx context.Context, client athenaAPI, reg
 		}
 		for _, wg := range output.WorkGroups {
 			name := aws.ToString(wg.Name)
-			arn := fmt.Sprintf("arn:aws:athena:%s:%s:workgroup/%s", region, p.accountID, name)
-			resources = append(resources, p.bulkResource(region, "aws_athena_workgroup", name, name, arn, wg.CreationTime))
+			arn := p.buildARN("athena", region, p.accountID, "workgroup/"+name)
+			resources = append(resources, p.bulkResource(ctx, region, "aws_athena_workgroup", name, name, arn, wg.CreationTime))
 		}
 	}
 	log.Debug("AWS Athena: Found %d workgroups in %s", len(resources), region)
@@ -111,7 +110,7 @@ func (p *Provider) listReplicationInstances(ctx context.Context, region string) 
 }
 
 func (p *Provider) listReplicationInstancesFrom(ctx context.Context, client dmsAPI, region string) ([]types.Resource, error) {
-	if !p.requireBulkTags(region, "DMS") {
+	if !p.requireBulkTags(ctx, region, "DMS") {
 		return nil, nil
 	}
 	var resources []types.Resource
@@ -123,7 +122,7 @@ func (p *Provider) listReplicationInstancesFrom(ctx context.Context, client dmsA
 		}
 		for _, ri := range output.ReplicationInstances {
 			id := aws.ToString(ri.ReplicationInstanceIdentifier)
-			resources = append(resources, p.bulkResource(region, "aws_dms_replication_instance", id, id, aws.ToString(ri.ReplicationInstanceArn), ri.InstanceCreateTime))
+			resources = append(resources, p.bulkResource(ctx, region, "aws_dms_replication_instance", id, id, aws.ToString(ri.ReplicationInstanceArn), ri.InstanceCreateTime))
 		}
 	}
 	log.Debug("AWS DMS: Found %d replication instances in %s", len(resources), region)
@@ -151,7 +150,7 @@ func (p *Provider) listDataPipelinesFrom(ctx context.Context, client dataPipelin
 		marker = output.Marker
 	}
 
-	resources := forEachConcurrently(chunk(ids, dataPipelineDescribeBatch), func(batch []string) []types.Resource {
+	resources := forEachConcurrently(ctx, chunk(ids, dataPipelineDescribeBatch), func(batch []string) []types.Resource {
 		return p.describePipelines(ctx, client, region, batch)
 	})
 	log.Debug("AWS Data Pipeline: Found %d pipelines in %s", len(resources), region)
@@ -178,7 +177,7 @@ func (p *Provider) describePipelines(ctx context.Context, client dataPipelineAPI
 	described := make([]types.Resource, 0, len(output.PipelineDescriptionList))
 	for _, d := range output.PipelineDescriptionList {
 		id := aws.ToString(d.PipelineId)
-		arn := fmt.Sprintf("arn:aws:datapipeline:%s:%s:pipeline/%s", region, p.accountID, id)
+		arn := p.buildARN("datapipeline", region, p.accountID, "pipeline/"+id)
 		tags := tagsToMap(d.Tags,
 			func(t datapipelinetypes.Tag) *string { return t.Key },
 			func(t datapipelinetypes.Tag) *string { return t.Value })
@@ -192,7 +191,7 @@ func (p *Provider) listDataSyncTasks(ctx context.Context, region string) ([]type
 }
 
 func (p *Provider) listDataSyncTasksFrom(ctx context.Context, client dataSyncAPI, region string) ([]types.Resource, error) {
-	if !p.requireBulkTags(region, "DataSync") {
+	if !p.requireBulkTags(ctx, region, "DataSync") {
 		return nil, nil
 	}
 	var resources []types.Resource
@@ -204,7 +203,7 @@ func (p *Provider) listDataSyncTasksFrom(ctx context.Context, client dataSyncAPI
 		}
 		for _, t := range output.Tasks {
 			arn := aws.ToString(t.TaskArn)
-			resources = append(resources, p.bulkResource(region, "aws_datasync_task", nameFromARN(arn), aws.ToString(t.Name), arn, nil))
+			resources = append(resources, p.bulkResource(ctx, region, "aws_datasync_task", nameFromARN(arn), aws.ToString(t.Name), arn, nil))
 		}
 	}
 	log.Debug("AWS DataSync: Found %d tasks in %s", len(resources), region)
@@ -216,7 +215,7 @@ func (p *Provider) listEMRClusters(ctx context.Context, region string) ([]types.
 }
 
 func (p *Provider) listEMRClustersFrom(ctx context.Context, client emrAPI, region string) ([]types.Resource, error) {
-	if !p.requireBulkTags(region, "EMR") {
+	if !p.requireBulkTags(ctx, region, "EMR") {
 		return nil, nil
 	}
 	var resources []types.Resource
@@ -227,19 +226,21 @@ func (p *Provider) listEMRClustersFrom(ctx context.Context, client emrAPI, regio
 			return nil, provider.NewProviderError(providerName, "list_emr_clusters", "", err)
 		}
 		for _, c := range output.Clusters {
-			resources = append(resources, p.bulkResource(region, "aws_emr_cluster", aws.ToString(c.Id), aws.ToString(c.Name), aws.ToString(c.ClusterArn), nil))
+			resources = append(resources, p.bulkResource(ctx, region, "aws_emr_cluster", aws.ToString(c.Id), aws.ToString(c.Name), aws.ToString(c.ClusterArn), nil))
 		}
 	}
 	log.Debug("AWS EMR: Found %d clusters in %s", len(resources), region)
 	return resources, nil
 }
 
+// listVaults lists Glacier vaults. An account with no Glacier storage is
+// refused the vault API, which is not an error.
 func (p *Provider) listVaults(ctx context.Context, region string) ([]types.Resource, error) {
 	return p.listVaultsFrom(ctx, regionalClient(p, region, glacier.NewFromConfig), region)
 }
 
 func (p *Provider) listVaultsFrom(ctx context.Context, client glacierAPI, region string) ([]types.Resource, error) {
-	if !p.requireBulkTags(region, "Glacier") {
+	if !p.requireBulkTags(ctx, region, "Glacier") {
 		return nil, nil
 	}
 	var resources []types.Resource
@@ -247,11 +248,15 @@ func (p *Provider) listVaultsFrom(ctx context.Context, client glacierAPI, region
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
+			if notSubscribed(err, "NoLongerSupportedException") {
+				log.Debug("AWS Glacier: no Glacier storage in %s, skipping", region)
+				return nil, nil
+			}
 			return nil, provider.NewProviderError(providerName, "list_glacier_vaults", "", err)
 		}
 		for _, v := range output.VaultList {
 			name := aws.ToString(v.VaultName)
-			resources = append(resources, p.bulkResource(region, "aws_glacier_vault", name, name, aws.ToString(v.VaultARN), parseRFC3339(v.CreationDate)))
+			resources = append(resources, p.bulkResource(ctx, region, "aws_glacier_vault", name, name, aws.ToString(v.VaultARN), parseRFC3339(v.CreationDate)))
 		}
 	}
 	log.Debug("AWS Glacier: Found %d vaults in %s", len(resources), region)
@@ -263,7 +268,7 @@ func (p *Provider) listMemoryDBClusters(ctx context.Context, region string) ([]t
 }
 
 func (p *Provider) listMemoryDBClustersFrom(ctx context.Context, client memoryDBAPI, region string) ([]types.Resource, error) {
-	if !p.requireBulkTags(region, "MemoryDB") {
+	if !p.requireBulkTags(ctx, region, "MemoryDB") {
 		return nil, nil
 	}
 	var resources []types.Resource
@@ -275,7 +280,7 @@ func (p *Provider) listMemoryDBClustersFrom(ctx context.Context, client memoryDB
 		}
 		for _, c := range output.Clusters {
 			name := aws.ToString(c.Name)
-			resources = append(resources, p.bulkResource(region, "aws_memorydb_cluster", name, name, aws.ToString(c.ARN), nil))
+			resources = append(resources, p.bulkResource(ctx, region, "aws_memorydb_cluster", name, name, aws.ToString(c.ARN), nil))
 		}
 	}
 	log.Debug("AWS MemoryDB: Found %d clusters in %s", len(resources), region)
@@ -287,7 +292,7 @@ func (p *Provider) listBrokers(ctx context.Context, region string) ([]types.Reso
 }
 
 func (p *Provider) listBrokersFrom(ctx context.Context, client mqAPI, region string) ([]types.Resource, error) {
-	if !p.requireBulkTags(region, "MQ") {
+	if !p.requireBulkTags(ctx, region, "MQ") {
 		return nil, nil
 	}
 	var resources []types.Resource
@@ -298,7 +303,7 @@ func (p *Provider) listBrokersFrom(ctx context.Context, client mqAPI, region str
 			return nil, provider.NewProviderError(providerName, "list_brokers", "", err)
 		}
 		for _, b := range output.BrokerSummaries {
-			resources = append(resources, p.bulkResource(region, "aws_mq_broker", aws.ToString(b.BrokerId), aws.ToString(b.BrokerName), aws.ToString(b.BrokerArn), b.Created))
+			resources = append(resources, p.bulkResource(ctx, region, "aws_mq_broker", aws.ToString(b.BrokerId), aws.ToString(b.BrokerName), aws.ToString(b.BrokerArn), b.Created))
 		}
 	}
 	log.Debug("AWS MQ: Found %d brokers in %s", len(resources), region)
@@ -310,7 +315,7 @@ func (p *Provider) listSESResources(ctx context.Context, region string) ([]types
 }
 
 func (p *Provider) listSESResourcesFrom(ctx context.Context, client sesAPI, region string) ([]types.Resource, error) {
-	if !p.requireBulkTags(region, "SES") {
+	if !p.requireBulkTags(ctx, region, "SES") {
 		return nil, nil
 	}
 	var resources []types.Resource
@@ -322,8 +327,8 @@ func (p *Provider) listSESResourcesFrom(ctx context.Context, client sesAPI, regi
 		}
 		for _, id := range output.EmailIdentities {
 			name := aws.ToString(id.IdentityName)
-			arn := fmt.Sprintf("arn:aws:ses:%s:%s:identity/%s", region, p.accountID, name)
-			resources = append(resources, p.bulkResource(region, "aws_ses_email_identity", name, name, arn, nil))
+			arn := p.buildARN("ses", region, p.accountID, "identity/"+name)
+			resources = append(resources, p.bulkResource(ctx, region, "aws_ses_email_identity", name, name, arn, nil))
 		}
 	}
 	sets := sesv2.NewListConfigurationSetsPaginator(client, &sesv2.ListConfigurationSetsInput{})
@@ -333,8 +338,8 @@ func (p *Provider) listSESResourcesFrom(ctx context.Context, client sesAPI, regi
 			return nil, provider.NewProviderError(providerName, "list_ses_configuration_sets", "", err)
 		}
 		for _, name := range output.ConfigurationSets {
-			arn := fmt.Sprintf("arn:aws:ses:%s:%s:configuration-set/%s", region, p.accountID, name)
-			resources = append(resources, p.bulkResource(region, "aws_ses_configuration_set", name, name, arn, nil))
+			arn := p.buildARN("ses", region, p.accountID, "configuration-set/"+name)
+			resources = append(resources, p.bulkResource(ctx, region, "aws_ses_configuration_set", name, name, arn, nil))
 		}
 	}
 	log.Debug("AWS SES: Found %d identities and configuration sets in %s", len(resources), region)
@@ -346,7 +351,7 @@ func (p *Provider) listGateways(ctx context.Context, region string) ([]types.Res
 }
 
 func (p *Provider) listGatewaysFrom(ctx context.Context, client storageGatewayAPI, region string) ([]types.Resource, error) {
-	if !p.requireBulkTags(region, "Storage Gateway") {
+	if !p.requireBulkTags(ctx, region, "Storage Gateway") {
 		return nil, nil
 	}
 	var resources []types.Resource
@@ -357,7 +362,7 @@ func (p *Provider) listGatewaysFrom(ctx context.Context, client storageGatewayAP
 			return nil, provider.NewProviderError(providerName, "list_storage_gateways", "", err)
 		}
 		for _, g := range output.Gateways {
-			resources = append(resources, p.bulkResource(region, "aws_storagegateway_gateway", aws.ToString(g.GatewayId), aws.ToString(g.GatewayName), aws.ToString(g.GatewayARN), nil))
+			resources = append(resources, p.bulkResource(ctx, region, "aws_storagegateway_gateway", aws.ToString(g.GatewayId), aws.ToString(g.GatewayName), aws.ToString(g.GatewayARN), nil))
 		}
 	}
 	log.Debug("AWS Storage Gateway: Found %d gateways in %s", len(resources), region)
@@ -369,7 +374,7 @@ func (p *Provider) listTransferServers(ctx context.Context, region string) ([]ty
 }
 
 func (p *Provider) listTransferServersFrom(ctx context.Context, client transferAPI, region string) ([]types.Resource, error) {
-	if !p.requireBulkTags(region, "Transfer Family") {
+	if !p.requireBulkTags(ctx, region, "Transfer Family") {
 		return nil, nil
 	}
 	var resources []types.Resource
@@ -381,7 +386,7 @@ func (p *Provider) listTransferServersFrom(ctx context.Context, client transferA
 		}
 		for _, s := range output.Servers {
 			id := aws.ToString(s.ServerId)
-			resources = append(resources, p.bulkResource(region, "aws_transfer_server", id, id, aws.ToString(s.Arn), nil))
+			resources = append(resources, p.bulkResource(ctx, region, "aws_transfer_server", id, id, aws.ToString(s.Arn), nil))
 		}
 	}
 	log.Debug("AWS Transfer Family: Found %d servers in %s", len(resources), region)

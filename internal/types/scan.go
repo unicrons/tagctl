@@ -20,17 +20,22 @@ type ScanResult struct {
 	// CompliantCount is the number of fully compliant resources.
 	CompliantCount int `json:"compliant_count"`
 
-	// ViolationCount is the total number of violations found.
+	// ViolationCount is the number of FAILED findings.
 	ViolationCount int `json:"violation_count"`
 
 	// CompliancePct is the percentage of compliant resources.
 	CompliancePct float64 `json:"compliance_percent"`
 
-	// Violations is the list of all violations found (DEPRECATED: use Findings).
+	// Violations repeats the FAILED findings, in order. It is deprecated and
+	// will be removed in v1.0.0, with the violations JSON key: use Findings.
 	Violations []Violation `json:"violations"`
 
 	// Findings is the list of all compliance findings (PASS and FAILED).
 	Findings []Finding `json:"findings"`
+
+	// Resources lists every evaluated resource, including those with no findings.
+	// Scans written by older versions have none.
+	Resources []ResourceRef `json:"resources,omitempty"`
 
 	// ByAccount contains per-account statistics.
 	ByAccount map[string]*AccountStats `json:"by_account"`
@@ -45,6 +50,72 @@ func NewScanResult() *ScanResult {
 		ScannedAt: time.Now(),
 		ByAccount: make(map[string]*AccountStats),
 		ByTag:     make(map[string]*TagStats),
+	}
+}
+
+// FailedFindings returns the FAILED findings, reading the deprecated
+// Violations field when the scan was written by an older version.
+func (s *ScanResult) FailedFindings() []Finding {
+	failures := make([]Finding, 0, len(s.Findings))
+	for _, finding := range s.Findings {
+		if finding.Status == StatusFailed {
+			failures = append(failures, finding)
+		}
+	}
+
+	if len(failures) == 0 && len(s.Violations) > 0 {
+		failures = ViolationsToFindings(s.Violations)
+	}
+
+	return failures
+}
+
+// ResourceRef is the inventory entry of a scanned resource: what identifies it, without its tags.
+type ResourceRef struct {
+	// Identity is Resource.Identity(), the key diff compares resources by.
+	Identity string `json:"identity"`
+
+	// ID is the cloud-specific resource identifier.
+	ID string `json:"id"`
+
+	// ARN is the Amazon Resource Name, when the resource has one.
+	ARN string `json:"arn,omitempty"`
+
+	// Type is the resource type.
+	Type string `json:"type"`
+
+	// Provider is the cloud provider.
+	Provider string `json:"provider"`
+
+	// Account is the cloud account/project identifier.
+	Account string `json:"account"`
+
+	// Region is the cloud region where the resource exists.
+	Region string `json:"region"`
+}
+
+// Ref returns the inventory entry of the resource.
+func (r *Resource) Ref() ResourceRef {
+	return ResourceRef{
+		Identity: r.Identity(),
+		ID:       r.ID,
+		ARN:      r.ARN,
+		Type:     r.Type,
+		Provider: r.Provider,
+		Account:  r.Account,
+		Region:   r.Region,
+	}
+}
+
+// Resource rebuilds the resource the entry was taken from, without its name or tags.
+func (r ResourceRef) Resource() Resource {
+	return Resource{
+		ID:       r.ID,
+		ARN:      r.ARN,
+		Type:     r.Type,
+		Provider: r.Provider,
+		Account:  r.Account,
+		Region:   r.Region,
 	}
 }
 
@@ -66,7 +137,8 @@ type AccountStats struct {
 	CompliancePct float64 `json:"compliance_percent"`
 }
 
-// TagStats contains per-tag statistics.
+// TagStats contains per-tag statistics. An optional tag only counts the
+// resources that carry it.
 type TagStats struct {
 	// Tag is the tag name.
 	Tag string `json:"tag"`
@@ -77,7 +149,7 @@ type TagStats struct {
 	// Present is the count of resources with this tag.
 	Present int `json:"present"`
 
-	// Missing is the count of resources missing this tag.
+	// Missing is the count of resources missing this tag; always 0 for an optional tag.
 	Missing int `json:"missing"`
 
 	// Invalid is the count of resources with invalid values.
@@ -100,9 +172,11 @@ func (s *ScanResult) CalculateCompliance() {
 	}
 
 	for _, tag := range s.ByTag {
-		total := tag.Present + tag.Missing
-		if total > 0 {
+		switch total := tag.Present + tag.Missing; {
+		case total > 0:
 			tag.CompliancePct = float64(tag.Present-tag.Invalid) / float64(total) * 100
+		case !tag.Required:
+			tag.CompliancePct = 100
 		}
 	}
 }

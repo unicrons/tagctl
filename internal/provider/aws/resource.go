@@ -1,7 +1,9 @@
 package aws
 
 import (
+	"context"
 	"errors"
+	"slices"
 	"time"
 
 	logstypes "github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs/types"
@@ -38,8 +40,8 @@ func (p *Provider) resource(region, resourceType, id, name, arn string, tags map
 
 // bulkResource builds an AWS resource whose tags come from the region's bulk
 // source. Only valid after requireBulkTags returned true.
-func (p *Provider) bulkResource(region, resourceType, id, name, arn string, created *time.Time) types.Resource {
-	return p.resource(region, resourceType, id, name, arn, p.bulkTags(region, arn), created)
+func (p *Provider) bulkResource(ctx context.Context, region, resourceType, id, name, arn string, created *time.Time) types.Resource {
+	return p.resource(region, resourceType, id, name, arn, p.bulkTags(ctx, region, arn), created)
 }
 
 // tagsToMap converts an SDK tag slice into a map using the given accessors.
@@ -54,21 +56,19 @@ func tagsToMap[T any](tags []T, key, value func(T) *string) map[string]string {
 	return result
 }
 
-// notSubscribedCodes are API error codes that mean the service is not set up
-// in the account or region (no subscription, not initialised, not the
-// delegated administrator), not that discovery failed.
-var notSubscribedCodes = map[string]bool{
-	"UninitializedAccountException": true, // DRS
-	"ResourceNotFoundException":     true, // Shield without a subscription
-	"InvalidOperationException":     true, // FMS outside the admin account
-	"SubscriptionRequiredException": true,
-	"OptInRequired":                 true,
-}
+// notSubscribedCodes are the API error codes any service answers with when
+// the account never signed up for it.
+var notSubscribedCodes = []string{"SubscriptionRequiredException", "OptInRequired"}
 
-// notSubscribed reports whether err means the service is unavailable here.
-func notSubscribed(err error) bool {
+// notSubscribed reports whether err says the service is not set up here: one
+// of notSubscribedCodes or of serviceCodes, the codes of the caller's service.
+func notSubscribed(err error, serviceCodes ...string) bool {
 	var apiErr smithy.APIError
-	return errors.As(err, &apiErr) && notSubscribedCodes[apiErr.ErrorCode()]
+	if !errors.As(err, &apiErr) {
+		return false
+	}
+	code := apiErr.ErrorCode()
+	return slices.Contains(notSubscribedCodes, code) || slices.Contains(serviceCodes, code)
 }
 
 // resourceGone reports whether a tag read failed because the resource was

@@ -49,6 +49,11 @@ func init() {
 func runDiff(cmd *cobra.Command, args []string) error {
 	failOnRegression, _ := cmd.Flags().GetBool("fail-on-regression")
 
+	format, err := outputFormatFor(cmd, formatTable, formatJSON)
+	if err != nil {
+		return err
+	}
+
 	baselinePath, currentPath, err := resolveDiffInputs(args)
 	if err != nil {
 		return err
@@ -67,10 +72,12 @@ func runDiff(cmd *cobra.Command, args []string) error {
 	const diffConsequence = "new, removed and resolved counts may be wrong"
 	warnPartialScan(os.Stderr, baselinePath, baseline, diffConsequence)
 	warnPartialScan(os.Stderr, currentPath, current, diffConsequence)
+	warnNoInventory(os.Stderr, baselinePath, baseline)
+	warnNoInventory(os.Stderr, currentPath, current)
 
 	result := engine.Diff(baseline, current)
 
-	if strings.ToLower(outputFormat) == formatJSON {
+	if format == formatJSON {
 		if err := printJSON(result); err != nil {
 			return err
 		}
@@ -204,7 +211,7 @@ func printDiffTable(result *types.DiffResult, baselinePath, currentPath string) 
 		fmt.Println("Regressions:")
 		for _, f := range result.Regressions {
 			fmt.Printf("  ✗ %s %s (%s) — %s\n",
-				f.Resource.Type, f.Resource.ID, f.Resource.Account, f.Message())
+				printable(f.Resource.Type), printable(f.Resource.ID), printable(f.Resource.Account), printable(f.Message()))
 		}
 		fmt.Println()
 	}
@@ -213,7 +220,7 @@ func printDiffTable(result *types.DiffResult, baselinePath, currentPath string) 
 		fmt.Println("Resolved:")
 		for _, f := range result.Resolved {
 			fmt.Printf("  ✓ %s %s (%s) — tag '%s' is now compliant\n",
-				f.Resource.Type, f.Resource.ID, f.Resource.Account, f.Tag)
+				printable(f.Resource.Type), printable(f.Resource.ID), printable(f.Resource.Account), printable(f.Tag))
 		}
 		fmt.Println()
 	}
@@ -243,7 +250,7 @@ func printTagDeltas(result *types.DiffResult) {
 	fmt.Println("By tag:")
 	for _, delta := range moved {
 		fmt.Printf("  %-24s %5.1f%% → %5.1f%%  (%s)\n",
-			delta.Tag, delta.CompliancePctBefore, delta.CompliancePctAfter, signedPct(delta.Delta()))
+			printable(delta.Tag), delta.CompliancePctBefore, delta.CompliancePctAfter, signedPct(delta.Delta()))
 	}
 	fmt.Println()
 }

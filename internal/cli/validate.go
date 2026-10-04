@@ -25,6 +25,10 @@ Examples:
 }
 
 func runValidate(cmd *cobra.Command, args []string) error {
+	if _, err := outputFormatFor(cmd, formatTable); err != nil {
+		return err
+	}
+
 	configFile := viper.ConfigFileUsed()
 	if configFile == "" {
 		return fmt.Errorf("no config file found. Run 'tagctl init' to create one")
@@ -155,7 +159,7 @@ func (r *validationReport) print() error {
 	if len(r.warnings) > 0 {
 		fmt.Println("Warnings:")
 		for _, w := range r.warnings {
-			fmt.Printf("  ⚠ %s\n", w)
+			fmt.Printf("  ⚠ %s\n", printable(w))
 		}
 		fmt.Println()
 	}
@@ -163,7 +167,7 @@ func (r *validationReport) print() error {
 	if len(r.errors) > 0 {
 		fmt.Println("Errors:")
 		for _, e := range r.errors {
-			fmt.Printf("  ✗ %s\n", e)
+			fmt.Printf("  ✗ %s\n", printable(e))
 		}
 		return fmt.Errorf("configuration has %d error(s)", len(r.errors))
 	}

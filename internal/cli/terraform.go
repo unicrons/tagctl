@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 
 	"github.com/unicrons/tagctl/internal/engine"
 	"github.com/unicrons/tagctl/internal/log"
@@ -68,6 +69,10 @@ func runTerraform(cmd *cobra.Command, args []string) error {
 	statePath, _ := cmd.Flags().GetString("state")
 	changedOnly, _ := cmd.Flags().GetBool("changed-only")
 	gateOpts := readGateFlags(cmd)
+	format, err := gateOpts.stdoutFormat(cmd, formatTable, formatJSON)
+	if err != nil {
+		return err
+	}
 
 	if statePath != "" && cmd.Flags().Changed("plan") {
 		return fmt.Errorf("use --plan or --state, not both")
@@ -89,14 +94,20 @@ func runTerraform(cmd *cobra.Command, args []string) error {
 	resources := parsed.Resources
 
 	if len(resources) == 0 {
-		fmt.Println("No taggable resources found in the Terraform input.")
+		fmt.Fprintln(os.Stderr, "No taggable resources found in the Terraform input.")
 		if len(parsed.Unreadable) > 0 {
 			fmt.Fprintf(os.Stderr, "%d resources were skipped because their tags are only known after apply.\n", len(parsed.Unreadable))
 		}
 		if changedOnly {
-			fmt.Println("With --changed-only, only resources being created or updated are checked.")
+			fmt.Fprintln(os.Stderr, "With --changed-only, only resources being created or updated are checked.")
 		}
-		return nil
+		empty := types.NewScanResult()
+		if format == formatJSON {
+			if err = printJSON(empty); err != nil {
+				return err
+			}
+		}
+		return gateOpts.writeReports(empty, viper.ConfigFileUsed())
 	}
 
 	cfg, err := loadConfig()
@@ -111,15 +122,16 @@ func runTerraform(cmd *cobra.Command, args []string) error {
 
 	result := evaluator.EvaluateResources(resources)
 
-	if strings.ToLower(outputFormat) == formatJSON {
+	switch format {
+	case formatJSON:
 		if err := printJSON(result); err != nil {
 			return err
 		}
-	} else {
+	case formatTable:
 		printTerraformResult(result, source, changedOnly)
 	}
 
-	if reportErr := gateOpts.writeReports(result, cfgFile); reportErr != nil {
+	if reportErr := gateOpts.writeReports(result, viper.ConfigFileUsed()); reportErr != nil {
 		return reportErr
 	}
 
@@ -175,7 +187,7 @@ func printTerraformResult(result *types.ScanResult, source string, changedOnly b
 	fmt.Printf("Source: %s (%s)\n", source, scope)
 	fmt.Printf("Checked %d resources against the tag policy\n\n", result.TotalResources)
 
-	failures := failedFindings(result)
+	failures := result.FailedFindings()
 
 	if len(failures) == 0 {
 		fmt.Printf("All %d resources satisfy the policy.\n", result.TotalResources)
@@ -197,23 +209,12 @@ func printTerraformResult(result *types.ScanResult, source string, changedOnly b
 	sort.Strings(addresses)
 
 	for _, address := range addresses {
-		fmt.Printf("  %s\n", address)
+		fmt.Printf("  %s\n", printable(address))
 		for _, finding := range byAddress[address] {
-			fmt.Printf("      ✗ %s\n", finding.Message())
+			fmt.Printf("      ✗ %s\n", printable(finding.Message()))
 		}
 	}
 
 	fmt.Println()
 	fmt.Println("Fix the tags in your Terraform, or set them with the provider's default_tags.")
-}
-
-// failedFindings returns only the failures of an evaluation.
-func failedFindings(result *types.ScanResult) []types.Finding {
-	failures := make([]types.Finding, 0, len(result.Findings))
-	for _, finding := range result.Findings {
-		if finding.Status == types.StatusFailed {
-			failures = append(failures, finding)
-		}
-	}
-	return failures
 }

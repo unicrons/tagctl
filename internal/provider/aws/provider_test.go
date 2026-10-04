@@ -3,8 +3,19 @@ package aws
 import (
 	"context"
 	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
+	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/sts"
 
 	"github.com/unicrons/tagctl/internal/types"
 )
@@ -85,6 +96,195 @@ func TestDiscover_ForgetsSkipsOfAPreviousRun(t *testing.T) {
 	}
 }
 
+func TestDiscover_BoundsListersAcrossRegionsAndFinishesTheirFanOuts(t *testing.T) {
+	p := testProvider()
+	p.regions = make([]string, 17)
+	for i := range p.regions {
+		p.regions[i] = fmt.Sprintf("region-%d", i)
+	}
+	items := make([]int, 2*maxConcurrentAPICalls)
+
+	var inFlight, peak atomic.Int64
+	var fillOnce sync.Once
+	filled := make(chan struct{})
+	list := func() ([]types.Resource, error) {
+		n := inFlight.Add(1)
+		defer inFlight.Add(-1)
+		raiseTo(&peak, n)
+		if n == maxConcurrentListers {
+			fillOnce.Do(func() { close(filled) })
+		}
+		select {
+		case <-filled:
+		case <-time.After(5 * time.Second):
+			return nil, errors.New("lister slots never filled")
+		}
+		time.Sleep(time.Millisecond)
+		return forEachConcurrently(context.Background(), items, func(int) []types.Resource { return one(types.Resource{}) }), nil
+	}
+
+	var globals []globalLister
+	for i := range 3 {
+		globals = append(globals, globalLister{fmt.Sprintf("global %d", i), func(context.Context) ([]types.Resource, error) { return list() }})
+	}
+	var regional []regionalLister
+	for i := range 10 {
+		regional = append(regional, regionalLister{fmt.Sprintf("regional %d", i), func(context.Context, string) ([]types.Resource, error) { return list() }})
+	}
+
+	resources, err := p.discover(context.Background(), globals, regional)
+
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	if want := (len(globals) + len(regional)*len(p.regions)) * len(items); len(resources) != want {
+		t.Errorf("got %d resources, want %d from every lister and fan-out item", len(resources), want)
+	}
+	if got := peak.Load(); got != maxConcurrentListers {
+		t.Errorf("peak of %d listers in flight, want exactly %d", got, maxConcurrentListers)
+	}
+}
+
+func TestDiscover_StartsNoQueuedListerOnceCancelled(t *testing.T) {
+	p := testProvider()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var started atomic.Int64
+	regional := make([]regionalLister, 2*maxConcurrentListers)
+	for i := range regional {
+		regional[i] = regionalLister{fmt.Sprintf("regional %d", i), func(listCtx context.Context, _ string) ([]types.Resource, error) {
+			if started.Add(1) == maxConcurrentListers {
+				cancel()
+			}
+			<-listCtx.Done()
+			return nil, listCtx.Err()
+		}}
+	}
+
+	_, err := p.discover(ctx, nil, regional)
+
+	if got := started.Load(); got != maxConcurrentListers {
+		t.Errorf("%d listers started, want only the %d that held a slot before the cancel", got, maxConcurrentListers)
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+	var joined interface{ Unwrap() []error }
+	if !errors.As(err, &joined) {
+		t.Fatalf("err = %v, want joined errors", err)
+	}
+	var accountErrs []string
+	for _, e := range joined.Unwrap() {
+		if msg := e.Error(); strings.HasPrefix(msg, "account 123456789012: ") {
+			accountErrs = append(accountErrs, msg)
+		}
+	}
+	want := []string{fmt.Sprintf("account 123456789012: discovery interrupted, %d lister(s) not started: context canceled", maxConcurrentListers)}
+	if !slices.Equal(accountErrs, want) {
+		t.Errorf("account-level errors = %q\nwant one context error %q", accountErrs, want)
+	}
+}
+
+func TestForEachConcurrently_StopsDispatchingOnceCancelled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	items := make([]int, 10*maxConcurrentAPICalls)
+
+	var started atomic.Int64
+	resources := forEachConcurrently(ctx, items, func(int) []types.Resource {
+		if started.Add(1) == maxConcurrentAPICalls {
+			cancel()
+		}
+		<-ctx.Done()
+		return one(types.Resource{})
+	})
+
+	if got := started.Load(); got != maxConcurrentAPICalls {
+		t.Errorf("%d items dispatched, want only the %d in flight at the cancel", got, maxConcurrentAPICalls)
+	}
+	if len(resources) != maxConcurrentAPICalls {
+		t.Errorf("got %d resources, want the %d the in-flight calls returned", len(resources), maxConcurrentAPICalls)
+	}
+}
+
+func TestForEachConcurrently_CancelledBeforeTheFirstItemRunsNothing(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	resources := forEachConcurrently(ctx, []int{1, 2, 3}, func(int) []types.Resource {
+		t.Error("item dispatched after the cancel")
+		return nil
+	})
+
+	if len(resources) != 0 {
+		t.Errorf("got %d resources, want none", len(resources))
+	}
+}
+
+func raiseTo(peak *atomic.Int64, n int64) {
+	for {
+		old := peak.Load()
+		if n <= old || peak.CompareAndSwap(old, n) {
+			return
+		}
+	}
+}
+
+// loadSharedConfig loads the default profile from the given shared config
+// file content, isolated from the environment and ~/.aws.
+func loadSharedConfig(content string) func(*testing.T) aws.Config {
+	return func(t *testing.T) aws.Config {
+		t.Helper()
+		dir := t.TempDir()
+		configFile := filepath.Join(dir, "config")
+		if err := os.WriteFile(configFile, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		for _, key := range []string{"AWS_PROFILE", "AWS_DEFAULT_PROFILE", "AWS_RETRY_MODE", "AWS_MAX_ATTEMPTS"} {
+			t.Setenv(key, "")
+		}
+		cfg, err := config.LoadDefaultConfig(context.Background(),
+			config.WithSharedConfigFiles([]string{configFile}),
+			config.WithSharedCredentialsFiles([]string{filepath.Join(dir, "credentials")}),
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return cfg
+	}
+}
+
+func TestWithRetryDefaults(t *testing.T) {
+	literal := func(cfg aws.Config) func(*testing.T) aws.Config {
+		return func(*testing.T) aws.Config { return cfg }
+	}
+	tests := []struct {
+		name         string
+		cfg          func(*testing.T) aws.Config
+		wantMode     aws.RetryMode
+		wantAttempts int
+	}{
+		{"nothing set retries adaptively", literal(aws.Config{}), aws.RetryModeAdaptive, maxRetryAttempts},
+		{"a mode from the environment keeps the higher attempts", literal(aws.Config{RetryMode: aws.RetryModeStandard}), aws.RetryModeStandard, maxRetryAttempts},
+		{"environment values win", literal(aws.Config{RetryMode: aws.RetryModeStandard, RetryMaxAttempts: 2}), aws.RetryModeStandard, 2},
+		{"a loaded profile without retry keys gets the defaults", loadSharedConfig("[default]\nregion = us-east-1\n"), aws.RetryModeAdaptive, maxRetryAttempts},
+		{"retry keys in a loaded profile win", loadSharedConfig("[default]\nretry_mode = standard\nmax_attempts = 2\n"), aws.RetryModeStandard, 2},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			opts := sts.NewFromConfig(withRetryDefaults(tt.cfg(t))).Options()
+
+			if opts.RetryMode != tt.wantMode {
+				t.Errorf("RetryMode = %q, want %q", opts.RetryMode, tt.wantMode)
+			}
+			if got := opts.Retryer.MaxAttempts(); got != tt.wantAttempts {
+				t.Errorf("MaxAttempts = %d, want %d", got, tt.wantAttempts)
+			}
+		})
+	}
+}
+
 func TestGetResourceType(t *testing.T) {
 	p := &Provider{}
 
@@ -96,7 +296,7 @@ func TestGetResourceType(t *testing.T) {
 		{"vol-0abc123def456", "ebs_volume"},
 		{"arn:aws:rds:us-east-1:123456789012:db:mydb", "rds_instance"},
 		{"arn:aws:lambda:us-east-1:123456789012:function:myfunction", "lambda_function"},
-		{"my-bucket-name", "s3_bucket"},
+		{"arn:aws:s3:::my-bucket-name", "s3_bucket"},
 	}
 
 	for _, tt := range tests {
@@ -109,54 +309,62 @@ func TestGetResourceType(t *testing.T) {
 	}
 }
 
-func TestExtractRegionFromARN(t *testing.T) {
+func TestRegionForARN(t *testing.T) {
 	tests := []struct {
-		arn            string
-		expectedRegion string
+		arn     string
+		want    string
+		wantErr bool
 	}{
-		{"arn:aws:rds:us-east-1:123456789012:db:mydb", "us-east-1"},
-		{"arn:aws:lambda:eu-west-1:123456789012:function:myfunction", "eu-west-1"},
-		{"arn:aws:ec2:ap-southeast-2:123456789012:instance/i-0abc123", "ap-southeast-2"},
-		{"invalid-arn", ""},
-		{"", ""},
+		{"arn:aws:rds:us-east-1:123456789012:db:mydb", "us-east-1", false},
+		{"arn:aws:lambda:eu-west-1:123456789012:function:myfunction", "eu-west-1", false},
+		{"arn:aws-cn:rds:cn-north-1:123456789012:db:mydb", "cn-north-1", false},
+		{"arn:aws-us-gov:lambda:us-gov-west-1:123456789012:function:fn", "us-gov-west-1", false},
+		{"arn:aws:iam::123456789012:role/admin", "", true},
+		{"arn:aws:s3:::my-bucket", "", true},
+		{"arn:aws:rds:us-east-1", "", true},
+		{"invalid-arn", "", true},
+		{"", "", true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.arn, func(t *testing.T) {
-			result := extractRegionFromARN(tt.arn)
-			if result != tt.expectedRegion {
-				t.Errorf("extractRegionFromARN(%q) = %q, want %q", tt.arn, result, tt.expectedRegion)
+			got, err := regionForARN(tt.arn)
+			if (err != nil) != tt.wantErr || got != tt.want {
+				t.Errorf("regionForARN(%q) = %q, %v; want %q, error %v", tt.arn, got, err, tt.want, tt.wantErr)
 			}
 		})
 	}
 }
 
-func TestSplitARN(t *testing.T) {
-	tests := []struct {
-		arn           string
-		expectedParts []string
-	}{
-		{
-			"arn:aws:rds:us-east-1:123456789012:db:mydb",
-			[]string{"arn", "aws", "rds", "us-east-1", "123456789012", "db", "mydb"},
-		},
-		{
-			"arn:aws:s3:::mybucket",
-			[]string{"arn", "aws", "s3", "", "", "mybucket"},
-		},
+func TestApplyTags_ServiceAppliersRejectAnARNWithoutARegion(t *testing.T) {
+	ids := []string{
+		"arn:aws:rds::123456789012:db:mydb",
+		"arn:aws:lambda::123456789012:function:fn",
+		"arn:aws:sns::123456789012:alerts",
+		"arn:aws:sqs::123456789012:jobs",
+		"arn:aws:autoscaling::123456789012:autoScalingGroup:uuid:autoScalingGroupName/web",
+		"arn:aws:dynamodb::123456789012:table/orders",
+		"arn:aws:ecs::123456789012:cluster/web",
+		"arn:aws:ecs::123456789012:service/web/api",
+		"arn:aws:eks::123456789012:cluster/prod",
+		"arn:aws:elasticache::123456789012:cluster:sessions",
+		"arn:aws:elasticfilesystem::123456789012:file-system/fs-0abc",
+		"arn:aws:ecr::123456789012:repository/api",
+		"arn:aws:kms::123456789012:key/1234abcd",
+		"arn:aws:kinesis::123456789012:stream/events",
+		"arn:aws:logs::123456789012:log-group:/aws/lambda/fn",
+		"arn:aws:lightsail::123456789012:Instance/abc",
+		"arn:aws:elasticloadbalancing::123456789012:loadbalancer/app/web/abc",
+		"arn:aws:elasticloadbalancing::123456789012:loadbalancer/classic-web",
+		"arn:aws:elasticloadbalancing::123456789012:targetgroup/web/abc",
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.arn, func(t *testing.T) {
-			result := splitARN(tt.arn)
-			if len(result) != len(tt.expectedParts) {
-				t.Errorf("splitARN(%q) returned %d parts, want %d", tt.arn, len(result), len(tt.expectedParts))
-				return
-			}
-			for i, part := range result {
-				if part != tt.expectedParts[i] {
-					t.Errorf("splitARN(%q)[%d] = %q, want %q", tt.arn, i, part, tt.expectedParts[i])
-				}
+	// A zero Provider has no client caches: creating a client would panic.
+	p := &Provider{}
+	for _, id := range ids {
+		t.Run(id, func(t *testing.T) {
+			err := p.ApplyTags(context.Background(), id, map[string]string{"owner": "x"})
+			if err == nil || !strings.Contains(err.Error(), id) {
+				t.Errorf("ApplyTags() err = %v, want an error naming the ARN", err)
 			}
 		})
 	}
@@ -167,34 +375,6 @@ func TestEC2TagsToMap(t *testing.T) {
 	result := ec2TagsToMap(nil)
 	if len(result) != 0 {
 		t.Errorf("ec2TagsToMap(nil) returned %d tags, want 0", len(result))
-	}
-}
-
-func TestBuildEC2ARN(t *testing.T) {
-	tests := []struct {
-		accountID    string
-		region       string
-		resourceType string
-		resourceID   string
-		expectedARN  string
-	}{
-		{
-			"123456789012", "us-east-1", "instance", "i-0abc123",
-			"arn:aws:ec2:us-east-1:123456789012:instance/i-0abc123",
-		},
-		{
-			"123456789012", "eu-west-1", "volume", "vol-0abc123",
-			"arn:aws:ec2:eu-west-1:123456789012:volume/vol-0abc123",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.expectedARN, func(t *testing.T) {
-			result := buildEC2ARN(tt.accountID, tt.region, tt.resourceType, tt.resourceID)
-			if result != tt.expectedARN {
-				t.Errorf("buildEC2ARN() = %q, want %q", result, tt.expectedARN)
-			}
-		})
 	}
 }
 
@@ -249,16 +429,15 @@ func TestGetResourceType_AllSupportedServices(t *testing.T) {
 		{"arn:aws:wafv2:us-east-1:123456789012:regional/webacl/web/abc", "tagging_api"},
 		{"arn:aws:lightsail:us-east-1:123456789012:Instance/abc", "lightsail"},
 		{"arn:aws:globalaccelerator::123456789012:accelerator/abc", "global_accelerator"},
-		{"my-bucket-name", "s3_bucket"},
+		{"arn:aws:s3:::my-bucket-name", "s3_bucket"},
 	}
 
-	appliers := p.tagAppliers()
 	for _, tt := range tests {
 		t.Run(tt.expectedType, func(t *testing.T) {
 			if result := p.getResourceType(tt.resourceID); result != tt.expectedType {
 				t.Errorf("getResourceType(%q) = %q, want %q", tt.resourceID, result, tt.expectedType)
 			}
-			if appliers[tt.expectedType] == nil {
+			if tagAppliers[tt.expectedType] == nil && regionTagAppliers[tt.expectedType] == nil {
 				t.Errorf("no tag applier registered for %q", tt.expectedType)
 			}
 		})

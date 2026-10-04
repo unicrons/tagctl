@@ -97,3 +97,29 @@ terraform  ──▶ shift left: block it before it exists
 
 Each stage reuses the same policy and the same `Finding` model, so a violation
 means the same thing wherever it is reported.
+
+## Providers
+
+The CLI runs AWS and Kubernetes today. The state of each provider is in the
+[provider status](/development#provider-status) table.
+
+- **Kubernetes**: `scan`, `plan` and `apply` cover pods, deployments, services,
+  namespaces, config maps and secrets. What is left is more resource types
+  (StatefulSets, DaemonSets, Jobs) and annotations as a second tag source for
+  values labels cannot hold.
+- **GCP** and **Azure**: not started. `clouds.gcp` and `clouds.azure` are
+  reserved config keys. The evaluator, planner and report writers are
+  cloud-agnostic, so a new provider implements `ListResources` and `ApplyTags`
+  and inherits the rest.
+
+Contributions are welcome. The
+[contributing guide](https://github.com/unicrons/tagctl/blob/main/CONTRIBUTING.md#adding-a-new-provider)
+describes how to add a provider.
+
+## Where to start
+
+A provider is a large first contribution. Smaller, self-contained tasks carry
+the
+[`good first issue`](https://github.com/unicrons/tagctl/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22)
+label. You can work on them without an AWS account: see
+[Testing without an AWS account](/development#testing-without-an-aws-account).

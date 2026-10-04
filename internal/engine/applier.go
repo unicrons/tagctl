@@ -55,6 +55,12 @@ type accountProvider interface {
 	AccountID() string
 }
 
+// regionalTagger is implemented by providers that need a resource's region to
+// address it, because the tagging identifier alone does not carry one.
+type regionalTagger interface {
+	ApplyTagsInRegion(ctx context.Context, resourceID, region string, tags map[string]string) error
+}
+
 // providerKey addresses a provider by name and, when known, account, so a
 // plan entry is only ever applied through the credentials of its own account.
 func providerKey(name, account string) string {
@@ -181,11 +187,14 @@ func (a *RealApplier) applyResourceChanges(ctx context.Context, changes []types.
 	for _, change := range changes {
 		tags[change.Tag] = change.NewValue
 	}
+	if regional, ok := p.(regionalTagger); ok {
+		return regional.ApplyTagsInRegion(ctx, taggingIdentifier(resource), resource.Region, tags)
+	}
 	return p.ApplyTags(ctx, taggingIdentifier(resource), tags)
 }
 
 // idAddressedTypes lists the AWS resource types whose tagging API takes the
-// bare ID (EC2 family) or name (S3). Every other type is addressed by ARN.
+// bare ID (EC2 family). Every other type is addressed by ARN.
 var idAddressedTypes = map[string]bool{
 	"aws_instance":         true,
 	"aws_ami":              true,
@@ -199,7 +208,6 @@ var idAddressedTypes = map[string]bool{
 	"aws_nat_gateway":      true,
 	"aws_vpc_endpoint":     true,
 	"aws_eip":              true,
-	"aws_s3_bucket":        true,
 }
 
 // taggingIdentifier returns the identifier a provider expects when tagging a

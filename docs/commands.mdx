@@ -11,8 +11,8 @@ These flags work with all commands:
 | Flag | Short | Default | Description |
 |------|-------|---------|-------------|
 | `--config` | `-c` | `./tagctl.yaml` | Path to configuration file |
-| `--output` | `-o` | `table` | Output format: `table` or `json`; `csv` is honoured by `scan` only |
-| `--log-level` | `-l` | `error` | Log level: `error`, `info`, `debug`; an unknown value falls back to `info` with a warning |
+| `--output` | `-o` | `table` | Format printed on stdout, case-insensitive: `table`, `json` or `csv` for `scan` and `cost`; `table` or `json` for `plan`, `diff`, `normalize` and `terraform`; `json` for `evaluate`, which is also its default; `table` for the other commands. Any other value exits `2` |
+| `--log-level` | `-l` | `error` | Log level: `error`, `info`, `debug`, case-insensitive. Any other value exits `2` |
 | `--version` | - | - | Print the version and exit |
 | `--help` | `-h` | - | Show help for command |
 
@@ -24,6 +24,37 @@ These flags work with all commands:
 | `info` | Show what each step is doing |
 | `debug` | Show detailed trace for troubleshooting. All levels write to stderr, so stdout stays pipeable |
 
+### Standard output
+
+stdout carries only the output `--output` selects, so `tagctl scan -o json | jq`
+and `tagctl scan -o csv > findings.csv` work without filtering. The banner,
+spinners, the demo mode notice, the partial scan warnings of `scan`, `plan`,
+`diff` and `--baseline`, the `apply` summary and confirmation prompt, and
+notices about files written (`Detailed results saved to`, `Plan saved to`,
+`Plan written to`, `Created tagctl.yaml`) go to stderr. `validate` prints its
+warnings on stdout, since they are part of the report it was asked for.
+
+The table output of `scan`, `plan`, `diff`, `normalize`, `terraform`, `cost`
+(its `--trend` section included) and `validate`, the report and plan paths
+`scan` and `plan` print on stderr, every log line and the final `Error:` line
+replace control characters in resource names, tag keys and values with `?`, so
+a hostile tag value cannot send escape sequences to your terminal. JSON and CSV
+output keep the original values.
+
+### Colour
+
+Colour is decided per stream. ANSI colour codes are written to stdout or stderr
+only when that stream is a terminal, so `tagctl scan > report.txt` and CI logs
+get plain text. Setting `NO_COLOR` to any non-empty value turns colour off on a
+terminal too:
+
+```bash
+NO_COLOR=1 tagctl scan
+```
+
+Spinners animate only when stderr is a terminal. Otherwise each step prints its
+message once, followed by its outcome (`✓` or `✗`).
+
 ## Exit codes
 
 Every command exits with one of three codes, so a pipeline can tell a policy
@@ -33,12 +64,12 @@ that failed from a check that could not run:
 |------|---------|
 | `0` | Success, and every gate that was requested passed |
 | `1` | A policy gate failed: `--fail-under` or `--fail-on-new` on `scan`, `evaluate` and `terraform`, `--fail-under` on `cost`, `diff --fail-on-regression`, `normalize --fail-on-drift` |
-| `2` | Any other error: an unknown flag or wrong arguments, an invalid config, an unreadable input or baseline file, `--fail-on-new` without `--baseline`, a [partial scan](#partial-scans) without `--allow-partial`, an `apply` with failed changes |
+| `2` | Any other error: an unknown flag or wrong arguments, an `--output` format the command does not print, an unknown `--log-level`, more than one report sent to `-`, an invalid config, an unreadable input or baseline file, `--fail-on-new` without `--baseline`, a [partial scan](#partial-scans) without `--allow-partial`, an `apply` with failed changes |
 
 The reason is printed to stderr after `Error:`. An unknown command
 (`tagctl nosuch`) exits `2`, but `tagctl help <topic>` with an unknown topic
-prints the usage and exits `0`. Ctrl-C or SIGTERM makes `scan`, `apply` and
-`cost` stop and exit `2`; any other command is ended by the signal itself.
+prints the usage and exits `0`. Ctrl-C or SIGTERM makes `scan`, `plan`, `apply`
+and `cost` stop and exit `2`; any other command is ended by the signal itself.
 
 ## tagctl init
 
@@ -52,6 +83,14 @@ tagctl init [flags]
   Name of the config file to create
 </ParamField>
 
+<ParamField path="--template" type="string" default="default">
+  Policy template to start from: `default`, `finops`, `security` or `well-architected`. An unknown name is rejected with the list of valid ones and nothing is written
+</ParamField>
+
+<ParamField path="--list-templates" type="boolean" default="false">
+  Print the available templates, one per line, and exit without writing a file
+</ParamField>
+
 <CodeGroup>
 ```bash Basic
 tagctl init
@@ -60,7 +99,34 @@ tagctl init
 ```bash Custom name
 tagctl init --name production.yaml
 ```
+
+```bash From a template
+tagctl init --template finops
+```
+
+```bash List templates
+tagctl init --list-templates
+```
 </CodeGroup>
+
+### Templates
+
+Every template is a complete configuration that `tagctl validate` accepts as
+written. They differ in the tag policy and the auto-fix rules:
+
+| Template | Required tags | Optional tags |
+|----------|---------------|---------------|
+| `default` | `environment`, `cost-center`, `owner` | `project`, `team` |
+| `finops` | `cost-center`, `owner`, `environment`, `project` | `application`, `business-unit` |
+| `security` | `data-classification`, `owner`, `environment`, `compliance` | `security-contact`, `exposure` |
+| `well-architected` | `application`, `environment`, `owner`, `cost-center`, `project`, `confidentiality`, `compliance` | `application-role`, `cluster`, `version`, `business-unit`, `customer` |
+
+`well-architected` follows the technical, business and security tag categories of
+the AWS whitepaper [Best Practices for Tagging AWS Resources](https://docs.aws.amazon.com/whitepapers/latest/tagging-best-practices/tagging-best-practices.html).
+
+The allowed values, patterns and default owners are placeholders: edit them to
+match your organisation before the first `plan`. `init` never overwrites an
+existing file.
 
 ## tagctl validate
 
@@ -122,6 +188,10 @@ tagctl scan [flags]
   AWS region(s) to scan; overrides `regions` in the config file. If omitted, all available regions are discovered and scanned. Also filters S3 buckets by their region.
 </ParamField>
 
+<ParamField path="--resource-type" type="string[]" default="every type">
+  Only evaluate and report resource types matching this glob (`aws_s3_*`, `aws_instance`); repeat the flag to add more. The syntax is the one `ignore.resources` uses (Go `path.Match`: `*`, `?`, `[a-z]`), a comma is not a separator, and a malformed glob is rejected before anything is scanned. `ignore` rules still apply to what is left. See [Scanning some resource types](#scanning-some-resource-types)
+</ParamField>
+
 <ParamField path="--profile, -p" type="string">
   AWS profile from `~/.aws/config`; overrides `profile` in the config (which must have zero or one AWS entry)
 </ParamField>
@@ -140,6 +210,14 @@ tagctl scan [flags]
 
 <ParamField path="--allow-partial" type="boolean" default="false">
   Succeed with a warning on stderr when discovery failed for part of the estate. Without it a [partial scan](#partial-scans) writes its reports and then fails
+</ParamField>
+
+<ParamField path="--output-dir" type="string" default="output">
+  Directory the JSON, CSV and HTML reports are written to; created when missing. See [Output Files](#output-files)
+</ParamField>
+
+<ParamField path="--no-files" type="boolean" default="false">
+  Write no JSON, CSV or HTML report. The stdout output and the [CI gate](#ci-gates) reports are unaffected. Cannot be combined with `--output-dir`
 </ParamField>
 
 <CodeGroup>
@@ -213,15 +291,31 @@ Detailed results saved to:
 ```
 </Accordion>
 
+### Scanning some resource types
+
+```bash
+tagctl scan --resource-type 'aws_s3_*' --resource-type aws_instance
+```
+
+`--resource-type` filters the resources after discovery: every service is
+still listed, then only the matching types are evaluated, counted and
+reported. It narrows the reports and the gate, not the API calls or the scan
+time (use `--region` for that), and a service that cannot be listed still
+makes the scan [partial](#partial-scans) even when its types are filtered out.
+Quote the glob so the shell does not expand it. When nothing matches, the scan
+reports zero resources and warns on stderr. Demo mode (`--mock`) ignores the
+flag with a warning, since its data is fixed.
+
 ### Output Files
 
-Every scan automatically generates reports in the `output/` directory:
+Every scan generates reports in the `output/` directory, or in the one
+`--output-dir` names. `--no-files` writes none of them.
 
 | Format | File | Description |
 |--------|------|-------------|
 | JSON | `scan-TIMESTAMP.json` | Complete scan results with all metadata and findings |
 | CSV | `scan-TIMESTAMP.csv` | All findings (PASS/FAILED) with resource ARNs |
-| HTML | `scan-TIMESTAMP.html` | Standalone visual report: per-tag coverage, resource-type × tag matrix, accounts and a findings table with status filter and pager (25–250 rows or all). No external assets, opens offline; printing shows every row of the active filter |
+| HTML | `scan-TIMESTAMP.html` | Standalone visual report: per-tag coverage, resource-type × tag matrix, accounts, a by-tag-value table (pick a policy tag, such as `owner`, to see resources, compliant resources and compliance per value plus an `(untagged)` row; selecting a value filters the findings to its resources) and a findings table with status filter and pager (25–250 rows or all). No external assets, opens offline; printing shows every row of the active filter |
 
 Each finding includes:
 - **Status**: `PASS` (tag present and valid) or `FAILED` (missing or invalid)
@@ -229,7 +323,7 @@ Each finding includes:
 - **Reason**: Why the finding was generated
 
 <Tip>
-The `--output` flag controls what's printed to stdout. Output files are **always** generated regardless of this flag.
+The `--output` flag controls what's printed to stdout. Output files are generated regardless of it, unless `--no-files` is set. `tagctl diff` and `tagctl normalize` look for the latest scan in `output/`: with another `--output-dir`, pass them the scan files (`tagctl diff reports/scan-A.json reports/scan-B.json`, `tagctl normalize --scan reports/scan-A.json`).
 </Tip>
 
 <Accordion title="JSON output example">
@@ -260,12 +354,36 @@ The `--output` flag controls what's printed to stdout. Output files are **always
       "reason": "missing"
     }
   ],
+  "resources": [
+    {
+      "identity": "arn:aws:ec2:us-east-1:123456789012:instance/i-0abc123",
+      "id": "i-0abc123",
+      "arn": "arn:aws:ec2:us-east-1:123456789012:instance/i-0abc123",
+      "type": "aws_instance",
+      "provider": "aws",
+      "account": "123456789012",
+      "region": "us-east-1"
+    }
+  ],
   "violations": [...],
   "by_account": {...},
   "by_tag": {...}
 }
 ```
 </Accordion>
+
+`resources` is the inventory: one entry per evaluated resource, including those
+no policy tag produced a finding for (an empty policy, or only optional tags the
+resource does not carry). `identity` is the ARN when there is one, otherwise
+`provider/account/region/id` with empty parts dropped; `diff` compares resources
+by it. Scans written by older versions have no `resources` key.
+
+`violations` and `violation_count` repeat the `FAILED` findings for tools that
+read the older key. `by_tag` counts, per policy tag, the resources where the tag
+is `present` or `missing`, and how many of the present ones are `invalid`. An optional tag only counts the resources
+that carry it: its `missing` is always 0, its `compliance_percent` is the share
+of those with a valid value, and it reports 100 when no resource carries it (the
+HTML report shows that tag as not used).
 
 ### Partial scans
 
@@ -286,8 +404,10 @@ HTML reports carry the failures, one entry per provider that failed:
 }
 ```
 
-Both keys are omitted from a complete scan. The CSV, SARIF, JUnit and OCSF
-reports are not marked.
+Both keys are omitted from a complete scan. The SARIF report marks a partial
+scan in `runs[0].invocations[0]`: `executionSuccessful` is `false` and each
+error is a `toolExecutionNotifications` entry. The CSV, JUnit and OCSF reports
+are not marked.
 
 Credentials are checked before discovery starts: an account whose credentials or
 role are rejected at startup stops the scan with an error and no reports.
@@ -310,12 +430,16 @@ Generate a plan to fix tag violations based on scan results.
 tagctl plan [flags]
 ```
 
-<ParamField path="--scan" type="string" default="latest in output/">
+<ParamField path="--scan" type="string" default="latest in --output-dir">
   Path to scan results file to use. If not specified, uses the most recent scan. A [partial scan](#partial-scans) prints a warning: resources it missed get no changes.
 </ParamField>
 
 <ParamField path="--out" type="string" default="output/plan-TIMESTAMP.json">
   Save plan to specific file
+</ParamField>
+
+<ParamField path="--output-dir" type="string" default="output">
+  Directory the latest scan is read from and the plan is written to. Use the one given to `tagctl scan --output-dir`
 </ParamField>
 
 <CodeGroup>
@@ -327,7 +451,7 @@ tagctl plan
 tagctl plan --scan output/scan-20260202-143052.json
 ```
 
-```bash Custom output file (a bare name lands in output/, a path is used as is)
+```bash Custom output file (a bare name lands in --output-dir, a path is used as is)
 tagctl plan --out fixes.json
 ```
 
@@ -356,6 +480,10 @@ Plan saved to: output/plan-20260202-105148.json
 Run 'tagctl apply' to execute this plan.
 ```
 </Accordion>
+
+When the config has no cloud provider, `plan` prints an example plan (demo
+mode) and writes no file, `--out` and `--output-dir` included, so `apply` can
+never pick up example data as a real plan.
 
 ### Change Symbols
 
@@ -390,8 +518,12 @@ a hand-edited `remove`) is rejected when it is loaded, before the confirmation
 prompt, and nothing is written. Interrupting a run (Ctrl-C) stops sending
 changes: the ones not sent yet are reported as failed with `context canceled`.
 
-<ParamField path="--plan" type="string" default="latest in output/">
+<ParamField path="--plan" type="string" default="latest in --output-dir">
   Plan file to apply. If not specified, uses the most recent plan.
+</ParamField>
+
+<ParamField path="--output-dir" type="string" default="output">
+  Directory the latest plan is looked up in
 </ParamField>
 
 <ParamField path="--profile, -p" type="string">
@@ -404,6 +536,10 @@ changes: the ones not sent yet are reported as failed with `context canceled`.
 
 <ParamField path="--auto-approve" type="boolean" default="false">
   Skip confirmation prompt
+</ParamField>
+
+<ParamField path="--interactive, -i" type="boolean" default="false">
+  Review the plan resource by resource and apply only the approved changes (see [Interactive review](#interactive-review)). Cannot be combined with `--auto-approve` and needs a terminal on stdin
 </ParamField>
 
 <ParamField path="--mock" type="boolean" default="false">
@@ -421,6 +557,10 @@ tagctl apply --plan output/plan-20260202-143052.json
 
 ```bash Auto-approve (CI/CD)
 tagctl apply --auto-approve
+```
+
+```bash Review each resource
+tagctl apply --interactive
 ```
 
 ```bash Full workflow
@@ -458,6 +598,59 @@ Duration: 312ms
 Run 'tagctl scan' to verify compliance.
 ```
 </Accordion>
+
+### Interactive review
+
+`--interactive` replaces the single yes/no confirmation with one question per
+resource. Changes are grouped by resource identity (the ARN), so two resources
+that share a name in different regions are asked about separately. Each
+question lists the tags that would be written:
+
+```
+[1/3] aws_instance web-prod-1 (arn:aws:ec2:us-east-1:123456789012:instance/i-0abc123)
+  + environment: "prod"
+  ~ team: "Backend" -> "backend"
+Apply these changes? [y]es / [n]o / [a]ll remaining / [q]uit:
+```
+
+| Answer | Effect |
+|--------|--------|
+| `y`, `yes` | Approve the changes of this resource |
+| `n`, `no` | Skip this resource |
+| `a`, `all` | Approve this resource and every remaining one without asking again |
+| `q`, `quit` | Skip this resource and every remaining one; resources already approved are still applied |
+
+Any other answer repeats the question. Nothing is written until the review
+ends: the approved changes are then applied together and the rest are reported
+as skipped, never as applied or failed.
+
+```
+Review: 2 resource(s) approved (3 changes), 1 skipped (2 changes)
+Skipped:
+  • aws_s3_bucket legacy-bucket (arn:aws:s3:::legacy-bucket): owner, needs-review
+
+Applying changes...
+
+  [1/3] aws_instance.i-0abc123 (environment: prod) ✓
+  [2/3] aws_instance.i-0abc123 (team: backend) ✓
+  [3/3] aws_ebs_volume.vol-xyz789 (environment: prod) ✓
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Applied successfully: 3 changes
+Skipped: 2 changes
+Errors: 0
+Duration: 187ms
+```
+
+The questions and the review summary are written to stderr; stdout carries the
+same progress lines and totals as a plain `apply`, plus `Skipped: N changes`.
+When no resource is approved nothing is applied and the command exits `0`.
+Skipped changes stay in the plan file, so a later `apply` offers them again.
+
+`--interactive` fails before loading the plan when it is combined with
+`--auto-approve`, or when stdin is not a terminal (a pipe, CI): use
+`--auto-approve` there. Ctrl-C at a question, or input that ends before every
+resource is answered, exits `2` without applying anything.
 
 | Exit Code | Meaning |
 |-----------|---------|
@@ -536,7 +729,9 @@ Resources must be provided as a JSON array:
 
 ### Output Format
 
-The command outputs JSON with findings and summary:
+The command prints JSON with findings and summary; `json` is the only `--output`
+format it accepts. A report sent to stdout with `--sarif -`, `--junit -`,
+`--ocsf -` or `--summary -` takes its place.
 
 ```json
 {
@@ -675,11 +870,23 @@ independently.
 | **New resources** | Present only in the current scan |
 | **Removed resources** | Present only in the baseline scan |
 
-A resource with the same ID in a different account is a different resource.
+A resource with the same ID in a different account or region is a different
+resource.
+
+New and removed resources come from each scan's `resources` inventory plus the
+resources its findings name, so a resource with no findings still counts. A scan
+written by an older version has no inventory and only names the resources in its
+findings. When such a file counts resources but has no findings either (an empty
+policy), `diff` prints a warning to stderr: new and removed resources may be
+wrong. Regressions and resolved findings are not affected.
 
 When either file is a [partial scan](#partial-scans), `diff` prints a warning to
 stderr: resources discovery missed look new or removed, and their findings look
 regressed or resolved.
+
+Older versions counted every resource without an optional tag as `missing`.
+Comparing a scan written by one of them with a newer scan shows a one-off jump
+in that tag's row under **By tag**; findings and required tags compare as before.
 
 ### Example output
 
@@ -735,6 +942,9 @@ tagctl cost --days 90
 # Specific tags, whatever the policy says
 tagctl cost --tag owner --tag cost-center
 
+# Is the unattributed spend growing? Per period, with an estimate of the next
+tagctl cost --trend
+
 # Fail when attribution is too low
 tagctl cost --fail-under 80
 ```
@@ -745,10 +955,12 @@ tagctl cost --fail-under 80
 |------|-------------|
 | `--days <n>` | How many days back to report on (default `30`, minimum `1`) |
 | `--tag <tag>` | Tag to report on (repeatable; defaults to the policy's required tags) |
+| `--trend` | Split the window into periods and estimate the next one, see [Trend](#trend) |
 | `--fail-under <pct>` | Exit `1` if any tag accounts for less than this share of spend |
-| `--profile <name>`, `-p` | AWS profile (defaults to the first configured account). Cost Explorer is always called through `us-east-1` |
+| `--profile <name>`, `-p` | AWS profile (defaults to the first configured account). Cost Explorer is always called through the partition's global region (`us-east-1` in the commercial partition) |
 | `--role <arn>` | IAM role to assume; `--external-id`, `--session-duration`, `--role-session-name` and `--mfa-serial` refine it |
 | `--output json` | Machine-readable report instead of the table |
+| `--output csv` | One row per tag: `tag,attributed,unattributed,coverage_percent,currency`. With `--trend`, one row per tag and period |
 
 ### Activate your cost allocation tags first
 
@@ -780,14 +992,17 @@ own needs:
 }
 ```
 
-Cost Explorer is a global service reached through `us-east-1`, and it reports
+Cost Explorer is a global service reached through the partition's global
+region (`us-east-1` in the commercial partition), and it reports
 for the whole payer account, so a single profile is enough regardless of how
 many accounts you scan.
 
 <Note>
   Cost Explorer charges per paginated API request. `cost` makes one request per
   tag per page of results, so a report over a handful of tags costs cents, not
-  dollars.
+  dollars. `--trend` keeps it at one query per tag, asked by day instead of by
+  month, never one per period; a long window with many tag values can span more
+  pages.
 </Note>
 
 ### Example output
@@ -816,6 +1031,73 @@ At this rate that is 1794053.35 USD a year of spend nobody can be billed for.
 ```
 
 Tags are listed worst-attributed first, because that is the one worth fixing.
+
+### Trend
+
+`--trend` answers whether the gap is closing. It splits the window into periods,
+**daily** for windows of up to 14 days and **weekly** beyond, and adds to each
+tag:
+
+- attributed and unattributed spend per period, with the coverage;
+- the change between the first and the last full period, in unattributed spend
+  and in coverage points;
+- an **estimate** of the unattributed spend of the next period.
+
+```
+  owner
+      attributed:      15150.00 USD  (94.7%)
+      unattributed:      850.00 USD  (5.3%)
+      trend (weekly):
+        from        days      attributed    unattributed  coverage
+        2026-01-22     2     1900.00 USD      100.00 USD     95.0%  partial
+        2026-01-24     7     6700.00 USD      300.00 USD     95.7%
+        2026-01-31     7     6550.00 USD      450.00 USD     93.6%
+        change, first to last full period: unattributed +150.00 USD, coverage -2.1 points
+        estimate for the 7 days from 2026-02-07: 600.00 USD unattributed (linear projection, not billed spend)
+```
+
+Weeks are counted back from the end of the window, so a window that is not a
+whole number of weeks starts with a shorter period. It is listed and marked
+`partial`, and left out of the change and the estimate.
+
+<Warning>
+  The estimate is a straight line fitted by least squares through the
+  unattributed spend of the full periods and read one period ahead, never below
+  zero. It knows nothing about seasonality, reservations or what you are about
+  to launch: read it as the direction the gap is heading in, not as a forecast
+  of the bill. With fewer than two full periods there is no change and no
+  estimate. Cost Explorer can also take a day to settle the most recent days.
+</Warning>
+
+In JSON each tag gains a `trend` object; every other key is unchanged, and
+`trend` is absent without the flag:
+
+```json
+"trend": {
+  "granularity": "weekly",
+  "periods": [
+    { "start": "2026-01-22T00:00:00Z", "end": "2026-01-24T00:00:00Z", "attributed": 1900, "unattributed": 100, "partial": true },
+    { "start": "2026-01-24T00:00:00Z", "end": "2026-01-31T00:00:00Z", "attributed": 6700, "unattributed": 300 },
+    { "start": "2026-01-31T00:00:00Z", "end": "2026-02-07T00:00:00Z", "attributed": 6550, "unattributed": 450 }
+  ],
+  "change": { "unattributed": 150, "coverage_points": -2.142857142857139 },
+  "projection": { "start": "2026-02-07T00:00:00Z", "end": "2026-02-14T00:00:00Z", "unattributed": 600, "method": "linear", "estimate": true }
+}
+```
+
+`end` is exclusive, as in the report's own `end`. `change` and `projection`
+are omitted when there are fewer than two full periods.
+
+In CSV the report becomes one row per tag and period. `kind` is `actual`,
+`partial` or `estimate`; the estimate row has no attributed amount or coverage:
+
+```csv
+tag,period_start,period_end,kind,attributed,unattributed,coverage_percent,currency
+owner,2026-01-22,2026-01-24,partial,1900.00,100.00,95.0,USD
+owner,2026-01-24,2026-01-31,actual,6700.00,300.00,95.7,USD
+owner,2026-01-31,2026-02-07,actual,6550.00,450.00,93.6,USD
+owner,2026-02-07,2026-02-14,estimate,,600.00,,USD
+```
 
 ### How the numbers are derived
 
@@ -988,8 +1270,15 @@ Three signals, in decreasing order of confidence:
 | Signal | Matches | Example |
 |--------|---------|---------|
 | `casing` | Differ only in case, separators or spacing | `team-platform` / `Team_Platform` / `team platform` |
-| `typo` | Within `--max-distance` edits of each other | `staging` / `stagng` |
+| `typo` | Within `--max-distance` edits of each other, and no more than one edit per 3 letters or digits of the shorter value; the longer value needs at least 4 | `staging` / `stagng`, `prod` / `prd` |
 | `abbreviation` | One is a prefix of the other, at least 3 characters | `prod` / `production` |
+
+Groups are formed by chaining matches, so a value can join a group through
+another variant without matching the canonical spelling itself. With
+`--max-distance 1`, `stagn` is one edit from `stagng` and two from
+`staging`. Such a value is reported with the match `transitive`: it is shown
+for review, but `--out` leaves it out of the plan and it is not counted in
+"affecting N resource(s)".
 
 ### Safety rules
 
@@ -999,10 +1288,24 @@ These are what keep the proposals trustworthy:
   canonical spelling even when a different spelling is more common.
 - **Two values the policy both allows are never collapsed into each other.**
   Without this, `dev` and `devops` would be merged, which would be wrong.
+- **Values that differ in a digit are never typos or abbreviations.**
+  `us-east-1` / `us-east-2` and `build-10` / `build-100` stay apart. A typo in
+  the letters still counts: `backend-1` / `backnd-1`.
+- **Short values need a closer match.** `us` / `uk`, `api` / `app` and, at
+  `--max-distance 2`, `test` / `temp` are not typos of each other, while
+  `prod` / `prd` is.
 - **The `Name` tag is always skipped.** Its values are unique by design, so
   clustering it would propose renaming half the estate.
 - **Nothing is written.** `normalize` reports, and optionally emits a plan you
   review before running `apply`.
+
+### Known limits
+
+Values one letter apart are grouped once they are long enough, even when they
+mean different things: `team-a` / `team-b` and `data` / `date` are reported as
+typos. Review each cluster before applying a plan. To keep such values apart,
+list both in the tag's policy `values` (two allowed values are never collapsed),
+or skip the tag with `ignore_tags` or `--ignore-tag`.
 
 ### Choosing the canonical value
 
@@ -1031,6 +1334,33 @@ Found 3 cluster(s) of inconsistent values, affecting 16 resource(s):
       "Platform"                 5 resources [casing]
 ```
 
+### JSON output
+
+`--output json` prints the same clusters. Each variant's `match` is `casing`,
+`typo`, `abbreviation` or `transitive`, as described above:
+
+```json
+{
+  "clusters": [
+    {
+      "tag": "environment",
+      "canonical": "staging",
+      "canonical_count": 5,
+      "canonical_from_policy": false,
+      "variants": [
+        { "value": "stagng", "count": 2, "match": "typo", "resources": [] },
+        { "value": "stagn", "count": 1, "match": "transitive", "resources": [] }
+      ]
+    }
+  ],
+  "resources_scanned": 8,
+  "tags_scanned": 1
+}
+```
+
+`resources` lists the full resource objects carrying each variant; it is
+shortened to `[]` here.
+
 ### Configuration
 
 ```yaml
@@ -1058,10 +1388,17 @@ from a report into a build step.
 | `--baseline <file>` | Baseline scan `--fail-on-new` compares against |
 | `--sarif <path>` | Also write findings as SARIF (`-` for stdout) |
 | `--junit <path>` | Also write findings as JUnit XML (`-` for stdout) |
-| `--ocsf <path>` | Also write findings as OCSF Compliance Finding events (`-` for stdout) |
+| `--ocsf <path>` | Also write findings as OCSF Compliance Finding events: one event per line (NDJSON) when the path ends in `.ndjson` or `.jsonl`, a JSON array otherwise (`-` for stdout, always an array) |
+| `--summary <path>` | Also write a [Markdown summary](#markdown-summary) (`-` for stdout) |
 
 Reports are written **before** the gate runs, so a failing build still uploads
-its findings.
+its findings. Report files are created readable only by the current user
+(`0600`), like the files in `output/`: they carry every tag value and ARN.
+
+A report written to `-` replaces the command's own stdout output (the table, or
+the JSON `evaluate` prints), so stdout holds a single document. Sending more
+than one report to `-`, or combining one with an explicit `--output`, is a usage
+error and exits `2`.
 
 ### Choosing a gate
 
@@ -1102,10 +1439,19 @@ appear in the Security tab and as pull request annotations.
 - Each result carries a **partial fingerprint** of the resource and tag, so
   GitHub keeps an alert attached across scans instead of closing and reopening
   it every run.
+- `runs[0].automationDetails.id` is `tagctl/scan/`, `tagctl/evaluate/` or
+  `tagctl/terraform/`. Code scanning uses it as the category, so uploads from
+  different commands do not close each other's alerts.
+- `runs[0].invocations[0].executionSuccessful` is `false` for a
+  [partial scan](#partial-scans), with each discovery error as a
+  `toolExecutionNotifications` entry, and `true` otherwise.
 
-Cloud resources have no source file, so results are anchored to your policy file
-(`tagctl.yaml` by default, or whatever `--config` points at) and carry the
-resource identity as a SARIF *logical location*.
+Cloud resources have no source file, so results are anchored to the config file
+the command read: `--config`, the discovered `tagctl.yaml`, or `evaluate
+--policy`. The path is relative to the working directory, with forward slashes,
+so run tagctl from the repository root for GitHub to link the file. Without a
+config file the anchor is `tagctl.yaml`. Each result also carries the resource
+identity as a SARIF *logical location*.
 
 ### JUnit
 
@@ -1117,6 +1463,10 @@ JUnit XML is understood by essentially every CI system.
   than a wall of failures with no denominator.
 - Each failure body carries the resource, type, account, region, expected and
   actual values, and the ARN, so it can be acted on without opening the scan.
+- The `classname` is `provider.account.region`, leaving out the parts a
+  resource does not have: a Terraform plan gives `aws`.
+- No `time` attribute is written: tagctl does not time individual checks. Each
+  suite carries the scan `timestamp`.
 
 ### OCSF
 
@@ -1132,9 +1482,38 @@ with a standard", which is exactly what a tag policy check is.
   an id.
 - The policy rule travels in `compliance.requirements`; the tag name is the
   `compliance.control`.
+- A path ending in `.ndjson` or `.jsonl` gets **one event per line**, the form
+  log shippers and most OCSF consumers ingest. Any other path, and `-`, gets a
+  pretty-printed JSON array.
 
 The full field mapping, an example event and ingestion notes are in
 [OCSF output](/integrations/ocsf).
+
+### Markdown summary
+
+`--summary` writes a GitHub-flavoured Markdown digest of the run, meant for a
+job summary or a pull request comment:
+
+- the overall compliance, and a notice when the scan is partial
+- one row per policy tag, worst first
+- the 10 resource types with the most failing resources
+- the first 25 failed findings: resource, type, tag and reason (with the
+  offending value when there is one). The full list stays in the scan files
+  and the other reports
+
+Resource names and tag values come from the account, so every table cell is
+escaped (pipes, backticks, emphasis, links, HTML), line breaks become spaces
+and control characters are removed.
+
+In GitHub Actions, point it at the step summary file:
+
+```bash
+tagctl scan --summary "$GITHUB_STEP_SUMMARY"
+```
+
+tagctl never writes there on its own: without `--summary` the variable is
+ignored. The file is replaced, not appended to. A step that already wrote to
+its summary can append instead with `tagctl scan --summary - >> "$GITHUB_STEP_SUMMARY"`.
 
 ### GitHub Actions
 
@@ -1170,6 +1549,7 @@ jobs:
             --sarif tagctl.sarif \
             --junit tagctl-junit.xml \
             --ocsf tagctl.ocsf.json \
+            --summary "$GITHUB_STEP_SUMMARY" \
             --fail-on-new --baseline .tagctl/baseline-scan.json
 
       # Runs even when the gate failed, so findings are always visible.
@@ -1217,12 +1597,14 @@ tagctl version
 Prints the banner followed by:
 
 ```
-  Version: v1.0.0
-  Built:   2026-02-02_10:00:00
+  Version: 0.1.0
+  Commit:  88b954e
+  Built:   2026-10-04T14:22:22Z
 ```
 
-Binaries built with `go install` report `dev` and `unknown`; `make build`
-stamps the git revision and build time.
+Release binaries and images carry the release version, its commit and the
+build time. Binaries built with `go install` report `dev`, `none` and
+`unknown`; `make build` stamps `git describe`, the commit and the build time.
 
 ## CI/CD Integration
 

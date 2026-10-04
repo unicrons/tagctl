@@ -10,6 +10,7 @@ import (
 	"strings"
 	"text/tabwriter"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/unicrons/tagctl/internal/report"
 	"github.com/unicrons/tagctl/internal/types"
@@ -56,7 +57,7 @@ func outputScanTable(result *types.ScanResult, verbose bool) error {
 		for _, acc := range result.ByAccount {
 			bar := renderProgressBar(acc.CompliancePct, 10)
 			fmt.Fprintf(w, "  %s/%s\t%d\t%d\t%.0f%% %s\n",
-				acc.Provider, acc.Account, acc.Total, acc.Compliant, acc.CompliancePct, bar)
+				printable(acc.Provider), printable(acc.Account), acc.Total, acc.Compliant, acc.CompliancePct, bar)
 		}
 		_ = w.Flush()
 		fmt.Println()
@@ -72,7 +73,7 @@ func outputScanTable(result *types.ScanResult, verbose bool) error {
 			if tag.Required {
 				bar := renderProgressBar(tag.CompliancePct, 10)
 				fmt.Fprintf(w, "  %s\t%d\t%d\t%d\t%.0f%% %s\n",
-					tag.Tag, tag.Present, tag.Missing, tag.Invalid, tag.CompliancePct, bar)
+					printable(tag.Tag), tag.Present, tag.Missing, tag.Invalid, tag.CompliancePct, bar)
 			}
 		}
 		_ = w.Flush()
@@ -82,41 +83,12 @@ func outputScanTable(result *types.ScanResult, verbose bool) error {
 	// Findings table
 	if len(result.Findings) > 0 {
 		fmt.Println("Findings:")
-		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(w, "  STATUS\tRESOURCE\tTYPE\tTAG\tVALUE")
-		fmt.Fprintln(w, "  ──────\t────────\t────\t───\t─────")
-
 		limit := 10
 		if verbose {
 			limit = len(result.Findings)
 		}
-
-		shown := 0
-		for _, f := range result.Findings {
-			if shown >= limit && !verbose {
-				break
-			}
-
-			// Color codes
-			var statusStr string
-			if f.Status == types.StatusPass {
-				statusStr = "\033[32mPASS\033[0m"
-			} else {
-				statusStr = "\033[31mFAILED\033[0m"
-			}
-
-			value := f.Actual
-			if value == "" && f.Status == types.StatusFailed {
-				value = "(missing)"
-			} else if value == "" {
-				value = "-"
-			}
-
-			fmt.Fprintf(w, "  %s\t%s\t%s\t%s\t%s\n",
-				statusStr, printable(f.Resource.DisplayName()), f.Resource.Type, printable(f.Tag), printable(value))
-			shown++
-		}
-		_ = w.Flush()
+		shown := min(limit, len(result.Findings))
+		printFindingsTable(os.Stdout, result.Findings[:shown])
 
 		if shown < len(result.Findings) {
 			remaining := len(result.Findings) - shown
@@ -136,8 +108,9 @@ func outputScanTable(result *types.ScanResult, verbose bool) error {
 		}
 
 		// Summary
-		fmt.Printf("Summary: \033[32m%d PASS\033[0m | \033[31m%d FAILED\033[0m\n",
-			passFindings, failFindings)
+		c := paletteFor(os.Stdout)
+		fmt.Printf("Summary: %s%d PASS%s | %s%d FAILED%s\n",
+			c.green, passFindings, c.reset, c.red, failFindings, c.reset)
 		fmt.Println()
 	}
 
@@ -190,11 +163,82 @@ func writeFindingsCSV(w io.Writer, result *types.ScanResult) error {
 	return cw.Error()
 }
 
+// csvSafe quotes a cell a spreadsheet would run as a formula. Spreadsheets
+// skip leading whitespace before the trigger character, so it is skipped here too.
 func csvSafe(cell string) string {
-	if cell != "" && strings.ContainsRune("=+-@\t\r", rune(cell[0])) {
+	if cell == "" {
+		return cell
+	}
+	body := strings.TrimLeftFunc(cell, func(r rune) bool {
+		return unicode.IsSpace(r) || unicode.IsControl(r)
+	})
+	if strings.ContainsRune("\t\r\n", rune(cell[0])) || (body != "" && strings.ContainsRune("=+-@", rune(body[0]))) {
 		return "'" + cell
 	}
 	return cell
+}
+
+// Findings table cells longer than these are cut: one ARN-sized name would
+// otherwise wrap every row. The report files keep the full values.
+const (
+	maxResourceWidth = 48
+	maxValueWidth    = 32
+)
+
+// printFindingsTable writes the findings as aligned columns. It pads by hand
+// because tabwriter counts the colour codes as cell width.
+func printFindingsTable(out io.Writer, findings []types.Finding) {
+	rows := make([][]string, 0, len(findings)+2)
+	rows = append(rows,
+		[]string{"STATUS", "RESOURCE", "TYPE", "TAG", "VALUE"},
+		[]string{"──────", "────────", "────", "───", "─────"},
+	)
+	for _, f := range findings {
+		status := "FAILED"
+		if f.Status == types.StatusPass {
+			status = "PASS"
+		}
+		value := f.Actual
+		if value == "" && f.Status == types.StatusFailed {
+			value = "(missing)"
+		} else if value == "" {
+			value = "-"
+		}
+		rows = append(rows, []string{
+			status,
+			truncate(printable(f.Resource.DisplayName()), maxResourceWidth),
+			printable(f.Resource.Type),
+			printable(f.Tag),
+			truncate(printable(value), maxValueWidth),
+		})
+	}
+
+	c := paletteFor(out)
+	widths := make([]int, len(rows[0]))
+	for _, row := range rows {
+		for i, cell := range row {
+			widths[i] = max(widths[i], utf8.RuneCountInString(cell))
+		}
+	}
+	for n, row := range rows {
+		var line strings.Builder
+		line.WriteString("  ")
+		for i, cell := range row {
+			padded := cell
+			if i < len(row)-1 {
+				padded += strings.Repeat(" ", widths[i]-utf8.RuneCountInString(cell)+2)
+			}
+			if i == 0 && n >= 2 {
+				colour := c.red
+				if cell == "PASS" {
+					colour = c.green
+				}
+				padded = colour + cell + c.reset + padded[len(cell):]
+			}
+			line.WriteString(padded)
+		}
+		fmt.Fprintln(out, line.String())
+	}
 }
 
 // printable replaces control characters so a tag value cannot drive the
@@ -247,14 +291,14 @@ func writeScanHTML(result *types.ScanResult, path string) error {
 	}
 	defer file.Close()
 
-	return report.WriteHTML(file, result, report.HTMLOptions{Version: appVersion})
+	return report.WriteHTML(file, result, report.HTMLOptions{Version: Version})
 }
 
 // outputPlanTable prints plan in table format.
-func outputPlanTable(plan *types.Plan, planFile string) error {
+func outputPlanTable(plan *types.Plan) {
 	if plan.IsEmpty() {
 		fmt.Println("No changes needed. All resources are compliant!")
-		return nil
+		return
 	}
 
 	fmt.Println("Planned changes:")
@@ -269,7 +313,7 @@ func outputPlanTable(plan *types.Plan, planFile string) error {
 
 	for resourceID, changes := range resourceChanges {
 		res := changes[0].Resource
-		fmt.Printf("%s (%s)\n", res.Type, res.DisplayName())
+		fmt.Printf("%s (%s)\n", printable(res.Type), printable(res.DisplayName()))
 
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 		for _, c := range changes {
@@ -301,11 +345,6 @@ func outputPlanTable(plan *types.Plan, planFile string) error {
 	fmt.Printf("         %d tags will be added\n", plan.Summary.TagsAdded)
 	fmt.Printf("         %d tags will be updated\n", plan.Summary.TagsUpdated)
 	fmt.Printf("         %d tags will be removed\n", plan.Summary.TagsRemoved)
-	fmt.Println()
-	fmt.Printf("Plan saved to: %s\n", planFile)
-	fmt.Println("Run 'tagctl apply' to execute this plan.")
-
-	return nil
 }
 
 // outputPlanJSON prints plan in JSON format.

@@ -4,26 +4,44 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+
+	"github.com/unicrons/tagctl/internal/log"
 )
+
+func captureRootOutput(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	buf := new(bytes.Buffer)
+	rootCmd.SetOut(buf)
+	rootCmd.SetErr(buf)
+	t.Cleanup(func() {
+		rootCmd.SetOut(nil)
+		rootCmd.SetErr(nil)
+		rootCmd.SetArgs(nil)
+	})
+	return buf
+}
 
 func TestExecute_Version(t *testing.T) {
 	rootCmd.SetArgs([]string{"version"})
 
-	appVersion = "1.0.0"
-	appBuildTime = "2024-01-01"
+	Version, Commit, Date = "1.0.0", "abc1234", "2024-01-01"
+	t.Cleanup(func() { Version, Commit, Date = "dev", "none", "unknown" })
 
-	// Version command writes to stdout via fmt.Printf, not cmd.OutOrStdout()
-	// Just verify it executes without error
-	err := rootCmd.Execute()
-	if err != nil {
+	buf := captureRootOutput(t)
+
+	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("Execute() error = %v", err)
+	}
+
+	for _, want := range []string{"1.0.0", "abc1234", "2024-01-01"} {
+		if !strings.Contains(buf.String(), want) {
+			t.Errorf("version output should contain %q, got %q", want, buf.String())
+		}
 	}
 }
 
 func TestRootCmd_Help(t *testing.T) {
-	buf := new(bytes.Buffer)
-	rootCmd.SetOut(buf)
-	rootCmd.SetErr(buf)
+	buf := captureRootOutput(t)
 	rootCmd.SetArgs([]string{"--help"})
 
 	err := rootCmd.Execute()
@@ -70,5 +88,27 @@ func TestRootCmd_SubCommands(t *testing.T) {
 		if !commands[expected] {
 			t.Errorf("expected subcommand %q not found", expected)
 		}
+	}
+}
+
+func TestExecute_InvalidLogLevelIsAUsageError(t *testing.T) {
+	run := execute(t, "--log-level", "verbose", "version")
+	if ExitCode(run.err) != exitError {
+		t.Fatalf("exit code = %d (err %v), want %d", ExitCode(run.err), run.err, exitError)
+	}
+	for _, want := range []string{"--log-level", `"verbose"`, "error, info, debug"} {
+		if !strings.Contains(run.err.Error(), want) {
+			t.Errorf("error %q does not mention %s", run.err, want)
+		}
+	}
+	if run.stdout != "" {
+		t.Errorf("command ran despite the invalid level: %q", run.stdout)
+	}
+}
+
+func TestExecute_LogLevelIsCaseInsensitive(t *testing.T) {
+	t.Cleanup(func() { log.SetLevel(log.LevelError) })
+	if run := execute(t, "--log-level", "DEBUG", "version"); run.err != nil {
+		t.Fatalf("err = %v", run.err)
 	}
 }

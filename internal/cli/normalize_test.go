@@ -1,7 +1,9 @@
 package cli
 
 import (
+	"bytes"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -21,7 +23,7 @@ func normalizeCommand(t *testing.T, args ...string) *cobra.Command {
 	cmd.Flags().Bool("abbreviations", true, "")
 	cmd.Flags().StringSlice("ignore-tag", nil, "")
 	cmd.SetArgs(args)
-	cmd.SetOut(os.NewFile(0, os.DevNull))
+	cmd.SetOut(io.Discard)
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("parsing %v: %v", args, err)
 	}
@@ -265,6 +267,26 @@ func TestWriteNormalizePlan(t *testing.T) {
 	}
 	if plan.Changes[0].NewValue != valueProd {
 		t.Errorf("new value = %q, want prod", plan.Changes[0].NewValue)
+	}
+}
+
+func TestWriteNormalizeExamples_LabelsTransitiveVariants(t *testing.T) {
+	result := &types.NormalizeResult{Clusters: []types.ValueCluster{{
+		Tag:       "environment",
+		Canonical: "staging",
+		Variants: []types.ValueVariant{
+			{Value: "stagng", Count: 1, Match: types.MatchTypo, Resources: []types.Resource{{ID: "i-4"}}},
+			{Value: "stagn", Count: 1, Match: types.MatchTransitive, Resources: []types.Resource{{ID: "i-5"}}},
+		},
+	}}}
+
+	var buf bytes.Buffer
+	writeNormalizeExamples(&buf, result)
+
+	want := "  environment=\"stagng\": i-4\n" +
+		"  environment=\"stagn\" (transitive, not in the plan): i-5\n\n"
+	if got := buf.String(); got != want {
+		t.Errorf("examples =\n%s\nwant\n%s", got, want)
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/unicrons/tagctl/internal/types"
@@ -16,7 +17,6 @@ type JUnitTestSuites struct {
 	Name     string           `xml:"name,attr"`
 	Tests    int              `xml:"tests,attr"`
 	Failures int              `xml:"failures,attr"`
-	Time     string           `xml:"time,attr"`
 	Suites   []JUnitTestSuite `xml:"testsuite"`
 }
 
@@ -33,7 +33,6 @@ type JUnitTestSuite struct {
 type JUnitTestCase struct {
 	Name      string        `xml:"name,attr"`
 	ClassName string        `xml:"classname,attr"`
-	Time      string        `xml:"time,attr"`
 	Failure   *JUnitFailure `xml:"failure,omitempty"`
 }
 
@@ -63,7 +62,6 @@ func WriteJUnit(w io.Writer, scan *types.ScanResult) error {
 
 	report := JUnitTestSuites{
 		Name:   toolName,
-		Time:   "0",
 		Suites: make([]JUnitTestSuite, 0, len(tags)),
 	}
 
@@ -79,7 +77,6 @@ func WriteJUnit(w io.Writer, scan *types.ScanResult) error {
 			testCase := JUnitTestCase{
 				Name:      fmt.Sprintf("%s %s", finding.Resource.Type, finding.Resource.ID),
 				ClassName: junitClassName(finding),
-				Time:      "0",
 			}
 
 			if finding.Status == types.StatusFailed {
@@ -140,14 +137,21 @@ func groupFindingsByTag(scan *types.ScanResult) map[string][]types.Finding {
 	return byTag
 }
 
-// junitClassName places a case in the account and region it came from, which
-// is how CI reports group results into a browsable tree.
+// junitClassName places a case in the provider, account and region it came
+// from, which is how CI reports group results into a browsable tree. Unknown
+// parts are left out: a Terraform plan has no account or region yet.
 func junitClassName(finding types.Finding) string {
 	resource := finding.Resource
-	if resource.Region == "" {
-		return fmt.Sprintf("%s.%s", resource.Provider, resource.Account)
+	parts := make([]string, 0, 3)
+	for _, part := range []string{resource.Provider, resource.Account, resource.Region} {
+		if part != "" {
+			parts = append(parts, part)
+		}
 	}
-	return fmt.Sprintf("%s.%s.%s", resource.Provider, resource.Account, resource.Region)
+	if len(parts) == 0 {
+		return toolName
+	}
+	return strings.Join(parts, ".")
 }
 
 // junitFailureDetail is the body of a failure, with the context needed to act

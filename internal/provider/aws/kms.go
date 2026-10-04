@@ -2,6 +2,7 @@ package aws
 
 import (
 	"context"
+	"maps"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/kms"
@@ -22,7 +23,7 @@ type kmsAPI interface {
 
 // listKMSKeys lists customer-managed KMS keys in a region.
 func (p *Provider) listKMSKeys(ctx context.Context, region string) ([]types.Resource, error) {
-	return p.listKMSKeysFrom(ctx, p.getKMSClient(region), region)
+	return p.listKMSKeysFrom(ctx, regionalClient(p, region, kms.NewFromConfig), region)
 }
 
 // listKMSKeysFrom lists KMS keys using the given client. AWS-managed keys
@@ -42,7 +43,7 @@ func (p *Provider) listKMSKeysFrom(ctx context.Context, client kmsAPI, region st
 		}
 	}
 
-	resources := forEachConcurrently(keyIDs, func(keyID string) []types.Resource {
+	resources := forEachConcurrently(ctx, keyIDs, func(keyID string) []types.Resource {
 		desc, err := client.DescribeKey(ctx, &kms.DescribeKeyInput{KeyId: aws.String(keyID)})
 		if err != nil || desc.KeyMetadata == nil {
 			p.skipResource(ctx, "KMS", region, "key "+keyID, err)
@@ -53,7 +54,7 @@ func (p *Provider) listKMSKeysFrom(ctx context.Context, client kmsAPI, region st
 			return nil
 		}
 
-		tags, err := p.resourceTags(region, aws.ToString(meta.Arn), func() (map[string]string, error) {
+		tags, err := p.resourceTags(ctx, region, aws.ToString(meta.Arn), func() (map[string]string, error) {
 			return getKMSTags(ctx, client, keyID)
 		})
 		if err != nil {
@@ -91,11 +92,9 @@ func getKMSTags(ctx context.Context, client kmsAPI, keyID string) (map[string]st
 		if err != nil {
 			return nil, err
 		}
-		for _, tag := range output.Tags {
-			if tag.TagKey != nil && tag.TagValue != nil {
-				tags[*tag.TagKey] = *tag.TagValue
-			}
-		}
+		maps.Copy(tags, tagsToMap(output.Tags,
+			func(t kmstypes.Tag) *string { return t.TagKey },
+			func(t kmstypes.Tag) *string { return t.TagValue }))
 	}
 	return tags, nil
 }
@@ -107,8 +106,12 @@ func (p *Provider) applyKMSTags(ctx context.Context, arn string, tags map[string
 		tagList = append(tagList, kmstypes.Tag{TagKey: aws.String(k), TagValue: aws.String(v)})
 	}
 
-	client := p.getKMSClient(extractRegionFromARN(arn))
-	_, err := client.TagResource(ctx, &kms.TagResourceInput{
+	region, err := regionForARN(arn)
+	if err != nil {
+		return provider.NewProviderError(providerName, "apply_kms_tags", arn, err)
+	}
+	client := regionalClient(p, region, kms.NewFromConfig)
+	_, err = client.TagResource(ctx, &kms.TagResourceInput{
 		KeyId: aws.String(arn),
 		Tags:  tagList,
 	})

@@ -203,6 +203,23 @@ func TestSQSQueueURLFromARN(t *testing.T) {
 			wantURL:    "https://sqs.eu-west-1.amazonaws.com/123456789012/my-queue",
 		},
 		{
+			name:       "China partition",
+			arn:        "arn:aws-cn:sqs:cn-north-1:123456789012:my-queue",
+			wantRegion: "cn-north-1",
+			wantURL:    "https://sqs.cn-north-1.amazonaws.com.cn/123456789012/my-queue",
+		},
+		{
+			name:       "GovCloud partition",
+			arn:        "arn:aws-us-gov:sqs:us-gov-west-1:123456789012:my-queue",
+			wantRegion: "us-gov-west-1",
+			wantURL:    "https://sqs.us-gov-west-1.amazonaws.com/123456789012/my-queue",
+		},
+		{
+			name:    "no region",
+			arn:     "arn:aws:sqs::123456789012:my-queue",
+			wantErr: true,
+		},
+		{
 			name:    "too few segments",
 			arn:     "arn:aws:sqs:eu-west-1:123456789012",
 			wantErr: true,

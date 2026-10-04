@@ -27,7 +27,7 @@ type elbv2API interface {
 
 // listLoadBalancers lists all Application and Network Load Balancers in a region.
 func (p *Provider) listLoadBalancers(ctx context.Context, region string) ([]types.Resource, error) {
-	return p.listLoadBalancersFrom(ctx, p.getELBv2Client(region), region)
+	return p.listLoadBalancersFrom(ctx, regionalClient(p, region, elbv2.NewFromConfig), region)
 }
 
 // listLoadBalancersFrom lists load balancers using the given client.
@@ -89,7 +89,9 @@ func getELBv2Tags(ctx context.Context, client elbv2API, arns []string) (tags map
 		switch {
 		case err == nil:
 			for _, desc := range output.TagDescriptions {
-				tags[aws.ToString(desc.ResourceArn)] = elbv2TagsToMap(desc.Tags)
+				tags[aws.ToString(desc.ResourceArn)] = tagsToMap(desc.Tags,
+					func(t elbv2types.Tag) *string { return t.Key },
+					func(t elbv2types.Tag) *string { return t.Value })
 			}
 		case resourceGone(err) && len(batch) > 1:
 			// One deleted ARN fails its whole batch: read the batch one ARN at a time.
@@ -109,9 +111,9 @@ func getELBv2Tags(ctx context.Context, client elbv2API, arns []string) (tags map
 
 // applyELBv2Tags applies tags to a load balancer.
 func (p *Provider) applyELBv2Tags(ctx context.Context, arn string, tags map[string]string) error {
-	region := extractRegionFromARN(arn)
-	if region == "" && len(p.regions) > 0 {
-		region = p.regions[0]
+	region, err := regionForARN(arn)
+	if err != nil {
+		return provider.NewProviderError(providerName, "apply_elbv2_tags", arn, err)
 	}
 
 	tagList := make([]elbv2types.Tag, 0, len(tags))
@@ -119,8 +121,8 @@ func (p *Provider) applyELBv2Tags(ctx context.Context, arn string, tags map[stri
 		tagList = append(tagList, elbv2types.Tag{Key: aws.String(k), Value: aws.String(v)})
 	}
 
-	client := p.getELBv2Client(region)
-	_, err := client.AddTags(ctx, &elbv2.AddTagsInput{
+	client := regionalClient(p, region, elbv2.NewFromConfig)
+	_, err = client.AddTags(ctx, &elbv2.AddTagsInput{
 		ResourceArns: []string{arn},
 		Tags:         tagList,
 	})
@@ -132,20 +134,9 @@ func (p *Provider) applyELBv2Tags(ctx context.Context, arn string, tags map[stri
 	return nil
 }
 
-// elbv2TagsToMap converts ELBv2 tags to a map.
-func elbv2TagsToMap(tags []elbv2types.Tag) map[string]string {
-	result := make(map[string]string)
-	for _, tag := range tags {
-		if tag.Key != nil && tag.Value != nil {
-			result[*tag.Key] = *tag.Value
-		}
-	}
-	return result
-}
-
 // listTargetGroups lists ALB/NLB target groups in a region.
 func (p *Provider) listTargetGroups(ctx context.Context, region string) ([]types.Resource, error) {
-	return p.listTargetGroupsFrom(ctx, p.getELBv2Client(region), region)
+	return p.listTargetGroupsFrom(ctx, regionalClient(p, region, elbv2.NewFromConfig), region)
 }
 
 func (p *Provider) listTargetGroupsFrom(ctx context.Context, client elbv2API, region string) ([]types.Resource, error) {
@@ -166,7 +157,7 @@ func (p *Provider) listTargetGroupsFrom(ctx context.Context, client elbv2API, re
 	for _, g := range groups {
 		arns = append(arns, aws.ToString(g.TargetGroupArn))
 	}
-	useBulk := p.tagsFor(region).available()
+	useBulk := p.tagsFor(region).available(ctx)
 	var tagsByARN map[string]map[string]string
 	var tagErrs map[string]error
 	if !useBulk {
@@ -179,7 +170,7 @@ func (p *Provider) listTargetGroupsFrom(ctx context.Context, client elbv2API, re
 		name := aws.ToString(g.TargetGroupName)
 		tags, ok := tagsByARN[arn]
 		if useBulk {
-			tags, ok = p.bulkTags(region, arn), true
+			tags, ok = p.bulkTags(ctx, region, arn), true
 		}
 		if !ok {
 			p.skipResource(ctx, "ELBv2", region, "target group "+name, cmp.Or(tagErrs[arn], errNotDescribed))

@@ -252,6 +252,16 @@ func TestListVaults(t *testing.T) {
 	if err != nil || len(resources) != 1 || resources[0].CreatedAt == nil {
 		t.Errorf("resources = %+v, err = %v", resources, err)
 	}
+
+	noStorage := &mockGlacierClient{err: &glaciertypes.NoLongerSupportedException{}}
+	if resources, err := p.listVaultsFrom(context.Background(), noStorage, defaultRegion); err != nil || len(resources) != 0 {
+		t.Errorf("an account with no Glacier storage must be skipped silently, got %+v, %v", resources, err)
+	}
+	for _, code := range []string{"AccessDeniedException", "ResourceNotFoundException", "InvalidOperationException"} {
+		if _, err := p.listVaultsFrom(context.Background(), &mockGlacierClient{err: apiError{code}}, defaultRegion); err == nil {
+			t.Errorf("%s must stay an error", code)
+		}
+	}
 }
 
 func TestListMemoryDBClusters(t *testing.T) {

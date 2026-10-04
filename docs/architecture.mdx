@@ -25,14 +25,18 @@ icon: 'sitemap'
 │        ListResources() / ApplyTags() / Name()              │
 └────────┬────────────────────────────────────────────────────┘
          │
-┌────────▼────────┐
-│  AWS Provider   │   ┌─────────────────────┐
-│  106 resource   │   │  Coming Soon:       │
-│  types, one     │   │  - Kubernetes       │
-│  file per       │   │  - GCP              │
-│  service        │   │  - Azure            │
+┌────────▼────────┐   ┌─────────────────────┐
+│  AWS Provider   │   │ Kubernetes Provider │
+│  106 resource   │   │ six resource types, │
+│  types, one     │   │ labels as tags      │
+│  file per       │   │                     │
+│  service        │   │ GCP, Azure: not     │
+│                 │   │ started             │
 └─────────────────┘   └─────────────────────┘
 ```
+
+Only the AWS provider is wired into the CLI. See
+[provider status](/development#provider-status).
 
 ## Directory Structure
 
@@ -52,7 +56,7 @@ tagctl/
 │   │   ├── normalize.go  # Tag value drift detection
 │   │   ├── terraform.go  # Terraform plan/state checking
 │   │   ├── cost.go       # Cost attribution reporting
-│   │   ├── gate.go       # CI gate flags (--fail-under, --sarif, --junit, --ocsf)
+│   │   ├── gate.go       # CI gate flags (--fail-under, --sarif, --junit, --ocsf, --summary)
 │   │   ├── exitcode.go   # Exit codes: 0 success, 1 gate failed, 2 other error
 │   │   ├── init.go       # Config scaffolding
 │   │   ├── validate.go   # Config validation
@@ -75,7 +79,7 @@ tagctl/
 │   ├── provider/         # Cloud providers
 │   │   ├── provider.go   # Interface definition
 │   │   ├── aws/          # AWS, one file per service group
-│   │   └── k8s/          # Kubernetes (not wired into the CLI yet)
+│   │   └── k8s/          # Kubernetes
 │   └── types/            # Domain types
 │       ├── resource.go   # Resource type with ARN
 │       ├── violation.go  # Violation + Finding types
@@ -219,21 +223,14 @@ const (
 )
 ```
 
-### Violation (deprecated)
+### Violation (deprecated, removed in v1.0.0)
 
 ```go
-type Violation struct {
-    Resource Resource        `json:"resource"`
-    Tag      string          `json:"tag"`
-    Status   FindingStatus   `json:"status"` // Always "FAILED"
-    Reason   ViolationReason `json:"reason"`
-    Expected string          `json:"expected,omitempty"`
-    Actual   string          `json:"actual,omitempty"`
-}
+type Violation Finding // Always "FAILED"
 ```
 
 <Note>
-Use `Findings` instead of `Violations` in new code. Violations are kept for backward compatibility.
+Use `Findings` instead of `Violations` in new code. The `Violations` field and the `violations` key of the scan JSON are deprecated and will be removed in `v1.0.0`. Until then the `violations` list is the scan's FAILED findings, in the same order; read `findings` and filter on `status` instead.
 </Note>
 
 ### TagChange
@@ -253,6 +250,9 @@ type TagChange struct {
 ## Provider Implementation
 
 ### Adding a New Provider
+
+A new AWS service is not a new provider: see
+[Adding an AWS Service](/contributing/adding-an-aws-service).
 
 <Steps>
   <Step title="Create package">
@@ -306,17 +306,30 @@ func (p *Provider) ApplyTags(ctx context.Context, id string, tags map[string]str
 ## Concurrency
 
 - Providers list resources concurrently per region/namespace
-- The AWS provider runs every (region × service) lister in its own goroutine,
-  plus one for S3 and one per global lister (Route 53, CloudFront, IAM,
-  Shield, WAF Classic global, WAFv2 CloudFront, Global Accelerator)
+- The AWS provider runs every (region × service) lister, plus S3 and every
+  global lister (Route 53, CloudFront, IAM, Shield, WAF Classic global, WAFv2
+  CloudFront, Global Accelerator), with at most 32 listers in flight across all
+  regions. A 17-region scan queues 1,521 listers instead of starting them all
+  at once; once the context is cancelled, no queued lister starts
 - Before any lister starts, one `tag:GetResources` sweep per region is launched
   in the background (`internal/provider/aws/tags.go`). Listers block on their
   region's sweep only when they need a tag lookup, so discovery and the bulk
   tag read overlap. Services whose Describe call returns tags inline never wait
 - When the sweep fails, services with a per-resource tag API fall back to it
   with a semaphore of 16 concurrent calls; services without one are skipped
-- The SDK HTTP client uses a 5s connect timeout, so an unreachable regional
-  endpoint costs seconds, not minutes
+- The limit of 16 applies to each per-resource fan-out and is separate from
+  the 32 lister slots; the sweeps run outside both, so a lister holding a slot
+  never waits for another one. ECS nests two fan-outs (clusters, then each
+  cluster's services), so one ECS lister can have 16 × 16 = 256 calls in flight
+- The service clients tagctl builds retry in adaptive mode with up to 7
+  attempts: after a throttling error a client also slows its own request rate.
+  `AWS_RETRY_MODE` and `AWS_MAX_ATTEMPTS` (or `retry_mode` and `max_attempts`
+  in the profile) override either value. Credential providers the SDK builds
+  while loading a profile chain (`source_profile`, SSO) keep the SDK defaults
+  unless those settings are present
+- Scan calls use a 5s connect timeout, so an unreachable regional endpoint
+  costs seconds, not minutes; credential resolution (SSO, AssumeRole) keeps
+  the SDK default
 - Applier processes resources with configurable concurrency, runs its progress
   callback one change at a time and stops dispatching once the context is
   cancelled

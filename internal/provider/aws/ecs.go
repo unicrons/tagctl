@@ -29,7 +29,7 @@ type ecsAPI interface {
 
 // listECSResources lists ECS clusters and their services in a region.
 func (p *Provider) listECSResources(ctx context.Context, region string) ([]types.Resource, error) {
-	return p.listECSResourcesFrom(ctx, p.getECSClient(region), region)
+	return p.listECSResourcesFrom(ctx, regionalClient(p, region, ecs.NewFromConfig), region)
 }
 
 // listECSResourcesFrom lists ECS clusters and services using the given client.
@@ -71,7 +71,7 @@ func (p *Provider) listECSResourcesFrom(ctx context.Context, client ecsAPI, regi
 	}
 	clusterCount := len(resources)
 
-	resources = append(resources, forEachConcurrently(clusterARNs, func(clusterARN string) []types.Resource {
+	resources = append(resources, forEachConcurrently(ctx, clusterARNs, func(clusterARN string) []types.Resource {
 		svcs, err := p.listECSServices(ctx, client, region, clusterARN)
 		if err != nil {
 			p.skipResource(ctx, "ECS", region, "services of cluster "+nameFromARN(clusterARN), err)
@@ -97,7 +97,7 @@ func (p *Provider) listECSServices(ctx context.Context, client ecsAPI, region, c
 	}
 
 	clusterName := nameFromARN(clusterARN)
-	resources := forEachConcurrently(chunk(serviceARNs, ecsServicesPerDescribe), func(batch []string) []types.Resource {
+	resources := forEachConcurrently(ctx, chunk(serviceARNs, ecsServicesPerDescribe), func(batch []string) []types.Resource {
 		output, err := client.DescribeServices(ctx, &ecs.DescribeServicesInput{
 			Cluster:  aws.String(clusterARN),
 			Services: batch,
@@ -136,8 +136,12 @@ func (p *Provider) applyECSTags(ctx context.Context, arn string, tags map[string
 		tagList = append(tagList, ecstypes.Tag{Key: aws.String(k), Value: aws.String(v)})
 	}
 
-	client := p.getECSClient(extractRegionFromARN(arn))
-	_, err := client.TagResource(ctx, &ecs.TagResourceInput{
+	region, err := regionForARN(arn)
+	if err != nil {
+		return provider.NewProviderError(providerName, "apply_ecs_tags", arn, err)
+	}
+	client := regionalClient(p, region, ecs.NewFromConfig)
+	_, err = client.TagResource(ctx, &ecs.TagResourceInput{
 		ResourceArn: aws.String(arn),
 		Tags:        tagList,
 	})
@@ -149,15 +153,11 @@ func (p *Provider) applyECSTags(ctx context.Context, arn string, tags map[string
 	return nil
 }
 
-// ecsTagsToMap converts ECS tags to a map.
+// ecsTagsToMap is tagsToMap for the tag type ECS clusters and services share.
 func ecsTagsToMap(tags []ecstypes.Tag) map[string]string {
-	result := make(map[string]string)
-	for _, tag := range tags {
-		if tag.Key != nil && tag.Value != nil {
-			result[*tag.Key] = *tag.Value
-		}
-	}
-	return result
+	return tagsToMap(tags,
+		func(t ecstypes.Tag) *string { return t.Key },
+		func(t ecstypes.Tag) *string { return t.Value })
 }
 
 // chunk splits items into slices of at most size elements.

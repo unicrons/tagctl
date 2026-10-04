@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -25,7 +26,8 @@ var applyCmd = &cobra.Command{
 Before applying, it will:
   • Load the plan file and reject any change other than add or update
   • Show a summary of changes
-  • Ask for confirmation (unless --auto-approve is set)
+  • Ask for confirmation (unless --auto-approve is set), or about each
+    resource with --interactive
 
 Examples:
   # Apply the latest plan
@@ -34,8 +36,14 @@ Examples:
   # Apply a specific plan file
   tagctl apply --plan output/plan-20240201-143052.json
 
+  # Apply the latest plan of another directory
+  tagctl apply --output-dir reports
+
   # Apply without confirmation
   tagctl apply --auto-approve
+
+  # Decide resource by resource
+  tagctl apply --interactive
 
   # Apply with a different profile or an assumed role
   tagctl apply --profile production
@@ -44,8 +52,10 @@ Examples:
 }
 
 func init() {
-	applyCmd.Flags().String("plan", "", "plan file to apply (default: latest in output/)")
+	applyCmd.Flags().String("plan", "", "plan file to apply (default: latest in --output-dir)")
+	addOutputDirFlag(applyCmd, "directory to look for the latest plan in")
 	applyCmd.Flags().Bool("auto-approve", false, "skip confirmation prompt")
+	applyCmd.Flags().BoolP("interactive", "i", false, "review the plan resource by resource and apply only the approved changes")
 	applyCmd.Flags().Bool("mock", false, "use mock applier for demonstration")
 	addAWSAuthFlags(applyCmd)
 }
@@ -54,6 +64,19 @@ func runApply(cmd *cobra.Command, args []string) error {
 	planFile, _ := cmd.Flags().GetString("plan")
 	autoApprove, _ := cmd.Flags().GetBool("auto-approve")
 	useMock, _ := cmd.Flags().GetBool("mock")
+	interactive, _ := cmd.Flags().GetBool("interactive")
+
+	if _, err := outputFormatFor(cmd, formatTable); err != nil {
+		return err
+	}
+	if err := checkInteractive(interactive, autoApprove); err != nil {
+		return err
+	}
+
+	outputDir, err := outputDirFor(cmd)
+	if err != nil {
+		return err
+	}
 
 	ctx, stop := signalContext()
 	defer stop()
@@ -62,8 +85,7 @@ func runApply(cmd *cobra.Command, args []string) error {
 
 	// Find plan file
 	if planFile == "" {
-		var err error
-		planFile, err = findLatestPlan()
+		planFile, err = FindLatestPlanInDir(outputDir)
 		if err != nil {
 			return err
 		}
@@ -87,20 +109,21 @@ func runApply(cmd *cobra.Command, args []string) error {
 
 	printPlanSummary(planFile, plan)
 
-	if !autoApprove {
-		confirmed, confirmErr := confirmApply(ctx, os.Stdin)
-		if confirmErr != nil {
-			return confirmErr
-		}
-		if !confirmed {
-			fmt.Println("Apply cancelled.")
-			return nil
-		}
+	skipped := 0
+	switch {
+	case interactive:
+		plan, skipped, err = approveInteractively(ctx, plan)
+	case !autoApprove:
+		plan, err = approveWhole(ctx, plan)
+	}
+	if err != nil {
+		return err
+	}
+	if plan.IsEmpty() {
+		return nil
 	}
 
-	fmt.Println()
-	fmt.Println("Applying changes...")
-	fmt.Println()
+	fmt.Fprint(os.Stderr, "\nApplying changes...\n\n")
 
 	cfg, err := loadConfig()
 	if err != nil {
@@ -133,30 +156,74 @@ func runApply(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	printApplyResult(result)
+	printApplyResult(result, skipped)
 	if result.ErrorCount > 0 {
 		return fmt.Errorf("%d of %d changes failed", result.ErrorCount, result.TotalChanges)
 	}
 	return nil
 }
 
-// printPlanSummary describes the plan about to be applied.
+func checkInteractive(interactive, autoApprove bool) error {
+	if !interactive {
+		return nil
+	}
+	if autoApprove {
+		return errors.New("--interactive and --auto-approve cannot be used together")
+	}
+	if !stdinIsTerminal() {
+		return errors.New("--interactive needs a terminal on stdin; use --auto-approve to apply without prompts")
+	}
+	return nil
+}
+
+// approveInteractively returns the plan reduced to the changes approved in the
+// review, empty when there are none, and how many changes were skipped.
+func approveInteractively(ctx context.Context, plan *types.Plan) (*types.Plan, int, error) {
+	review, err := reviewChanges(ctx, os.Stderr, applyInput, plan)
+	if err != nil {
+		return nil, 0, err
+	}
+	printReviewSummary(os.Stderr, review)
+
+	approved := review.approvedPlan(plan)
+	if err = engine.ValidatePlan(approved); err != nil {
+		return nil, 0, err
+	}
+	if approved.IsEmpty() {
+		fmt.Fprintln(os.Stderr, "No changes approved, nothing applied.")
+	}
+	return approved, review.skippedChanges(), nil
+}
+
+// approveWhole returns the plan when the operator confirms it and an empty
+// one otherwise.
+func approveWhole(ctx context.Context, plan *types.Plan) (*types.Plan, error) {
+	confirmed, err := confirmApply(ctx, applyInput)
+	if err != nil {
+		return nil, err
+	}
+	if !confirmed {
+		fmt.Fprintln(os.Stderr, "Apply cancelled.")
+		return &types.Plan{}, nil
+	}
+	return plan, nil
+}
+
+// printPlanSummary describes the plan about to be applied on stderr.
 func printPlanSummary(planFile string, plan *types.Plan) {
-	fmt.Printf("Applying plan from %s\n", planFile)
-	fmt.Printf("Plan created at: %s\n", plan.CreatedAt.Format("2006-01-02 15:04:05"))
-	fmt.Println()
 	summary := plan.Summarize()
-	fmt.Printf("Changes to apply:\n")
-	fmt.Printf("  • %d resources will be modified\n", summary.TotalResources)
-	fmt.Printf("  • %d tags will be added\n", summary.TagsAdded)
-	fmt.Printf("  • %d tags will be updated\n", summary.TagsUpdated)
-	fmt.Println()
+	fmt.Fprintf(os.Stderr, "Applying plan from %s\n", planFile)
+	fmt.Fprintf(os.Stderr, "Plan created at: %s\n\n", plan.CreatedAt.Format("2006-01-02 15:04:05"))
+	fmt.Fprintf(os.Stderr, "Changes to apply:\n")
+	fmt.Fprintf(os.Stderr, "  • %d resources will be modified\n", summary.TotalResources)
+	fmt.Fprintf(os.Stderr, "  • %d tags will be added\n", summary.TagsAdded)
+	fmt.Fprintf(os.Stderr, "  • %d tags will be updated\n\n", summary.TagsUpdated)
 }
 
 // confirmApply asks the operator to confirm before any tag is written. Ctrl-C
 // at the prompt cancels ctx, which returns at once instead of waiting for Enter.
 func confirmApply(ctx context.Context, in io.Reader) (bool, error) {
-	fmt.Print("Do you want to apply these changes? [y/N]: ")
+	fmt.Fprint(os.Stderr, "Do you want to apply these changes? [y/N]: ")
 
 	type answer struct {
 		line string
@@ -220,10 +287,14 @@ func buildApplier(ctx context.Context, cfg *config.Config, plan *types.Plan, sim
 }
 
 // printApplyResult prints the totals and any failures from an apply run.
-func printApplyResult(result *engine.ApplyResult) {
+// skipped counts the changes declined in an interactive review.
+func printApplyResult(result *engine.ApplyResult, skipped int) {
 	fmt.Println()
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	fmt.Printf("Applied successfully: %d changes\n", result.SuccessCount)
+	if skipped > 0 {
+		fmt.Printf("Skipped: %d changes\n", skipped)
+	}
 	fmt.Printf("Errors: %d\n", result.ErrorCount)
 	fmt.Printf("Duration: %s\n", result.Duration.Round(time.Millisecond))
 
@@ -239,10 +310,6 @@ func printApplyResult(result *engine.ApplyResult) {
 
 	fmt.Println()
 	fmt.Println("Run 'tagctl scan' to verify compliance.")
-}
-
-func findLatestPlan() (string, error) {
-	return FindLatestPlanInDir()
 }
 
 func loadPlan(path string) (*types.Plan, error) {

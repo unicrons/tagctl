@@ -11,7 +11,7 @@
 
 <p align="center">
   Scan what is wrong, review the plan, then apply it.<br>
-  AWS today, 106 resource types, every region by default.
+  106 AWS resource types, every region by default, and Kubernetes labels.
 </p>
 
 <p align="center">
@@ -28,12 +28,17 @@
 
 <p align="center">
   <a href="https://github.com/unicrons/tagctl/actions/workflows/ci.yml"><img src="https://github.com/unicrons/tagctl/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://codecov.io/gh/unicrons/tagctl"><img src="https://codecov.io/gh/unicrons/tagctl/graph/badge.svg" alt="Coverage"></a>
   <a href="https://goreportcard.com/report/github.com/unicrons/tagctl"><img src="https://goreportcard.com/badge/github.com/unicrons/tagctl" alt="Go Report Card"></a>
   <a href="https://github.com/unicrons/tagctl/releases"><img src="https://img.shields.io/github/v/release/unicrons/tagctl?color=6366F1" alt="Release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-6366F1.svg" alt="License"></a>
 </p>
 
 <br>
+
+<p align="center">
+  <img src="docs/images/demo.gif" alt="tagctl scan, plan and apply in a terminal" width="800">
+</p>
 
 ## Why tagctl?
 
@@ -61,6 +66,7 @@ tagctl apply   # Fix it.           → tags written after a confirmation prompt
 | | |
 |---|---|
 | **Wide coverage** | 106 AWS resource types, the same services Prowler audits, from EC2 and S3 to GuardDuty, WAF, Bedrock and IAM roles. Every region unless you say otherwise. See [the full list](docs/providers/aws.mdx). |
+| **Kubernetes too** | Pods, deployments, services, namespaces and config maps, with labels as the tags. See [the provider page](docs/providers/kubernetes.mdx) for what label values cannot hold. |
 | **Fixes, not just findings** | Infer tags from resource names (`web-prod-api` → `environment: prod`), fill gaps with conditional defaults, preview with `plan`, write with `apply`. |
 | **CI native** | SARIF for GitHub code scanning, JUnit for any CI, compliance gates (`--fail-under`, `--fail-on-new`) that exit `1` on a policy failure and `2` on any other error, and `diff` to report what got worse since a baseline. |
 | **Shift left** | `terraform` checks a plan or state against the policy before anything is created, honouring `default_tags`. |
@@ -74,16 +80,23 @@ tagctl apply   # Fix it.           → tags written after a confirmation prompt
 ```bash
 go install github.com/unicrons/tagctl/cmd/tagctl@latest
 
-tagctl init        # scaffolds tagctl.yaml
+tagctl init        # scaffolds tagctl.yaml (--template finops, security or well-architected)
 tagctl scan        # audits the account and writes the reports
 tagctl plan        # proposes the tags to add
 tagctl apply       # writes them, after you confirm
 ```
 
-`go install` needs Go 1.26.6 or later, the version `go.mod` requires.
-Pre-built binaries for Linux, macOS and Windows (amd64 and arm64) are attached
-to every [release](https://github.com/unicrons/tagctl/releases) with a
-`checksums.txt`.
+`go install` needs Go 1.26.6 or later, the version `go.mod` requires, and is
+the way to install until the first release is tagged. After the first release,
+every [release](https://github.com/unicrons/tagctl/releases) also ships:
+
+- Pre-built binaries for Linux, macOS and Windows (amd64 and arm64), with a
+  `checksums.txt`
+- A container image: `docker run --rm ghcr.io/unicrons/tagctl version`
+- A Homebrew cask, `brew install --cask unicrons/tap/tagctl`, once the
+  `unicrons/homebrew-tap` repository is published
+
+[Getting started](docs/getting-started.mdx) has the commands for each.
 
 ## Configuration
 
@@ -143,8 +156,15 @@ aws cloudformation deploy \
   --template-file permissions/aws/tagctl-scan-role.yaml \
   --stack-name tagctl-scan-role \
   --capabilities CAPABILITY_NAMED_IAM \
-  --parameter-overrides TrustedPrincipalArn=arn:aws:iam::111111111111:root
+  --parameter-overrides TrustedPrincipalArn=arn:aws:iam::123456789012:role/platform-admin
 ```
+
+`TrustedPrincipalArn` is the principal of the role's trust policy. Name the
+role or user that runs tagctl. An account root ARN
+(`arn:aws:iam::123456789012:root`) is accepted too, but it trusts every
+principal in that account whose own policies allow `sts:AssumeRole` on this
+role, not one identity. The `OrgId` parameter adds an `aws:PrincipalOrgID`
+condition on top; see [`permissions/aws/`](permissions/aws#who-can-assume-the-role).
 
 ## Example output
 
@@ -197,9 +217,36 @@ Run 'tagctl apply' to execute this plan.
 | `tagctl cost` | Spend your tags fail to account for |
 | `tagctl evaluate` | Evaluate resources from external JSON (Prowler integration) |
 
-Each command feeds the next through `output/`; `--scan` and `--plan` pick a
-specific file instead of the latest. Flags, exit codes and CI gates are in the
+Each command feeds the next through `output/` (`--output-dir` names another
+directory); `--scan` and `--plan` pick a specific file instead of the latest. Flags, exit codes and CI gates are in the
 [command reference](docs/commands.mdx).
+
+## Use in CI
+
+The repository is also a GitHub Action. It builds tagctl at the ref you pin,
+runs it with `args` and fails the step when a gate fails:
+
+```yaml
+permissions:
+  contents: read
+  id-token: write   # OIDC token for configure-aws-credentials
+
+jobs:
+  tag-compliance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::123456789012:role/github-tagctl
+          aws-region: us-east-1
+      - uses: unicrons/tagctl@main
+        with:
+          args: scan --fail-under 80 --sarif tagctl.sarif
+```
+
+Inputs, the `exit-code` output, OIDC setup and SARIF upload are in the
+[GitHub Action guide](docs/integrations/github-action.mdx).
 
 ## Documentation
 
@@ -210,16 +257,21 @@ specific file instead of the latest. Flags, exit codes and CI gates are in the
 | [Commands](docs/commands.mdx) | Flags, exit codes and CI gates |
 | [Rules](docs/rules.mdx) | Inference and defaults |
 | [AWS provider](docs/providers/aws.mdx) | Resource types and IAM policies |
+| [Kubernetes provider](docs/providers/kubernetes.mdx) | Resource types, RBAC and label limits |
+| [GitHub Action](docs/integrations/github-action.mdx) | Run tagctl in a workflow |
 | [OCSF](docs/integrations/ocsf.mdx) | Field mapping for the OCSF output |
 | [Architecture](docs/architecture.mdx) | How the pieces fit together |
-| [Roadmap](docs/roadmap.mdx) | Kubernetes, GCP and Azure providers |
+| [Roadmap](docs/roadmap.mdx) | Where tagctl is going, providers included |
+| [Development](docs/development.mdx) | Provider status, setup and checks |
 
 ## Contributing
 
 Bug reports and pull requests are welcome. The [contributing guide](CONTRIBUTING.md)
 and [development docs](docs/development.mdx) cover the setup (`make setup`, or
 the dev container in `.devcontainer/`), the checks CI runs (`make check`) and
-the commit conventions. Participation follows the
+the commit conventions. Looking for somewhere to start? Pick a
+[good first issue](https://github.com/unicrons/tagctl/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22).
+Participation follows the
 [Code of Conduct](CODE_OF_CONDUCT.md); report vulnerabilities privately as
 [SECURITY.md](SECURITY.md) describes, not in a public issue.
 
@@ -230,5 +282,5 @@ Apache 2.0. See [LICENSE](LICENSE).
 ---
 
 <p align="center">
-  <a href="https://tagctl.dev">tagctl.dev</a> · Made with ❤️ for the FinOps community
+  <a href="https://tagctl.dev">tagctl.dev</a> · Made with ❤️ for the cloud community
 </p>

@@ -1,0 +1,94 @@
+# tagctl configuration - security template
+# Tags a security team needs to triage a finding: how sensitive the data is,
+# who answers for the resource, where it runs and which audits it is in scope of.
+# See https://github.com/unicrons/tagctl for documentation
+
+# Cloud accounts to scan
+clouds:
+  aws:
+    # Credentials come from the AWS SDK chain: environment variables, then
+    # ~/.aws/config and ~/.aws/credentials (profiles, SSO), then an instance
+    # or container role. Never write keys in this file.
+    - profile: default
+      # regions: [us-east-1, eu-west-1]  # Optional: if omitted, all regions are scanned
+
+    # Assume a role on top of the resolved credentials, one entry per account.
+    # - profile: audit-base
+    #   role_arn: arn:aws:iam::123456789012:role/TagctlScan   # permissions/aws/ ships the role templates
+
+  # Kubernetes clusters go under a kubernetes key. Provider status:
+  # https://github.com/unicrons/tagctl/blob/main/docs/development.mdx
+
+policy:
+  required:
+    - name: data-classification
+      description: Sensitivity of the data the resource stores or processes
+      values:
+        - public
+        - internal
+        - confidential
+        - restricted
+
+    - name: owner
+      description: Team mailbox that answers for the resource during an incident
+      pattern: "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$"
+
+    - name: environment
+      description: Deployment stage
+      values:
+        - dev
+        - staging
+        - prod
+
+    - name: compliance
+      description: Audit scope the resource falls under, "none" when out of scope
+      values:
+        - none
+        - pci-dss
+        - hipaa
+        - soc2
+        - iso27001
+        - gdpr
+
+  # Tracked when present, never reported as missing
+  optional:
+    - name: security-contact
+      description: Escalation mailbox when it differs from the owner
+      pattern: "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$"
+
+    - name: exposure
+      description: Whether the resource is meant to be reachable from the internet
+      values:
+        - internal
+        - internet-facing
+
+# Auto-fix rules used by 'tagctl plan'
+rules:
+  # Infer tags from resource naming conventions
+  infer:
+    - tag: environment
+      from_name:
+        - pattern: "-prod-|-prod$|^prod-"
+          value: prod
+        - pattern: "-staging-|-stg-|-stg$|^stg-"
+          value: staging
+        - pattern: "-dev-|-dev$|^dev-"
+          value: dev
+
+  # data-classification and compliance have no default on purpose: guessing
+  # them hides the resources nobody has classified yet.
+  defaults:
+    - resource: "*"
+      when:
+        tag:owner: absent
+      set:
+        owner: security@example.com
+        needs-review: "true"
+
+# Nothing is ignored by default: IAM roles, log groups and keys are in scope
+# for a security policy. Add exceptions explicitly.
+# ignore:
+#   resources:
+#     - "aws_cloudwatch_*"
+#   tags:
+#     managed-by: [terraform, pulumi]

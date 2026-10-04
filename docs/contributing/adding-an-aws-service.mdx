@@ -1,0 +1,386 @@
+---
+title: 'Adding an AWS Service'
+description: 'Discover, tag and grant permissions for a new AWS resource type'
+icon: 'puzzle-piece'
+---
+
+Adding a resource type touches the AWS provider, the routing for tag writes,
+the tests that pin the supported set, the IAM policies and the docs. The steps
+below follow that order. If you skip one, the pinned tests or the permission
+tests fail.
+
+The AWS provider lives in `internal/provider/aws/`, one file per service or
+service group (`sqs.go`, `data_extra.go` for Athena, MemoryDB, MQ and others).
+The snippets on this page come from those files.
+
+## Before you start
+
+Find out, from the service's API reference and the
+[Service Authorization Reference](https://docs.aws.amazon.com/service-authorization/latest/reference/reference_policies_actions-resources-contextkeys.html):
+
+- **Discovery**: the List or Describe call that returns every resource. tagctl
+  never discovers through the Tagging API, because a resource that was never
+  tagged would not show up there.
+- **Tag reads**: whether that call returns tags inline, whether the service has
+  a per-resource tag read API, or neither.
+- **Tag writes**: whether `tag:TagResources` can tag the type, and which
+  service action it needs.
+- **ARN format** and the IAM resource type of each action.
+
+Prefer calls that return no secrets. CodeBuild is listed with `ListProjects`,
+not `BatchGetProjects`, because the latter returns environment variables in
+clear.
+
+## 1. Add the SDK client
+
+```bash
+go get github.com/aws/aws-sdk-go-v2/service/memorydb
+```
+
+Resolve the client with `regionalClient(p, region, memorydb.NewFromConfig)`.
+It creates one client per type and region and caches it in `p.clients`; every
+service resolves its client this way, the global ones with `p.globalRegion()`.
+Do not add a client field or getter to `Provider`.
+
+## 2. Write the lister
+
+Split every lister in two. `list<Service>` resolves the regional client.
+`list<Service>From` does the work against a narrow interface that holds only
+the calls it makes, so a test can pass a fake. MemoryDB, from `data_extra.go`:
+
+```go
+type memoryDBAPI interface {
+	DescribeClusters(ctx context.Context, params *memorydb.DescribeClustersInput, optFns ...func(*memorydb.Options)) (*memorydb.DescribeClustersOutput, error)
+}
+
+func (p *Provider) listMemoryDBClusters(ctx context.Context, region string) ([]types.Resource, error) {
+	return p.listMemoryDBClustersFrom(ctx, regionalClient(p, region, memorydb.NewFromConfig), region)
+}
+
+func (p *Provider) listMemoryDBClustersFrom(ctx context.Context, client memoryDBAPI, region string) ([]types.Resource, error) {
+	if !p.requireBulkTags(ctx, region, "MemoryDB") {
+		return nil, nil
+	}
+	var resources []types.Resource
+	paginator := memorydb.NewDescribeClustersPaginator(client, &memorydb.DescribeClustersInput{})
+	for paginator.HasMorePages() {
+		output, err := paginator.NextPage(ctx)
+		if err != nil {
+			return nil, provider.NewProviderError(providerName, "list_memorydb_clusters", "", err)
+		}
+		for _, c := range output.Clusters {
+			name := aws.ToString(c.Name)
+			resources = append(resources, p.bulkResource(ctx, region, "aws_memorydb_cluster", name, name, aws.ToString(c.ARN), nil))
+		}
+	}
+	log.Debug("AWS MemoryDB: Found %d clusters in %s", len(resources), region)
+	return resources, nil
+}
+```
+
+What the lister is responsible for:
+
+- **Paging.** Use the SDK paginator when the operation has one. Otherwise use
+  the `paginate` helper (`pagination.go`): it follows a token past an empty
+  page and fails the lister when a service repeats a token.
+- **Errors.** Return a failed List call wrapped in `provider.NewProviderError`.
+  The provider prefixes it with the account, region and lister label, and the
+  scan reports it as partial. Name the context parameter `ctx`: the permission
+  test in step 7 finds SDK calls by `.<Operation>(ctx` and
+  `New<Operation>Paginator(`.
+- **The resource.** Build it with `p.resource(region, type, id, name, arn, tags,
+  created)` when the tags are known, or `p.bulkResource(ctx, ...)` when they
+  come from the bulk sweep. Name the type after the Terraform resource where one
+  exists (`aws_memorydb_cluster`). `ignore.resources` and the `resource` glob of
+  `rules.defaults` match against it, and `tagctl terraform` reports resources
+  under Terraform's type names, so one pattern covers both.
+- **The ARN.** Set it to the exact ARN the Tagging API reports. The bulk sweep
+  is keyed by ARN, most types are tagged by ARN, and `Resource.Identity()` uses
+  it. When the API returns no ARN, build it the way CodeBuild does:
+
+  ```go
+  arn := p.buildARN("codebuild", region, p.accountID, "project/"+name)
+  ```
+
+  `p.buildARN(service, region, account, resource)` uses the partition of the
+  account (`aws`, `aws-cn`, `aws-us-gov`), read from the caller identity;
+  `p.ec2ARN(region, type, id)` does the same for EC2 resources. Never write a
+  literal `arn:aws:`: it breaks tag lookups and tag writes outside the
+  commercial partition. Pass an empty account for the services whose ARNs
+  omit it (S3, Route 53, API Gateway).
+
+- **Resources that cannot be tagged.** Leave out what AWS owns on your behalf,
+  such as AWS-managed KMS keys and automated snapshots. The
+  [AWS provider](/providers/aws#supported-resources) page lists what is
+  dropped today; add yours there.
+- **Services that are not set up.** Some services answer with an error when
+  they were never enabled in the account or region. Pass the code of that
+  error to `notSubscribed` and return zero resources at debug level. The DRS
+  lister does this:
+
+  ```go
+  if notSubscribed(err, "UninitializedAccountException") {
+  	log.Debug("AWS DRS: not initialised in %s, skipping", region)
+  	return nil, nil
+  }
+  ```
+
+  Each lister passes only its own service's codes; `notSubscribedCodes` in
+  `resource.go` holds the two every service shares. Use a code only when the
+  SDK models it (`types/errors.go` of the service module) and its
+  documentation says the account or region is not set up, and test the lister
+  with that SDK error type. A service with endpoints in only some regions
+  checks the region before building a client, like `lightsailEndpoints` for
+  Lightsail, which asks the service once per provider and keeps a built-in
+  list for when that call fails.
+
+**Global services** such as Route 53, CloudFront and IAM are listed once per
+account, not per region. Their listers take only `ctx`, live next to
+`globalListers()` in `global.go` or `global_extra.go`, set `Region` to
+`regionGlobal` and read tags from the sweep of `p.globalRegion()`, the
+partition's global region (`us-east-1` in the commercial partition). Use it
+for the client too, never a literal region.
+
+## 3. Pick the tag source
+
+| The service... | Read tags with | Example |
+|----------------|----------------|---------|
+| returns tags in the List/Describe response | `tagsToMap` into `p.resource` | Lightsail, DRS, EFS |
+| has a per-resource tag read API | `p.resourceTags(ctx, region, arn, fallback)` inside `forEachConcurrently` | SQS, Kinesis, KMS |
+| has no usable tag read API | `p.requireBulkTags`, then `p.bulkResource` or `p.bulkTags` | MemoryDB, CodeBuild |
+
+### Inline tags
+
+`tagsToMap` converts any SDK tag slice with two accessors. From the Lightsail
+lister:
+
+```go
+tags := tagsToMap(inst.Tags,
+	func(t lightsailtypes.Tag) *string { return t.Key },
+	func(t lightsailtypes.Tag) *string { return t.Value })
+resources = append(resources, p.resource(region, "aws_lightsail_instance", name, name, aws.ToString(inst.Arn), tags, inst.CreatedAt))
+```
+
+Leave these types out of `bulkTagFilterGroups`: the sweep would read tags no
+one looks up.
+
+### Per-resource tag API
+
+`p.resourceTags` looks the ARN up in the region's bulk sweep and only calls the
+fallback when the sweep failed, for example when `tag:GetResources` is denied.
+`forEachConcurrently` runs the lookups with at most 16 calls in flight. Both
+take the scan `ctx`: once it is cancelled no further item is dispatched,
+nothing waits for the sweep and `resourceTags` returns the context error
+without calling the fallback. From `sqs.go`:
+
+```go
+resources := forEachConcurrently(ctx, queueURLs, func(queueURL string) []types.Resource {
+	name := nameFromARN(queueURL)
+	arn, err := getSQSQueueARN(ctx, client, queueURL)
+	if err != nil {
+		p.skipResource(ctx, "SQS", region, "queue "+name, err)
+		return nil
+	}
+	tags, err := p.resourceTags(ctx, region, arn, func() (map[string]string, error) {
+		return getSQSTags(ctx, client, queueURL)
+	})
+	if err != nil {
+		p.skipResource(ctx, "SQS", region, "queue "+name, err)
+		return nil
+	}
+	return one(p.resource(region, "aws_sqs_queue", name, name, arn, tags, nil))
+})
+```
+
+When a tag read fails, skip the resource with `p.skipResource`. Never report it
+with empty tags: a denied call or a timeout must not turn into a compliance
+finding. `skipResource` logs the error and counts it, and the scan returns the
+count as an error. It records nothing when the scan was cancelled or when
+`resourceGone(err)` says the resource was deleted after it was listed. So add
+the not-found error type of your tag call to `resourceGone` in `resource.go`.
+A batch call that fails as a whole because one item is gone should retry one
+item at a time (see `describePipelines` in `data_extra.go`).
+
+### Bulk sweep only
+
+Call `p.requireBulkTags(ctx, region, label)` before listing, and return
+`nil, nil` when it is false. It logs the skipped service and counts it, so the
+scan does not look complete (a cancelled scan counts nothing). After that,
+`p.bulkResource(ctx, ...)` or `p.bulkTags(ctx, region, arn)` gives the tags,
+and an ARN missing from the sweep is untagged.
+
+### Add the type to the bulk filter
+
+Every type read through `p.resourceTags`, `p.bulkResource` or `p.bulkTags`
+needs its filter in `bulkTagFilterGroups` in `tags.go`. The filter is
+`service:type` in ARN notation (`memorydb:cluster`), or just the service
+(`sns`) to take every type of that service. Each group is one
+`GetResources` paginator and the groups run in parallel, so add to a group with
+fewer than six entries or start a new one. If you start one, update the number
+of paginators in "How tags are read" on the AWS provider page.
+
+<Warning>
+  A type missing from the filter does not fail. The sweep succeeds, the ARN is
+  not in it, and every resource of the type is reported as untagged. A
+  misspelled filter fails the whole region's sweep with
+  `InvalidParameterException`: tag reads fall back to per-resource calls, and
+  services that depend on the sweep are skipped.
+</Warning>
+
+## 4. Route tag writes
+
+`tagctl apply` addresses a resource by its ARN, or by its ID for the types in
+`idAddressedTypes`, and passes the region the plan recorded for it
+(`ApplyTagsInRegion`). `getResourceType` parses the ARN and picks a route from
+its service segment in `arnServiceRoutes`, whatever the partition, and
+`tagAppliers` maps the route to a method. An ARN whose service is not
+in the table goes to `tagging_api`, which is `applyTagsViaTaggingAPI`
+(`tag:TagResources`). Most new types need nothing here.
+
+Write an `apply<Service>Tags` method only when the Tagging API cannot tag the
+type, as with Lightsail. Its method expression is a `tagApplier`; it takes the
+region from the ARN with `regionForARN` and wraps errors in
+`provider.NewProviderError`:
+
+```go
+func (p *Provider) applyLightsailTags(ctx context.Context, arn string, tags map[string]string) error {
+	region, err := regionForARN(arn)
+	if err != nil {
+		return provider.NewProviderError(providerName, "apply_lightsail_tags", arn, err)
+	}
+	return applyLightsailTagsWith(ctx, regionalClient(p, region, lightsail.NewFromConfig), arn, tags)
+}
+```
+
+`regionForARN` fails on an ARN that does not parse or has no region. Do not
+fall back to a configured region: the write would land in the wrong place or
+on a client with no region. Then add one entry to each map in `provider.go`:
+
+```go
+// arnServiceRoutes
+"lightsail":         routeLightsail,
+
+// tagAppliers
+routeLightsail:          (*Provider).applyLightsailTags,
+```
+
+A route that also depends on the resource segment (ECS clusters and services,
+the Elastic Load Balancing families, S3 buckets) is decided in the `switch` of
+`getResourceType` instead.
+
+Only add the type to `idAddressedTypes` in `internal/engine/applier.go` when
+its tag API takes a bare ID instead of an ARN (the EC2 family). The ID then
+needs a prefix in `ec2IDPrefixes`, such as `i-`, and its applier needs the
+region from the plan, because an ID does not carry one: `regionTagAppliers`
+gives every route of `ec2IDPrefixes` to `applyEC2Tags`, which takes it. An
+identifier that is neither an ARN nor a known ID prefix has no route, and
+`ApplyTags` fails with `unknown resource type`. S3 buckets are addressed by
+ARN.
+
+## 5. Register the lister
+
+Add the lister to `regionalListers()` in `provider.go`, or to `globalListers()`
+for an account-wide service:
+
+```go
+{"MemoryDB clusters", p.listMemoryDBClusters},
+```
+
+The label shows up in debug logs and in errors (`list MemoryDB clusters: ...`).
+`ListResources` runs every regional lister in its own goroutine for every
+configured region.
+
+## 6. Extend the tests
+
+These tests pin the supported set, so a change that touches only one side
+fails:
+
+| Test | File | Add |
+|------|------|-----|
+| `TestRegionalListers` / `TestGlobalListers` | `internal/provider/aws/provider_test.go` | The lister label, in the same position |
+| `TestGetResourceType_AllSupportedServices` | `internal/provider/aws/provider_test.go` | A sample ARN and its route; the test also checks that the route has an applier |
+| `TestTaggingIdentifier` | `internal/engine/applier_test.go` | The type, and whether it is tagged by ID or by ARN |
+
+Test the lister next to its file, with a fake that implements the narrow
+interface. `sqs_test.go` covers a per-resource tag API, including the skip
+and deleted-resource cases. `data_extra_test.go` covers bulk-only services
+through `bulkProvider`, which fills the sweep with fixed tags. No test may
+reach AWS.
+
+```bash
+go test -race ./internal/provider/aws/ ./internal/engine/
+```
+
+## 7. Grant the IAM permissions
+
+The policy JSON files in `permissions/aws/` are the source of truth:
+
+| File | Statement | Add | MemoryDB |
+|------|-----------|-----|----------|
+| `tagctl-scan-policy.json` | `Discovery` | Every List/Describe action the lister calls | `memorydb:DescribeClusters` |
+| `tagctl-scan-policy.json` | `PerResourceTagFallback` | The tag read action behind `resourceTags` | none |
+| `tagctl-apply-policy.json` | `ServiceTagAPIs` | The write action of an `apply<Service>Tags` method | none |
+| `tagctl-apply-policy.json` | `TaggingAPIServices` | The service's own tag action, for types tagged through `tag:TagResources` | `memorydb:TagResource` |
+
+`tag:TagResources` calls the service on your behalf, so the service's own tag
+action must be allowed as well.
+
+The scan policy stays on `"*"`. In the apply policy, add the ARN pattern of the
+tagged resource type to the statement's `Resource` list. Take the pattern from
+the Service Authorization Reference, for MemoryDB
+`arn:aws:memorydb:*:*:cluster/*`. The policies are written for the commercial
+partition; the AWS provider page tells China and GovCloud users to replace the
+`arn:aws:` prefix, so keep every pattern in that form. Use `"*"` only when the reference lists no
+resource type for the action. In that case, add the action to
+`unscopedWriteActions` in `internal/provider/aws/permissions_test.go` with that
+reason. If a write action can do more than tag, like `codebuild:UpdateProject`,
+it belongs in an opt-in policy, not the default apply policy.
+
+Then re-render the CloudFormation roles and copy the JSON into the docs:
+
+```bash
+make iam-templates
+```
+
+Paste the updated policy into `docs/providers/aws.mdx`, under "Read-Only
+(Scan)" or "Read-Write (Apply)". The `TestPermissionPolicies_*` tests in
+`permissions_test.go` fail when:
+
+- the provider calls an operation that no policy allows. When the IAM action
+  has a different name, map it in `actionAliases` (`ListBuckets` is
+  `s3:ListAllMyBuckets`)
+- a write action is on `"*"` without an `unscopedWriteActions` entry, or has no
+  `Resource` in its own service namespace
+- the scan policy grants a write action, or an action appears in both policies
+- `tagctl-scan-role.yaml`, `tagctl-apply-role.yaml` or the docs page differ
+  from the JSON files
+- the scan, apply and CodeBuild policies together, whitespace excluded, leave
+  less than 768 characters under IAM's 10,240-character limit for a role's
+  inline policies. That space is reserved for the protected tag keys deny
+
+## 8. Update the docs
+
+In `docs/providers/aws.mdx`:
+
+- Add a row to the matching table under "Supported Resources" with the
+  resource, its type and the **Write API** `tagctl apply` calls.
+- Add the service to the right list in "How tags are read": inline tags,
+  per-resource fallback, or skipped without `tag:GetResources`.
+
+Bump the resource type count everywhere it appears: `README.md` (twice),
+`CONTRIBUTING.md`, `AGENTS.md`, `docs/providers/aws.mdx`,
+`docs/introduction.mdx` (twice), `docs/configuration.mdx`,
+`docs/development.mdx` and the diagram in `docs/architecture.mdx` (keep the
+box width). Search for the current number to find them.
+
+## Before you open the PR
+
+```bash
+make check
+go test -race ./internal/provider/aws/ ./internal/engine/
+(cd docs && mint validate && mint broken-links)
+```
+
+Use a commit subject like `feat(aws): discover MemoryDB clusters` (at most 60
+characters). See [Development](/development) for the pre-commit hook and the
+rest of the workflow.

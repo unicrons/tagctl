@@ -66,11 +66,11 @@ tagctl provides a declarative, policy-driven approach to tag management:
     106 resource types, matching the AWS services Prowler audits
   </Card>
   <Card
-    title="More Providers"
-    icon="cloud"
-    href="/roadmap"
+    title="Kubernetes"
+    icon="dharmachakra"
+    href="/providers/kubernetes"
   >
-    Kubernetes, GCP, Azure coming soon
+    Six resource types, labels as tags. GCP and Azure are not started
   </Card>
 </CardGroup>
 
@@ -125,12 +125,17 @@ tagctl follows a three-step workflow inspired by infrastructure-as-code tools li
 
 ## Supported Providers
 
-| Provider | Resources | Status |
-|----------|-----------|--------|
-| **AWS** | 106 resource types across compute, networking, storage, databases, analytics, messaging, security and developer tools — the full table is on the [AWS provider](/providers/aws) page | ✅ Stable |
-| **Kubernetes** | Pods, Deployments, Services, Namespaces, ConfigMaps, Secrets | 🔜 Coming Soon |
-| **GCP** | Compute Engine, Cloud Storage, GKE | 🔜 Coming Soon |
-| **Azure** | Virtual Machines, Storage Accounts, AKS | 🔜 Coming Soon |
+tagctl scans **AWS**: 106 resource types across compute, networking, storage,
+databases, analytics, messaging, security and developer tools. The full table is
+on the [AWS provider](/providers/aws) page.
+
+It also scans **Kubernetes** clusters: pods, deployments, services, namespaces,
+config maps and (opt-in) secrets, with labels as the tags. Label values cannot
+hold every string a cloud tag can; see the
+[Kubernetes provider](/providers/kubernetes#limits) page.
+
+GCP and Azure are not started. See
+[provider status](/development#provider-status).
 
 ## Key Features
 

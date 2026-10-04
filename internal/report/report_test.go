@@ -231,6 +231,80 @@ func TestWriteSARIF_DefaultsPolicyFile(t *testing.T) {
 	}
 }
 
+func decodeSARIF(t *testing.T, scan *types.ScanResult, opts SARIFOptions) SARIFLog {
+	t.Helper()
+
+	var buf bytes.Buffer
+	if err := WriteSARIF(&buf, scan, opts); err != nil {
+		t.Fatalf("WriteSARIF() error = %v", err)
+	}
+	var log SARIFLog
+	if err := json.Unmarshal(buf.Bytes(), &log); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	return log
+}
+
+func TestWriteSARIF_AutomationDetailsNameTheCommand(t *testing.T) {
+	scan := scanOf(failed("i-1", "aws_instance", "111", tagOwner, types.ReasonMissing))
+
+	for _, command := range []string{"scan", "evaluate", "terraform"} {
+		run := decodeSARIF(t, scan, SARIFOptions{Command: command}).Runs[0]
+		if want := "tagctl/" + command + "/"; run.AutomationDetails == nil || run.AutomationDetails.ID != want {
+			t.Errorf("automationDetails for %s = %+v, want id %q", command, run.AutomationDetails, want)
+		}
+	}
+
+	var buf bytes.Buffer
+	if err := WriteSARIF(&buf, scan, SARIFOptions{}); err != nil {
+		t.Fatalf("WriteSARIF() error = %v", err)
+	}
+	if strings.Contains(buf.String(), "automationDetails") {
+		t.Error("automationDetails written without a command")
+	}
+}
+
+func TestWriteSARIF_InvocationReportsPartialScans(t *testing.T) {
+	const discoveryErr = "provider aws: ec2 in eu-west-1: AccessDenied"
+
+	complete := scanOf(failed("i-1", "aws_instance", "111", tagOwner, types.ReasonMissing))
+	partial := scanOf(failed("i-1", "aws_instance", "111", tagOwner, types.ReasonMissing))
+	partial.Partial = true
+	partial.Errors = []string{discoveryErr}
+
+	tests := []struct {
+		name              string
+		scan              *types.ScanResult
+		wantSuccessful    bool
+		wantNotifications []string
+	}{
+		{name: "complete scan", scan: complete, wantSuccessful: true},
+		{name: "partial scan", scan: partial, wantSuccessful: false, wantNotifications: []string{discoveryErr}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			invocations := decodeSARIF(t, tt.scan, SARIFOptions{}).Runs[0].Invocations
+			if len(invocations) != 1 {
+				t.Fatalf("got %d invocations, want 1", len(invocations))
+			}
+			invocation := invocations[0]
+			if invocation.ExecutionSuccessful != tt.wantSuccessful {
+				t.Errorf("executionSuccessful = %v, want %v", invocation.ExecutionSuccessful, tt.wantSuccessful)
+			}
+			if len(invocation.ToolExecutionNotifications) != len(tt.wantNotifications) {
+				t.Fatalf("notifications = %+v, want %q", invocation.ToolExecutionNotifications, tt.wantNotifications)
+			}
+			for i, want := range tt.wantNotifications {
+				got := invocation.ToolExecutionNotifications[i]
+				if got.Level != "error" || got.Message.Text != want {
+					t.Errorf("notification %d = %+v, want an error with %q", i, got, want)
+				}
+			}
+		})
+	}
+}
+
 // A clean scan must still produce a valid document, or CI uploads break.
 func TestWriteSARIF_EmptyScanIsValid(t *testing.T) {
 	var buf bytes.Buffer
@@ -321,6 +395,24 @@ func TestWriteJUnit_Structure(t *testing.T) {
 	}
 }
 
+func TestWriteJUnit_OmitsTheTimeAttribute(t *testing.T) {
+	scan := scanOf(
+		failed("i-1", "aws_instance", "111", tagOwner, types.ReasonMissing),
+		passed("i-2", "aws_instance", "111", tagOwner),
+	)
+
+	var buf bytes.Buffer
+	if err := WriteJUnit(&buf, scan); err != nil {
+		t.Fatalf("WriteJUnit() error = %v", err)
+	}
+	if strings.Contains(buf.String(), " time=") {
+		t.Errorf("report claims a duration tagctl never measured:\n%s", buf.String())
+	}
+	if !strings.Contains(buf.String(), " timestamp=") {
+		t.Errorf("report lost the suite timestamp:\n%s", buf.String())
+	}
+}
+
 func TestWriteJUnit_FailureCarriesContext(t *testing.T) {
 	finding := failed("i-1", "aws_instance", "111", tagEnv, types.ReasonInvalidValue)
 	finding.Expected = "dev, staging, prod"
@@ -385,16 +477,25 @@ func TestWriteJUnit_EmptyScanIsValid(t *testing.T) {
 }
 
 func TestJUnitClassName(t *testing.T) {
-	withRegion := failed("i-1", "aws_instance", "111", tagOwner, types.ReasonMissing)
-	if got := junitClassName(withRegion); got != "aws.111.us-east-1" {
-		t.Errorf("classname = %q, want aws.111.us-east-1", got)
+	tests := []struct {
+		name                      string
+		provider, account, region string
+		want                      string
+	}{
+		{name: "regional resource", provider: "aws", account: "111", region: "us-east-1", want: "aws.111.us-east-1"},
+		{name: "global resource", provider: "aws", account: "111", want: "aws.111"},
+		{name: "terraform resource", provider: "aws", want: "aws"},
+		{name: "region without account", provider: "aws", region: "us-east-1", want: "aws.us-east-1"},
+		{name: "nothing known", want: "tagctl"},
 	}
 
-	// S3 buckets and other global resources have no region.
-	global := withRegion
-	global.Resource.Region = ""
-	if got := junitClassName(global); got != "aws.111" {
-		t.Errorf("classname for a global resource = %q, want aws.111", got)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			finding := types.Finding{Resource: types.Resource{Provider: tt.provider, Account: tt.account, Region: tt.region}}
+			if got := junitClassName(finding); got != tt.want {
+				t.Errorf("junitClassName() = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }
 
@@ -446,12 +547,19 @@ func TestGate_FailOnNew(t *testing.T) {
 	}
 }
 
-// Without a baseline there is nothing to compare against, so the check is
-// skipped rather than silently passing on a scan that may have regressed.
-func TestGate_FailOnNewWithoutBaseline(t *testing.T) {
-	result := Gate{FailOnNew: true}.Evaluate(&types.ScanResult{CompliancePct: 10}, nil)
-	if !result.Passed {
-		t.Errorf("gate failed with no baseline to compare against: %v", result.Reasons)
+func TestGate_FailOnNewWithoutBaselineFailsClosed(t *testing.T) {
+	result := Gate{FailOnNew: true}.Evaluate(&types.ScanResult{CompliancePct: 100}, nil)
+	if result.Passed {
+		t.Fatal("gate passed with no baseline to compare against")
+	}
+	if err := result.Error(); err == nil || !strings.Contains(err.Error(), "no baseline") {
+		t.Errorf("Error() = %v, want it to name the missing baseline", err)
+	}
+}
+
+func TestGate_NilDiffIsIgnoredWithoutFailOnNew(t *testing.T) {
+	if result := (Gate{FailUnder: 50}).Evaluate(&types.ScanResult{CompliancePct: 80}, nil); !result.Passed {
+		t.Errorf("gate failed without FailOnNew: %v", result.Reasons)
 	}
 }
 

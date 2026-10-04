@@ -2,7 +2,7 @@ package aws
 
 import (
 	"context"
-	"strings"
+	"errors"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
@@ -16,7 +16,7 @@ import (
 // listEC2Instances lists all EC2 instances in a region.
 func (p *Provider) listEC2Instances(ctx context.Context, region string) ([]types.Resource, error) {
 	log.Debug("AWS EC2: Listing instances in region %s...", region)
-	client := p.getEC2Client(region)
+	client := regionalClient(p, region, ec2.NewFromConfig)
 	var resources []types.Resource
 
 	paginator := ec2.NewDescribeInstancesPaginator(client, &ec2.DescribeInstancesInput{})
@@ -51,7 +51,7 @@ func (p *Provider) listEC2Instances(ctx context.Context, region string) ([]types
 				}
 
 				// Set ARN
-				resource.ARN = buildEC2ARN(p.accountID, region, "instance", resource.ID)
+				resource.ARN = p.ec2ARN(region, "instance", resource.ID)
 
 				// Set creation time
 				if instance.LaunchTime != nil {
@@ -71,7 +71,7 @@ func (p *Provider) listEC2Instances(ctx context.Context, region string) ([]types
 // listEBSVolumes lists all EBS volumes in a region.
 func (p *Provider) listEBSVolumes(ctx context.Context, region string) ([]types.Resource, error) {
 	log.Debug("AWS EBS: Listing volumes in region %s...", region)
-	client := p.getEC2Client(region)
+	client := regionalClient(p, region, ec2.NewFromConfig)
 	var resources []types.Resource
 
 	paginator := ec2.NewDescribeVolumesPaginator(client, &ec2.DescribeVolumesInput{})
@@ -100,7 +100,7 @@ func (p *Provider) listEBSVolumes(ctx context.Context, region string) ([]types.R
 			}
 
 			// Set ARN
-			resource.ARN = buildEC2ARN(p.accountID, region, "volume", resource.ID)
+			resource.ARN = p.ec2ARN(region, "volume", resource.ID)
 
 			// Set creation time
 			if volume.CreateTime != nil {
@@ -123,7 +123,7 @@ type ebsSnapshotsAPI interface {
 
 // listEBSSnapshots lists the EBS snapshots owned by the account in a region.
 func (p *Provider) listEBSSnapshots(ctx context.Context, region string) ([]types.Resource, error) {
-	return p.listEBSSnapshotsFrom(ctx, p.getEC2Client(region), region)
+	return p.listEBSSnapshotsFrom(ctx, regionalClient(p, region, ec2.NewFromConfig), region)
 }
 
 // listEBSSnapshotsFrom lists owned EBS snapshots using the given client.
@@ -143,7 +143,7 @@ func (p *Provider) listEBSSnapshotsFrom(ctx context.Context, client ebsSnapshots
 			resource := types.Resource{
 				ID:        id,
 				Name:      id,
-				ARN:       buildEC2ARN(p.accountID, region, "snapshot", id),
+				ARN:       p.ec2ARN(region, "snapshot", id),
 				Type:      "aws_ebs_snapshot",
 				Region:    region,
 				Account:   p.accountID,
@@ -162,111 +162,52 @@ func (p *Provider) listEBSSnapshotsFrom(ctx context.Context, client ebsSnapshots
 	return resources, nil
 }
 
-// applyEC2Tags applies tags to an EC2 resource (instance or volume).
-// It tries to find the correct region for the resource by attempting each configured region.
-func (p *Provider) applyEC2Tags(ctx context.Context, resourceID string, tags map[string]string) error {
-	log.Debug("AWS EC2: Applying tags to resource %s", resourceID)
-
-	// If the resourceID is an ARN, extract the region
-	if strings.HasPrefix(resourceID, "arn:aws:ec2:") {
-		region := extractRegionFromARN(resourceID)
-		if region != "" {
-			log.Debug("AWS EC2: Extracted region %s from ARN", region)
-			return p.applyEC2TagsInRegion(ctx, resourceID, region, tags)
-		}
-	}
-
-	// For resource IDs (i-xxx, vol-xxx), we need to find the correct region
-	// Try each configured region until we succeed
-	ec2Tags := make([]ec2types.Tag, 0, len(tags))
-	for k, v := range tags {
-		ec2Tags = append(ec2Tags, ec2types.Tag{
-			Key:   aws.String(k),
-			Value: aws.String(v),
-		})
-	}
-
-	var lastErr error
-	for _, region := range p.regions {
-		log.Debug("AWS EC2: Trying to apply tags in region %s...", region)
-		client := p.getEC2Client(region)
-
-		_, err := client.CreateTags(ctx, &ec2.CreateTagsInput{
-			Resources: []string{resourceID},
-			Tags:      ec2Tags,
-		})
-
-		if err == nil {
-			log.Debug("AWS EC2: Successfully applied %d tags to %s in %s", len(tags), resourceID, region)
-			return nil
-		}
-
-		// Check if error indicates the resource doesn't exist in this region
-		errMsg := err.Error()
-		if strings.Contains(errMsg, "InvalidInstanceID.NotFound") ||
-			strings.Contains(errMsg, "InvalidVolume.NotFound") ||
-			strings.Contains(errMsg, "does not exist") {
-			log.Debug("AWS EC2: Resource %s not found in %s, trying next region...", resourceID, region)
-			lastErr = err
-			continue
-		}
-
-		// For other errors (permissions, etc.), fail immediately
-		log.Error("AWS EC2: Failed to apply tags to %s in %s: %v", resourceID, region, err)
-		return provider.NewProviderError(providerName, "create_tags", resourceID, err)
-	}
-
-	// If we tried all regions and none worked
-	log.Error("AWS EC2: Could not find resource %s in any configured region", resourceID)
-	return provider.NewProviderError(providerName, "create_tags", resourceID, lastErr)
+// ec2CreateTagsAPI is the subset of the EC2 API used to tag a resource.
+type ec2CreateTagsAPI interface {
+	CreateTags(ctx context.Context, params *ec2.CreateTagsInput, optFns ...func(*ec2.Options)) (*ec2.CreateTagsOutput, error)
 }
 
-// applyEC2TagsInRegion applies tags to an EC2 resource in a specific region.
-func (p *Provider) applyEC2TagsInRegion(ctx context.Context, resourceID, region string, tags map[string]string) error {
-	log.Debug("AWS EC2: Applying %d tags to %s in region %s", len(tags), resourceID, region)
-	client := p.getEC2Client(region)
+// applyEC2Tags tags an EC2 resource addressed by bare ID in the region the
+// plan recorded for it.
+func (p *Provider) applyEC2Tags(ctx context.Context, resourceID, region string, tags map[string]string) error {
+	return applyEC2TagsWith(ctx, func(region string) ec2CreateTagsAPI { return regionalClient(p, region, ec2.NewFromConfig) }, resourceID, region, tags)
+}
+
+// applyEC2TagsWith makes the single CreateTags call. An ID says nothing about
+// its region, so a missing one is an error, never a search across regions.
+func applyEC2TagsWith(ctx context.Context, clientFor func(region string) ec2CreateTagsAPI, resourceID, region string, tags map[string]string) error {
+	if region == "" || region == regionGlobal {
+		return provider.NewProviderError(providerName, "create_tags", resourceID,
+			errors.New("EC2 resources are tagged by ID and need the region of the resource"))
+	}
 
 	ec2Tags := make([]ec2types.Tag, 0, len(tags))
 	for k, v := range tags {
-		ec2Tags = append(ec2Tags, ec2types.Tag{
-			Key:   aws.String(k),
-			Value: aws.String(v),
-		})
+		ec2Tags = append(ec2Tags, ec2types.Tag{Key: aws.String(k), Value: aws.String(v)})
 	}
-
-	_, err := client.CreateTags(ctx, &ec2.CreateTagsInput{
+	_, err := clientFor(region).CreateTags(ctx, &ec2.CreateTagsInput{
 		Resources: []string{resourceID},
 		Tags:      ec2Tags,
 	})
-
 	if err != nil {
 		log.Error("AWS EC2: Failed to apply tags to %s in %s: %v", resourceID, region, err)
 		return provider.NewProviderError(providerName, "create_tags", resourceID, err)
 	}
 
-	log.Debug("AWS EC2: Successfully applied tags to %s", resourceID)
+	log.Debug("AWS EC2: Applied %d tags to %s in %s", len(tags), resourceID, region)
 	return nil
 }
 
-// ec2TagsToMap converts EC2 tags to a map.
+// ec2TagsToMap is tagsToMap for the tag type every EC2 lister shares.
 func ec2TagsToMap(tags []ec2types.Tag) map[string]string {
-	result := make(map[string]string)
-	for _, tag := range tags {
-		if tag.Key != nil && tag.Value != nil {
-			result[*tag.Key] = *tag.Value
-		}
-	}
-	return result
-}
-
-// buildEC2ARN builds an ARN for an EC2 resource.
-func buildEC2ARN(accountID, region, resourceType, resourceID string) string {
-	return "arn:aws:ec2:" + region + ":" + accountID + ":" + resourceType + "/" + resourceID
+	return tagsToMap(tags,
+		func(t ec2types.Tag) *string { return t.Key },
+		func(t ec2types.Tag) *string { return t.Value })
 }
 
 // listSecurityGroups lists all EC2 security groups in a region.
 func (p *Provider) listSecurityGroups(ctx context.Context, region string) ([]types.Resource, error) {
-	return p.listSecurityGroupsFrom(ctx, p.getEC2Client(region), region)
+	return p.listSecurityGroupsFrom(ctx, regionalClient(p, region, ec2.NewFromConfig), region)
 }
 
 // listSecurityGroupsFrom lists security groups using the given client.
@@ -299,7 +240,7 @@ func (p *Provider) listSecurityGroupsFrom(ctx context.Context, client ec2Describ
 				resource.Name = aws.ToString(sg.GroupName)
 			}
 
-			resource.ARN = buildEC2ARN(p.accountID, region, "security-group", resource.ID)
+			resource.ARN = p.ec2ARN(region, "security-group", resource.ID)
 
 			log.Debug("AWS SecurityGroup: %s (%s) in %s has %d tags", resource.ID, resource.Name, region, len(resource.Tags))
 			resources = append(resources, resource)
@@ -312,7 +253,7 @@ func (p *Provider) listSecurityGroupsFrom(ctx context.Context, client ec2Describ
 
 // listVPCs lists all VPCs in a region.
 func (p *Provider) listVPCs(ctx context.Context, region string) ([]types.Resource, error) {
-	return p.listVPCsFrom(ctx, p.getEC2Client(region), region)
+	return p.listVPCsFrom(ctx, regionalClient(p, region, ec2.NewFromConfig), region)
 }
 
 // listVPCsFrom lists VPCs using the given client.
@@ -344,7 +285,7 @@ func (p *Provider) listVPCsFrom(ctx context.Context, client ec2DescribeVpcsAPI, 
 				resource.Name = resource.ID
 			}
 
-			resource.ARN = buildEC2ARN(p.accountID, region, "vpc", resource.ID)
+			resource.ARN = p.ec2ARN(region, "vpc", resource.ID)
 
 			log.Debug("AWS VPC: %s (%s) in %s has %d tags", resource.ID, resource.Name, region, len(resource.Tags))
 			resources = append(resources, resource)
@@ -357,7 +298,7 @@ func (p *Provider) listVPCsFrom(ctx context.Context, client ec2DescribeVpcsAPI, 
 
 // listSubnets lists all subnets in a region.
 func (p *Provider) listSubnets(ctx context.Context, region string) ([]types.Resource, error) {
-	return p.listSubnetsFrom(ctx, p.getEC2Client(region), region)
+	return p.listSubnetsFrom(ctx, regionalClient(p, region, ec2.NewFromConfig), region)
 }
 
 // listSubnetsFrom lists subnets using the given client.
@@ -389,7 +330,7 @@ func (p *Provider) listSubnetsFrom(ctx context.Context, client ec2DescribeSubnet
 				resource.Name = resource.ID
 			}
 
-			resource.ARN = buildEC2ARN(p.accountID, region, "subnet", resource.ID)
+			resource.ARN = p.ec2ARN(region, "subnet", resource.ID)
 
 			log.Debug("AWS Subnet: %s (%s) in %s has %d tags", resource.ID, resource.Name, region, len(resource.Tags))
 			resources = append(resources, resource)

@@ -11,6 +11,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/resourcegroupstaggingapi"
+	taggingtypes "github.com/aws/aws-sdk-go-v2/service/resourcegroupstaggingapi/types"
 
 	"github.com/unicrons/tagctl/internal/log"
 	"github.com/unicrons/tagctl/internal/provider"
@@ -73,14 +74,24 @@ func staticTagSource(tags map[string]map[string]string) *tagSource {
 	return t
 }
 
-// lookup blocks until the fetch finished. ok is false when bulk tags are not
-// available (permission denied, API error), in which case the caller must
-// fall back to the service's own tag call.
-func (t *tagSource) lookup(arn string) (tags map[string]string, ok bool) {
-	if t == nil {
+// wait blocks until the fetch finished and reports whether it did before ctx
+// was cancelled.
+func (t *tagSource) wait(ctx context.Context) bool {
+	select {
+	case <-t.done:
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
+// lookup blocks until the fetch finished or ctx is cancelled. ok is false
+// when bulk tags are not available (permission denied, API error, cancelled),
+// in which case the caller must fall back to the service's own tag call.
+func (t *tagSource) lookup(ctx context.Context, arn string) (tags map[string]string, ok bool) {
+	if t == nil || !t.wait(ctx) {
 		return nil, false
 	}
-	<-t.done
 	if t.err != nil {
 		return nil, false
 	}
@@ -90,12 +101,12 @@ func (t *tagSource) lookup(arn string) (tags map[string]string, ok bool) {
 	return map[string]string{}, true
 }
 
-// available reports whether bulk tags were fetched for this source.
-func (t *tagSource) available() bool {
-	if t == nil {
+// available reports whether bulk tags were fetched for this source. It is
+// false once ctx is cancelled, without waiting for the fetch.
+func (t *tagSource) available(ctx context.Context) bool {
+	if t == nil || !t.wait(ctx) {
 		return false
 	}
-	<-t.done
 	return t.err == nil
 }
 
@@ -152,42 +163,40 @@ func fetchBulkTagGroup(ctx context.Context, client taggingAPI, filters []string)
 			if arn == "" {
 				continue
 			}
-			m := make(map[string]string, len(mapping.Tags))
-			for _, tag := range mapping.Tags {
-				if tag.Key != nil && tag.Value != nil {
-					m[*tag.Key] = *tag.Value
-				}
-			}
-			tags[arn] = m
+			tags[arn] = tagsToMap(mapping.Tags,
+				func(t taggingtypes.Tag) *string { return t.Key },
+				func(t taggingtypes.Tag) *string { return t.Value })
 		}
 	}
 	return tags, nil
 }
 
-// startTagSources launches one bulk tag fetch per configured region.
+// startTagSources launches one bulk tag fetch per region of tagSweepRegions.
 func (p *Provider) startTagSources(ctx context.Context) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	regions := p.regions
-	if !p.isConfiguredRegion(defaultRegion) {
-		regions = append(append([]string{}, regions...), defaultRegion)
-	}
-	p.tagSources = make(map[string]*tagSource, len(regions))
+	regions := p.tagSweepRegions()
+	sources := make(map[string]*tagSource, len(regions))
 	for _, region := range regions {
-		region := region
-		client := p.getTaggingClientLocked(region)
-		p.tagSources[region] = newTagSource(func() (map[string]map[string]string, error) {
+		client := regionalClient(p, region, resourcegroupstaggingapi.NewFromConfig)
+		sources[region] = newTagSource(func() (map[string]map[string]string, error) {
 			return fetchBulkTags(ctx, client, region)
 		})
 	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.tagSources = sources
 }
 
 // requireBulkTags reports whether bulk tags are available for region. Services
 // with no tag API of their own cannot be audited without them; the caller
-// skips the service and this logs and records why, once per service and region.
-func (p *Provider) requireBulkTags(region, label string) bool {
-	if p.tagsFor(region).available() {
+// skips the service and this logs and records why, once per service and
+// region. A cancelled scan records nothing.
+func (p *Provider) requireBulkTags(ctx context.Context, region, label string) bool {
+	if p.tagsFor(region).available(ctx) {
 		return true
+	}
+	if ctx.Err() != nil {
+		return false
 	}
 	log.Error("AWS %s: skipped in %s: reading its tags needs the tag:GetResources permission", label, region)
 	p.skipped.service(label, region)
@@ -269,8 +278,8 @@ func (s *skipLog) errs() []error {
 
 // bulkTags returns the tags of arn from the bulk source; empty when untagged.
 // Only valid after requireBulkTags returned true.
-func (p *Provider) bulkTags(region, arn string) map[string]string {
-	tags, _ := p.tagsFor(region).lookup(arn)
+func (p *Provider) bulkTags(ctx context.Context, region, arn string) map[string]string {
+	tags, _ := p.tagsFor(region).lookup(ctx, arn)
 	if tags == nil {
 		tags = map[string]string{}
 	}
@@ -285,22 +294,26 @@ func (p *Provider) tagsFor(region string) *tagSource {
 }
 
 // resourceTags resolves a resource's tags from the bulk source when it is
-// available and through fallback otherwise.
-func (p *Provider) resourceTags(region, arn string, fallback func() (map[string]string, error)) (map[string]string, error) {
-	if tags, ok := p.tagsFor(region).lookup(arn); ok {
+// available and through fallback otherwise. A cancelled ctx is returned as
+// the error, without calling fallback.
+func (p *Provider) resourceTags(ctx context.Context, region, arn string, fallback func() (map[string]string, error)) (map[string]string, error) {
+	if tags, ok := p.tagsFor(region).lookup(ctx, arn); ok {
 		return tags, nil
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 	return fallback()
 }
 
 // applyTagsViaTaggingAPI tags any resource by ARN through TagResources.
 func (p *Provider) applyTagsViaTaggingAPI(ctx context.Context, arn string, tags map[string]string) error {
-	region := extractRegionFromARN(arn)
-	if region == "" {
-		region = defaultRegion
-	}
-	client := p.getTaggingClient(region)
+	return tagResources(ctx, regionalClient(p, p.taggingRegion(arn), resourcegroupstaggingapi.NewFromConfig), arn, tags)
+}
 
+// tagResources adds tags to one ARN through TagResources, which leaves the
+// resource's other tags in place.
+func tagResources(ctx context.Context, client taggingAPI, arn string, tags map[string]string) error {
 	output, err := client.TagResources(ctx, &resourcegroupstaggingapi.TagResourcesInput{
 		ResourceARNList: []string{arn},
 		Tags:            tags,
@@ -317,6 +330,16 @@ func (p *Provider) applyTagsViaTaggingAPI(ctx context.Context, arn string, tags 
 	return nil
 }
 
+// taggingRegion returns the region whose Tagging API endpoint tags arn: its
+// own, or the partition's global region for ARNs without one (IAM, Route 53,
+// CloudFront).
+func (p *Provider) taggingRegion(arn string) string {
+	if region, err := regionForARN(arn); err == nil {
+		return region
+	}
+	return p.globalRegion()
+}
+
 // taggingFailure is a per-resource failure reported inside a successful
 // TagResources response.
 type taggingFailure struct {
@@ -325,20 +348,4 @@ type taggingFailure struct {
 
 func (f *taggingFailure) Error() string {
 	return f.code + ": " + f.message
-}
-
-func (p *Provider) getTaggingClient(region string) *resourcegroupstaggingapi.Client {
-	return cachedClient(p, p.taggingClients, region, resourcegroupstaggingapi.NewFromConfig)
-}
-
-// getTaggingClientLocked is getTaggingClient for callers already holding p.mu.
-func (p *Provider) getTaggingClientLocked(region string) *resourcegroupstaggingapi.Client {
-	if client, ok := p.taggingClients[region]; ok {
-		return client
-	}
-	regionalCfg := p.cfg.Copy()
-	regionalCfg.Region = region
-	client := resourcegroupstaggingapi.NewFromConfig(regionalCfg)
-	p.taggingClients[region] = client
-	return client
 }

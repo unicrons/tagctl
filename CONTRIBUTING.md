@@ -2,14 +2,11 @@
 
 Thank you for your interest in contributing to tagctl! This guide will help you get started.
 
-## Current State
+## Provider Status
 
-**Supported Providers:**
-- ✅ **AWS** - 106 resource types, the services Prowler audits (stable; full
-  table in [docs/providers/aws.mdx](docs/providers/aws.mdx))
-- 🚧 **Kubernetes** - provider exists under `internal/provider/k8s/` but is not
-  wired into the CLI yet
-- 🔜 **GCP** / **Azure** - config types only, no provider; contributions welcome
+AWS (106 resource types) and Kubernetes (six resource types, labels as tags)
+are supported; GCP and Azure are not started. The status table is in
+[docs/development.mdx](docs/development.mdx).
 
 ## Code of Conduct
 
@@ -24,7 +21,7 @@ unacceptable behavior privately.
 - Go 1.26.6 or later (the version in `go.mod`)
 - Git
 - Make
-- AWS credentials (for testing with real resources)
+- AWS credentials are optional: only a scan of real resources needs them
 
 ### Setup
 
@@ -186,7 +183,7 @@ tagctl/
 │   ├── provider/         # Cloud providers
 │   │   ├── provider.go   # Interface
 │   │   ├── aws/          # AWS, one file per service group
-│   │   └── k8s/          # Kubernetes (not wired yet)
+│   │   └── k8s/          # Kubernetes
 │   └── types/            # Domain types
 │       ├── resource.go, violation.go, scan.go, plan.go
 │       └── diff.go, normalize.go, cost.go
@@ -263,14 +260,16 @@ func init() {
 ### Adding a New Provider
 
 We're looking for contributors to help with:
-- **Kubernetes** - finish and wire the existing `internal/provider/k8s/`
-  provider (labels on pods, deployments, services)
+- **Kubernetes** - more resource types (StatefulSets, DaemonSets, Jobs)
 - **GCP** - Compute Engine, Cloud Storage, GKE
 - **Azure** - VMs, Storage Accounts, AKS
 
-For a new AWS service, follow "Adding a New AWS Service" in
-[CLAUDE.md](CLAUDE.md), which walks through the lister, tag source, applier
-routing and the tests that pin the supported set.
+[docs/roadmap.mdx](docs/roadmap.mdx) says what is left for each.
+
+A new AWS service is not a new provider: follow
+[Adding an AWS Service](docs/contributing/adding-an-aws-service.mdx), which
+covers the lister, the tag source, write routing, the pinned tests, the IAM
+policies and the docs.
 
 1. Create `internal/provider/newcloud/provider.go`:
 
@@ -328,6 +327,14 @@ func (p *Provider) ApplyTags(ctx context.Context, resourceID string, tags map[st
 
 ## Testing Guidelines
 
+### Without an AWS account
+
+You do not need AWS credentials to contribute. The suite mocks every SDK call
+and localstack is not part of the setup.
+[Testing without an AWS account](docs/development.mdx#testing-without-an-aws-account)
+covers `scan --mock`, testing a lister through its narrow API interface with a
+mock client, and the fixtures in `test/testdata`.
+
 ### Test File Naming
 
 - `foo.go` → `foo_test.go`
@@ -375,7 +382,7 @@ type Finding struct {
     Actual   string        `json:"actual,omitempty"`
 }
 
-// Violation is deprecated, use Finding instead
+// Violation is deprecated and will be removed in v1.0.0, use Finding instead
 type Violation struct {
     Resource Resource        `json:"resource"`
     Tag      string          `json:"tag"`
@@ -470,12 +477,16 @@ form that fits; blank issues are disabled:
 A release is a tag. Pushing `vX.Y.Z` runs the `Release` workflow, which
 builds the binaries with GoReleaser (`.goreleaser.yaml`), attaches them with
 their checksums to a GitHub Release and writes the notes from the commit
-subjects since the previous tag.
+subjects since the previous tag. The same run pushes the container image to
+`ghcr.io/unicrons/tagctl` and, once the tap is set up, the Homebrew cask.
 
 ```bash
 git tag -a v1.0.0 -m "v1.0.0"
 git push origin v1.0.0
 ```
+
+The one-time setup and how to dry-run the pipeline are in
+[Releasing](docs/development.mdx#releasing).
 
 ## Recognition
 

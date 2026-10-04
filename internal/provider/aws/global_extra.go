@@ -2,7 +2,6 @@ package aws
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/globalaccelerator"
@@ -18,7 +17,8 @@ import (
 )
 
 // Global services beyond global.go: Shield, WAF Classic (CloudFront) and
-// WAFv2 CLOUDFRONT scope live in us-east-1; Global Accelerator in us-west-2.
+// WAFv2 CLOUDFRONT scope live in the partition's global region; Global
+// Accelerator in us-west-2 of the commercial partition.
 
 // globalAcceleratorRegion is the only endpoint of the Global Accelerator API.
 const globalAcceleratorRegion = "us-west-2"
@@ -40,11 +40,11 @@ type globalAcceleratorAPI interface {
 // listProtections lists Shield Advanced protections; without a subscription
 // the API answers ResourceNotFound, which is not an error.
 func (p *Provider) listProtections(ctx context.Context) ([]types.Resource, error) {
-	return p.listProtectionsFrom(ctx, regionalClient(p, globalRegion, shield.NewFromConfig))
+	return p.listProtectionsFrom(ctx, regionalClient(p, p.globalRegion(), shield.NewFromConfig))
 }
 
 func (p *Provider) listProtectionsFrom(ctx context.Context, client shieldAPI) ([]types.Resource, error) {
-	if !p.requireBulkTags(globalRegion, "Shield") {
+	if !p.requireBulkTags(ctx, p.globalRegion(), "Shield") {
 		return nil, nil
 	}
 	var resources []types.Resource
@@ -52,14 +52,14 @@ func (p *Provider) listProtectionsFrom(ctx context.Context, client shieldAPI) ([
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
-			if notSubscribed(err) {
+			if notSubscribed(err, "ResourceNotFoundException") {
 				log.Debug("AWS Shield: no Shield Advanced subscription, skipping")
 				return nil, nil
 			}
 			return nil, provider.NewProviderError(providerName, "list_shield_protections", "", err)
 		}
 		for _, pr := range output.Protections {
-			r := p.bulkResource(globalRegion, "aws_shield_protection", aws.ToString(pr.Id), aws.ToString(pr.Name), aws.ToString(pr.ProtectionArn), nil)
+			r := p.bulkResource(ctx, p.globalRegion(), "aws_shield_protection", aws.ToString(pr.Id), aws.ToString(pr.Name), aws.ToString(pr.ProtectionArn), nil)
 			r.Region = regionGlobal
 			resources = append(resources, r)
 		}
@@ -69,32 +69,31 @@ func (p *Provider) listProtectionsFrom(ctx context.Context, client shieldAPI) ([
 }
 
 func (p *Provider) listGlobalWebACLs(ctx context.Context) ([]types.Resource, error) {
-	return p.listGlobalWebACLsFrom(ctx, regionalClient(p, globalRegion, waf.NewFromConfig))
+	return p.listGlobalWebACLsFrom(ctx, regionalClient(p, p.globalRegion(), waf.NewFromConfig))
 }
 
 // listGlobalWebACLsFrom lists WAF Classic web ACLs attached to CloudFront.
 func (p *Provider) listGlobalWebACLsFrom(ctx context.Context, client wafGlobalAPI) ([]types.Resource, error) {
-	if !p.requireBulkTags(globalRegion, "WAF Classic") {
+	if !p.requireBulkTags(ctx, p.globalRegion(), "WAF Classic") {
 		return nil, nil
 	}
 	var resources []types.Resource
-	var marker *string
-	for {
+	err := paginate(func(marker *string) (*string, error) {
 		output, err := client.ListWebACLs(ctx, &waf.ListWebACLsInput{NextMarker: marker})
 		if err != nil {
-			return nil, provider.NewProviderError(providerName, "list_waf_web_acls", "", err)
+			return nil, err
 		}
 		for _, acl := range output.WebACLs {
 			id := aws.ToString(acl.WebACLId)
-			arn := fmt.Sprintf("arn:aws:waf::%s:webacl/%s", p.accountID, id)
-			r := p.bulkResource(globalRegion, "aws_waf_web_acl", id, aws.ToString(acl.Name), arn, nil)
+			arn := p.buildARN("waf", "", p.accountID, "webacl/"+id)
+			r := p.bulkResource(ctx, p.globalRegion(), "aws_waf_web_acl", id, aws.ToString(acl.Name), arn, nil)
 			r.Region = regionGlobal
 			resources = append(resources, r)
 		}
-		if output.NextMarker == nil || len(output.WebACLs) == 0 {
-			break
-		}
-		marker = output.NextMarker
+		return output.NextMarker, nil
+	})
+	if err != nil {
+		return nil, provider.NewProviderError(providerName, "list_waf_web_acls", "", err)
 	}
 	log.Debug("AWS WAF Classic: Found %d global web ACLs", len(resources))
 	return resources, nil
@@ -102,7 +101,7 @@ func (p *Provider) listGlobalWebACLsFrom(ctx context.Context, client wafGlobalAP
 
 // listCloudFrontWebACLs lists WAFv2 web ACLs of the CLOUDFRONT scope.
 func (p *Provider) listCloudFrontWebACLs(ctx context.Context) ([]types.Resource, error) {
-	resources, err := p.listWAFv2WebACLsFrom(ctx, regionalClient(p, globalRegion, wafv2.NewFromConfig), globalRegion, wafv2types.ScopeCloudfront)
+	resources, err := p.listWAFv2WebACLsFrom(ctx, regionalClient(p, p.globalRegion(), wafv2.NewFromConfig), p.globalRegion(), wafv2types.ScopeCloudfront)
 	for i := range resources {
 		resources[i].Region = regionGlobal
 	}
@@ -110,12 +109,16 @@ func (p *Provider) listCloudFrontWebACLs(ctx context.Context) ([]types.Resource,
 }
 
 func (p *Provider) listAccelerators(ctx context.Context) ([]types.Resource, error) {
+	if p.partitionID() != partitionAWS {
+		log.Debug("AWS Global Accelerator: not available in partition %s", p.partitionID())
+		return nil, nil
+	}
 	return p.listAcceleratorsFrom(ctx, regionalClient(p, globalAcceleratorRegion, globalaccelerator.NewFromConfig))
 }
 
 // listAcceleratorsFrom lists Global Accelerator accelerators. Their tags are
 // read through the service API because the bulk source only covers the
-// configured regions and us-east-1, not us-west-2.
+// configured regions and the global region, not us-west-2.
 func (p *Provider) listAcceleratorsFrom(ctx context.Context, client globalAcceleratorAPI) ([]types.Resource, error) {
 	var accelerators []gatypes.Accelerator
 	paginator := globalaccelerator.NewListAcceleratorsPaginator(client, &globalaccelerator.ListAcceleratorsInput{})
@@ -127,7 +130,7 @@ func (p *Provider) listAcceleratorsFrom(ctx context.Context, client globalAccele
 		accelerators = append(accelerators, output.Accelerators...)
 	}
 
-	resources := forEachConcurrently(accelerators, func(a gatypes.Accelerator) []types.Resource {
+	resources := forEachConcurrently(ctx, accelerators, func(a gatypes.Accelerator) []types.Resource {
 		arn := aws.ToString(a.AcceleratorArn)
 		output, err := client.ListTagsForResource(ctx, &globalaccelerator.ListTagsForResourceInput{ResourceArn: aws.String(arn)})
 		if err != nil {

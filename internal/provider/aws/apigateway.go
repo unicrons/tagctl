@@ -2,7 +2,6 @@ package aws
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/apigateway"
@@ -25,7 +24,7 @@ type httpAPIsAPI interface {
 
 // listRestAPIs lists API Gateway REST APIs in a region. Tags come inline.
 func (p *Provider) listRestAPIs(ctx context.Context, region string) ([]types.Resource, error) {
-	return p.listRestAPIsFrom(ctx, p.getAPIGatewayClient(region), region)
+	return p.listRestAPIsFrom(ctx, regionalClient(p, region, apigateway.NewFromConfig), region)
 }
 
 func (p *Provider) listRestAPIsFrom(ctx context.Context, client restAPIsAPI, region string) ([]types.Resource, error) {
@@ -45,7 +44,7 @@ func (p *Provider) listRestAPIsFrom(ctx context.Context, client restAPIsAPI, reg
 			resources = append(resources, types.Resource{
 				ID:        id,
 				Name:      aws.ToString(api.Name),
-				ARN:       fmt.Sprintf("arn:aws:apigateway:%s::/restapis/%s", region, id),
+				ARN:       p.buildARN("apigateway", region, "", "/restapis/"+id),
 				Type:      "aws_api_gateway_rest_api",
 				Region:    region,
 				Account:   p.accountID,
@@ -61,16 +60,15 @@ func (p *Provider) listRestAPIsFrom(ctx context.Context, client restAPIsAPI, reg
 
 // listHTTPAPIs lists API Gateway v2 HTTP and WebSocket APIs in a region.
 func (p *Provider) listHTTPAPIs(ctx context.Context, region string) ([]types.Resource, error) {
-	return p.listHTTPAPIsFrom(ctx, p.getAPIGatewayV2Client(region), region)
+	return p.listHTTPAPIsFrom(ctx, regionalClient(p, region, apigatewayv2.NewFromConfig), region)
 }
 
 func (p *Provider) listHTTPAPIsFrom(ctx context.Context, client httpAPIsAPI, region string) ([]types.Resource, error) {
 	var resources []types.Resource
-	var next *string
-	for {
-		output, err := client.GetApis(ctx, &apigatewayv2.GetApisInput{NextToken: next})
+	err := paginate(func(token *string) (*string, error) {
+		output, err := client.GetApis(ctx, &apigatewayv2.GetApisInput{NextToken: token})
 		if err != nil {
-			return nil, provider.NewProviderError(providerName, "list_http_apis", "", err)
+			return nil, err
 		}
 		for _, api := range output.Items {
 			id := aws.ToString(api.ApiId)
@@ -81,7 +79,7 @@ func (p *Provider) listHTTPAPIsFrom(ctx context.Context, client httpAPIsAPI, reg
 			resources = append(resources, types.Resource{
 				ID:        id,
 				Name:      aws.ToString(api.Name),
-				ARN:       fmt.Sprintf("arn:aws:apigateway:%s::/apis/%s", region, id),
+				ARN:       p.buildARN("apigateway", region, "", "/apis/"+id),
 				Type:      "aws_apigatewayv2_api",
 				Region:    region,
 				Account:   p.accountID,
@@ -90,10 +88,10 @@ func (p *Provider) listHTTPAPIsFrom(ctx context.Context, client httpAPIsAPI, reg
 				CreatedAt: api.CreatedDate,
 			})
 		}
-		if output.NextToken == nil || len(output.Items) == 0 {
-			break
-		}
-		next = output.NextToken
+		return output.NextToken, nil
+	})
+	if err != nil {
+		return nil, provider.NewProviderError(providerName, "list_http_apis", "", err)
 	}
 	log.Debug("AWS API Gateway: Found %d HTTP/WebSocket APIs in %s", len(resources), region)
 	return resources, nil

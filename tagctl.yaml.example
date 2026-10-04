@@ -28,14 +28,17 @@ clouds:
     #   mfa_serial: arn:aws:iam::111111111111:mfa/me   # TOTP code read from stdin
     #   regions: [us-east-1]
 
-  # GCP (coming soon)
-  # gcp:
-  #   - project: my-project
-  #     credentials_file: ~/.config/gcloud/application_default_credentials.json
+  # Kubernetes clusters: labels are the tags. See docs/providers/kubernetes.mdx
+  # for the resource types, RBAC and the limits of label values (no e-mails).
+  # kubernetes:
+  #   - name: production            # unique; the account of its resources
+  #     kubeconfig: ~/.kube/config  # or in-cluster; omitted: KUBECONFIG, then ~/.kube/config
+  #     context: prod-context       # omitted: the current context
+  #     namespaces: [app, backend]  # omitted: the whole cluster
+  #     resource_types: [k8s_deployment, k8s_service]   # omitted: all but k8s_secret
 
-  # Azure (coming soon)
-  # azure:
-  #   - subscription: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+  # gcp and azure are reserved keys: accepted and ignored. Provider status:
+  # docs/development.mdx
 
 # Tag policy definition
 policy:
@@ -105,8 +108,9 @@ ignore:
 # prod / Production / PROD, which silently split any cost report grouped by
 # that tag.
 normalize:
-  # Edit distance under which two values are treated as a typo of each other.
-  # 0 disables typo matching. Default: 1
+  # Edit distance under which two values are treated as a typo of each other,
+  # capped at one edit per 3 letters or digits of the shorter value. Values
+  # with different digits never match. 0 disables typo matching. Default: 1
   max_distance: 1
 
   # Group a value with a longer one it is a prefix of ("prod" / "production").

@@ -2,7 +2,6 @@ package aws
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/firehose"
@@ -51,7 +50,7 @@ type sageMakerAPI interface {
 const openSearchDescribeBatch = 5
 
 func (p *Provider) listRedshiftClusters(ctx context.Context, region string) ([]types.Resource, error) {
-	return p.listRedshiftClustersFrom(ctx, p.getRedshiftClient(region), region)
+	return p.listRedshiftClustersFrom(ctx, regionalClient(p, region, redshift.NewFromConfig), region)
 }
 
 func (p *Provider) listRedshiftClustersFrom(ctx context.Context, client redshiftAPI, region string) ([]types.Resource, error) {
@@ -64,15 +63,18 @@ func (p *Provider) listRedshiftClustersFrom(ctx context.Context, client redshift
 		}
 		for _, c := range output.Clusters {
 			id := aws.ToString(c.ClusterIdentifier)
+			tags := tagsToMap(c.Tags,
+				func(t redshifttypes.Tag) *string { return t.Key },
+				func(t redshifttypes.Tag) *string { return t.Value })
 			resources = append(resources, types.Resource{
 				ID:        id,
 				Name:      id,
-				ARN:       fmt.Sprintf("arn:aws:redshift:%s:%s:cluster:%s", region, p.accountID, id),
+				ARN:       p.buildARN("redshift", region, p.accountID, "cluster:"+id),
 				Type:      "aws_redshift_cluster",
 				Region:    region,
 				Account:   p.accountID,
 				Provider:  providerName,
-				Tags:      redshiftTagsToMap(c.Tags),
+				Tags:      tags,
 				CreatedAt: c.ClusterCreateTime,
 			})
 		}
@@ -81,22 +83,12 @@ func (p *Provider) listRedshiftClustersFrom(ctx context.Context, client redshift
 	return resources, nil
 }
 
-func redshiftTagsToMap(tags []redshifttypes.Tag) map[string]string {
-	result := make(map[string]string)
-	for _, tag := range tags {
-		if tag.Key != nil && tag.Value != nil {
-			result[*tag.Key] = *tag.Value
-		}
-	}
-	return result
-}
-
 func (p *Provider) listOpenSearchDomains(ctx context.Context, region string) ([]types.Resource, error) {
-	return p.listOpenSearchDomainsFrom(ctx, p.getOpenSearchClient(region), region)
+	return p.listOpenSearchDomainsFrom(ctx, regionalClient(p, region, opensearch.NewFromConfig), region)
 }
 
 func (p *Provider) listOpenSearchDomainsFrom(ctx context.Context, client openSearchAPI, region string) ([]types.Resource, error) {
-	if !p.requireBulkTags(region, "OpenSearch") {
+	if !p.requireBulkTags(ctx, region, "OpenSearch") {
 		return nil, nil
 	}
 	listed, err := client.ListDomainNames(ctx, &opensearch.ListDomainNamesInput{})
@@ -125,7 +117,7 @@ func (p *Provider) listOpenSearchDomainsFrom(ctx context.Context, client openSea
 				Region:   region,
 				Account:  p.accountID,
 				Provider: providerName,
-				Tags:     p.bulkTags(region, arn),
+				Tags:     p.bulkTags(ctx, region, arn),
 			})
 		}
 	}
@@ -134,7 +126,7 @@ func (p *Provider) listOpenSearchDomainsFrom(ctx context.Context, client openSea
 }
 
 func (p *Provider) listMSKClusters(ctx context.Context, region string) ([]types.Resource, error) {
-	return p.listMSKClustersFrom(ctx, p.getMSKClient(region), region)
+	return p.listMSKClustersFrom(ctx, regionalClient(p, region, kafka.NewFromConfig), region)
 }
 
 func (p *Provider) listMSKClustersFrom(ctx context.Context, client mskAPI, region string) ([]types.Resource, error) {
@@ -169,11 +161,11 @@ func (p *Provider) listMSKClustersFrom(ctx context.Context, client mskAPI, regio
 }
 
 func (p *Provider) listGlueJobs(ctx context.Context, region string) ([]types.Resource, error) {
-	return p.listGlueJobsFrom(ctx, p.getGlueClient(region), region)
+	return p.listGlueJobsFrom(ctx, regionalClient(p, region, glue.NewFromConfig), region)
 }
 
 func (p *Provider) listGlueJobsFrom(ctx context.Context, client glueAPI, region string) ([]types.Resource, error) {
-	if !p.requireBulkTags(region, "Glue") {
+	if !p.requireBulkTags(ctx, region, "Glue") {
 		return nil, nil
 	}
 	var resources []types.Resource
@@ -185,7 +177,7 @@ func (p *Provider) listGlueJobsFrom(ctx context.Context, client glueAPI, region 
 		}
 		for _, j := range output.Jobs {
 			name := aws.ToString(j.Name)
-			arn := fmt.Sprintf("arn:aws:glue:%s:%s:job/%s", region, p.accountID, name)
+			arn := p.buildARN("glue", region, p.accountID, "job/"+name)
 			resources = append(resources, types.Resource{
 				ID:        name,
 				Name:      name,
@@ -194,7 +186,7 @@ func (p *Provider) listGlueJobsFrom(ctx context.Context, client glueAPI, region 
 				Region:    region,
 				Account:   p.accountID,
 				Provider:  providerName,
-				Tags:      p.bulkTags(region, arn),
+				Tags:      p.bulkTags(ctx, region, arn),
 				CreatedAt: j.CreatedOn,
 			})
 		}
@@ -204,11 +196,11 @@ func (p *Provider) listGlueJobsFrom(ctx context.Context, client glueAPI, region 
 }
 
 func (p *Provider) listFirehoseStreams(ctx context.Context, region string) ([]types.Resource, error) {
-	return p.listFirehoseStreamsFrom(ctx, p.getFirehoseClient(region), region)
+	return p.listFirehoseStreamsFrom(ctx, regionalClient(p, region, firehose.NewFromConfig), region)
 }
 
 func (p *Provider) listFirehoseStreamsFrom(ctx context.Context, client firehoseAPI, region string) ([]types.Resource, error) {
-	if !p.requireBulkTags(region, "Firehose") {
+	if !p.requireBulkTags(ctx, region, "Firehose") {
 		return nil, nil
 	}
 	var resources []types.Resource
@@ -219,7 +211,7 @@ func (p *Provider) listFirehoseStreamsFrom(ctx context.Context, client firehoseA
 			return nil, provider.NewProviderError(providerName, "list_firehose_streams", "", err)
 		}
 		for _, name := range output.DeliveryStreamNames {
-			arn := fmt.Sprintf("arn:aws:firehose:%s:%s:deliverystream/%s", region, p.accountID, name)
+			arn := p.buildARN("firehose", region, p.accountID, "deliverystream/"+name)
 			resources = append(resources, types.Resource{
 				ID:       name,
 				Name:     name,
@@ -228,7 +220,7 @@ func (p *Provider) listFirehoseStreamsFrom(ctx context.Context, client firehoseA
 				Region:   region,
 				Account:  p.accountID,
 				Provider: providerName,
-				Tags:     p.bulkTags(region, arn),
+				Tags:     p.bulkTags(ctx, region, arn),
 			})
 		}
 		if !aws.ToBool(output.HasMoreDeliveryStreams) || len(output.DeliveryStreamNames) == 0 {
@@ -241,11 +233,11 @@ func (p *Provider) listFirehoseStreamsFrom(ctx context.Context, client firehoseA
 }
 
 func (p *Provider) listSageMakerResources(ctx context.Context, region string) ([]types.Resource, error) {
-	return p.listSageMakerResourcesFrom(ctx, p.getSageMakerClient(region), region)
+	return p.listSageMakerResourcesFrom(ctx, regionalClient(p, region, sagemaker.NewFromConfig), region)
 }
 
 func (p *Provider) listSageMakerResourcesFrom(ctx context.Context, client sageMakerAPI, region string) ([]types.Resource, error) {
-	if !p.requireBulkTags(region, "SageMaker") {
+	if !p.requireBulkTags(ctx, region, "SageMaker") {
 		return nil, nil
 	}
 	var resources []types.Resource
@@ -262,7 +254,7 @@ func (p *Provider) listSageMakerResourcesFrom(ctx context.Context, client sageMa
 			resources = append(resources, types.Resource{
 				ID: name, Name: name, ARN: arn, Type: "aws_sagemaker_endpoint",
 				Region: region, Account: p.accountID, Provider: providerName,
-				Tags: p.bulkTags(region, arn), CreatedAt: e.CreationTime,
+				Tags: p.bulkTags(ctx, region, arn), CreatedAt: e.CreationTime,
 			})
 		}
 	}
@@ -279,7 +271,7 @@ func (p *Provider) listSageMakerResourcesFrom(ctx context.Context, client sageMa
 			resources = append(resources, types.Resource{
 				ID: name, Name: name, ARN: arn, Type: "aws_sagemaker_notebook_instance",
 				Region: region, Account: p.accountID, Provider: providerName,
-				Tags: p.bulkTags(region, arn), CreatedAt: n.CreationTime,
+				Tags: p.bulkTags(ctx, region, arn), CreatedAt: n.CreationTime,
 			})
 		}
 	}

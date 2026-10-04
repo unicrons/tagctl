@@ -6,6 +6,7 @@ import (
 	"html/template"
 	"io"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/unicrons/tagctl/internal/types"
@@ -41,7 +42,26 @@ type HTMLReport struct {
 	Accounts      []HTMLAccount
 	Tags          []HTMLTag
 	Matrix        []HTMLMatrixRow
+	ByValue       []HTMLTagValues
 	Findings      []HTMLFinding
+}
+
+// HTMLTagValues groups the scanned resources by the value of one policy tag.
+type HTMLTagValues struct {
+	Tag      string
+	Selected bool
+	Values   []HTMLTagValue
+}
+
+// HTMLTagValue is the resources sharing one value of a tag. Index is its
+// position in HTMLTagValues.Values, which HTMLFinding.Groups refers to.
+type HTMLTagValue struct {
+	Label     string
+	Untagged  bool
+	Index     int
+	Resources int
+	Compliant int
+	Pct       float64
 }
 
 // HTMLAccount is one row of the accounts section.
@@ -88,6 +108,9 @@ type HTMLFinding struct {
 	ARN      string
 	Status   string
 	Label    string
+	// Groups holds, per entry of HTMLReport.ByValue, the Index of the value
+	// this finding's resource carries, space-separated.
+	Groups string
 }
 
 // WriteHTML renders the scan as a standalone HTML report.
@@ -116,10 +139,13 @@ func BuildHTMLReport(scan *types.ScanResult, opts HTMLOptions) HTMLReport {
 		Errors:        scan.Errors,
 		Accounts:      htmlAccounts(scan),
 		Tags:          htmlTags(scan, findings),
-		Findings:      htmlFindings(findings),
 	}
 	r.Regions = strings.Join(uniqueRegions(findings), ", ")
 	r.Matrix = htmlMatrix(findings, r.Tags)
+
+	var groups map[string]string
+	r.ByValue, groups = htmlByValue(findings, r.Tags)
+	r.Findings = htmlFindings(findings, groups)
 
 	for _, f := range findings {
 		if f.Status != types.StatusFailed {
@@ -328,11 +354,140 @@ func uniqueRegions(findings []types.Finding) []string {
 	return regions
 }
 
-func htmlFindings(findings []types.Finding) []HTMLFinding {
+// untaggedLabel names the resources that carry no value for a tag.
+const untaggedLabel = "(untagged)"
+
+// defaultValueTags are the tags the by-value section opens on when the policy
+// has one, in order of preference.
+var defaultValueTags = []string{"owner", "team"}
+
+// htmlByValue groups resources by the value they carry for each policy tag
+// and counts how many pass the whole policy. It also returns, per resource
+// identity, the HTMLFinding.Groups string of its findings.
+func htmlByValue(findings []types.Finding, tags []HTMLTag) ([]HTMLTagValues, map[string]string) {
+	if len(findings) == 0 || len(tags) == 0 {
+		return nil, nil
+	}
+
+	tagIndex := make(map[string]int, len(tags))
+	for i, t := range tags {
+		tagIndex[t.Name] = i
+	}
+
+	type resourceState struct {
+		values []string
+		failed bool
+	}
+	resources := map[string]*resourceState{}
+
+	for i := range findings {
+		f := &findings[i]
+		key := f.Resource.Identity()
+		state := resources[key]
+		if state == nil {
+			state = &resourceState{values: make([]string, len(tags))}
+			for name, idx := range tagIndex {
+				state.values[idx] = f.Resource.Tags[name]
+			}
+			resources[key] = state
+		}
+		if f.Status == types.StatusFailed {
+			state.failed = true
+		}
+		// Scan files written without resource tags still carry the value here.
+		if idx, ok := tagIndex[f.Tag]; ok && state.values[idx] == "" {
+			state.values[idx] = f.Actual
+		}
+	}
+
+	byValue := make([]HTMLTagValues, len(tags))
+	positions := make([]map[string]int, len(tags))
+	for idx, t := range tags {
+		counts := map[string]*HTMLTagValue{}
+		for _, state := range resources {
+			value := state.values[idx]
+			row := counts[value]
+			if row == nil {
+				row = &HTMLTagValue{Label: value}
+				counts[value] = row
+			}
+			row.Resources++
+			if !state.failed {
+				row.Compliant++
+			}
+		}
+		byValue[idx], positions[idx] = tagValues(t.Name, counts)
+	}
+	selectDefaultValueTag(byValue)
+
+	groups := make(map[string]string, len(resources))
+	for key, state := range resources {
+		parts := make([]string, len(tags))
+		for idx, value := range state.values {
+			parts[idx] = strconv.Itoa(positions[idx][value])
+		}
+		groups[key] = strings.Join(parts, " ")
+	}
+	return byValue, groups
+}
+
+// tagValues orders the values of one tag by resource count, the untagged row
+// last, and returns the position of each value.
+func tagValues(tag string, counts map[string]*HTMLTagValue) (HTMLTagValues, map[string]int) {
+	untagged := &HTMLTagValue{}
+	if row, ok := counts[""]; ok {
+		untagged = row
+	}
+	untagged.Label, untagged.Untagged = untaggedLabel, true
+
+	values := make([]HTMLTagValue, 0, len(counts)+1)
+	for value, row := range counts {
+		if value != "" {
+			values = append(values, *row)
+		}
+	}
+	sort.Slice(values, func(i, j int) bool {
+		if values[i].Resources != values[j].Resources {
+			return values[i].Resources > values[j].Resources
+		}
+		return values[i].Label < values[j].Label
+	})
+	values = append(values, *untagged)
+
+	positions := make(map[string]int, len(values))
+	for i := range values {
+		v := &values[i]
+		v.Index = i
+		if v.Resources > 0 {
+			v.Pct = float64(v.Compliant) / float64(v.Resources) * 100
+		}
+		if v.Untagged {
+			positions[""] = i
+		} else {
+			positions[v.Label] = i
+		}
+	}
+	return HTMLTagValues{Tag: tag, Values: values}, positions
+}
+
+func selectDefaultValueTag(byValue []HTMLTagValues) {
+	for _, preferred := range defaultValueTags {
+		for i := range byValue {
+			if strings.EqualFold(byValue[i].Tag, preferred) {
+				byValue[i].Selected = true
+				return
+			}
+		}
+	}
+	byValue[0].Selected = true
+}
+
+func htmlFindings(findings []types.Finding, groups map[string]string) []HTMLFinding {
 	rows := make([]HTMLFinding, 0, len(findings))
 	for i := range findings {
 		f := &findings[i]
 		row := HTMLFinding{
+			Groups:   groups[f.Resource.Identity()],
 			Resource: f.Resource.DisplayName(),
 			Type:     f.Resource.Type,
 			Region:   f.Resource.Region,

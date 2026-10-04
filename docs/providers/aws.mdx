@@ -66,7 +66,7 @@ are then read in bulk through the Resource Groups Tagging API (see
 
 | Resource | Type | Write API |
 |----------|------|-----------|
-| S3 Bucket | `aws_s3_bucket` | `s3:PutBucketTagging` |
+| S3 Bucket | `aws_s3_bucket` | `tag:TagResources` |
 | EFS File System | `aws_efs_file_system` | `elasticfilesystem:TagResource` |
 | FSx File System | `aws_fsx_file_system` | `tag:TagResources` |
 | Backup Vault | `aws_backup_vault` | `tag:TagResources` |
@@ -212,15 +212,20 @@ every lister error, names the account (and region) it comes from, so
 
 Global services (Route 53, CloudFront, IAM, Shield, WAF Classic for
 CloudFront, WAFv2 CloudFront scope) are listed once per account and read their
-tags from the `us-east-1` sweep, which tagctl runs even when `us-east-1` is
-not in `regions`. Global Accelerator only exists in `us-west-2` and reads and
-writes its tags through its own API.
+tags from the sweep of the partition's global region (`us-east-1` in the
+commercial partition, see [Partitions](#partitions)), which tagctl runs even
+when that region is not in `regions`. Global Accelerator only exists in
+`us-west-2` of the commercial partition and reads and writes its tags through
+its own API.
 
 Some services report "not set up" instead of an empty list: DRS in a region
 never initialised, Shield without an Advanced subscription, Firewall Manager
-outside the administrator account. tagctl treats those answers as zero
-resources (visible at `--log-level debug`), not as errors. Lightsail is only
-called in the regions where it has an endpoint.
+outside the administrator account, Glacier in an account with no Glacier
+storage. tagctl treats those answers as zero resources (visible at
+`--log-level debug`), not as errors. Lightsail is only called in the regions
+where it has an endpoint: tagctl asks `lightsail:GetRegions` once per account
+and uses a built-in list when that call fails (see
+[Read-Only (Scan)](#read-only-scan)).
 
 <Warning>
 `tag:GetResources` is eventually consistent. Tags written by `tagctl apply`
@@ -293,6 +298,34 @@ tagctl scan --region eu-west-1
 tagctl scan --region eu-west-1 --region us-east-1
 ```
 
+## Partitions
+
+tagctl takes the partition from the caller identity (`sts:GetCallerIdentity`)
+and uses it for every ARN it builds and for the global services, so nothing
+has to be configured:
+
+| Partition | Identity ARN prefix | Global region |
+|-----------|---------------------|---------------|
+| Commercial | `arn:aws:` | `us-east-1` |
+| China | `arn:aws-cn:` | `cn-northwest-1` |
+| GovCloud (US) | `arn:aws-us-gov:` | `us-gov-west-1` |
+
+The global region is where Route 53, CloudFront, IAM, Shield, the CloudFront
+WAF scopes and Cost Explorer are called and where the bulk tag sweep for them
+runs. `tagctl apply` routes a change by the service and resource segments of
+its ARN, whatever the partition.
+
+<Note>
+  Outside the commercial partition Global Accelerator and Lightsail are not
+  scanned: they do not exist there. A global service the partition does not
+  offer answers with an error, which the scan reports as a lister error for
+  that service (see `--allow-partial`). The IAM policies below are written
+  for `arn:aws:`; replace the prefix as described under
+  [Read-Write (Apply)](#read-write-apply). China and GovCloud are covered by
+  unit tests against mocked APIs, not by scans of real accounts in those
+  partitions.
+</Note>
+
 ## Authentication
 
 Credentials come from the AWS SDK default chain (environment, `~/.aws`
@@ -319,8 +352,8 @@ CloudFormation templates under
 
 The apply policy is additive: it holds only the tag write actions and always
 sits next to the scan policy, which is where `sts:GetCallerIdentity`, the
-discovery calls and the S3 `Get*` reads that precede `PutBucketTagging` come
-from. Deploy the role in every account tagctl will touch:
+discovery calls and the `s3:GetBucketTagging` that tagging a bucket requires
+come from. Deploy the role in every account tagctl will touch:
 
 ```bash
 aws cloudformation deploy \
@@ -472,6 +505,7 @@ Every copy on this page is checked against those files by
         "dlm:GetLifecyclePolicies",
         "drs:DescribeSourceServers",
         "lightsail:GetInstances",
+        "lightsail:GetRegions",
         "ssm:DescribeParameters",
         "ssm:ListDocuments",
         "ssm-incidents:ListResponsePlans",
@@ -513,6 +547,15 @@ Every copy on this page is checked against those files by
   and `globalaccelerator:ListTagsForResource` sit in `Discovery` because
   ALB/NLB and Global Accelerator tags are always read through them.
 </Note>
+
+<Warning>
+  A role deployed before `lightsail:GetRegions` was part of this policy does
+  not have it. tagctl then logs one error per account and falls back to a
+  built-in list of Lightsail regions, which may lack the newest ones:
+  Lightsail instances in a region outside that list are not scanned.
+  Redeploy the template, or add the action to your own role, to scan every
+  Lightsail region.
+</Warning>
 
 ### Read-Write (Apply)
 
@@ -727,9 +770,12 @@ Every copy on this page is checked against those files by
 
 <Note>
   This policy only adds the write actions: attach it together with the scan
-  policy, as the `TagctlApply` role does. `PutBucketTagging` replaces the whole
-  tag set, so tagctl reads the existing tags first through the scan policy's
-  `s3:GetBucketTagging`. `tag:TagResources` delegates to each service, so the
+  policy, as the `TagctlApply` role does. S3 buckets are tagged through
+  `tag:TagResources`, which adds the new keys to the bucket's tag set on the
+  AWS side. tagctl does not read the set and write it back itself, a sequence
+  that drops any tag written by someone else between the two calls. For a
+  bucket the Tagging API needs `s3:PutBucketTagging` and `s3:GetBucketTagging`
+  (the latter comes from the scan policy). `tag:TagResources` delegates to each service, so the
   service's own tagging action must be allowed as well; a resource the service
   rejects is reported as a failed change with the service's error code, the
   rest of the batch still applies.
@@ -916,9 +962,13 @@ tagctl scan --log-level debug
   </Accordion>
 
   <Accordion title="Rate limiting">
-    Every (region × service) lister runs in its own goroutine and per-resource
-    tag calls fan out with a fixed limit of 16 in flight; the SDK retries
-    throttled calls with exponential backoff (visible at `--log-level debug`).
-    The concurrency is not configurable.
+    At most 32 (region × service) listers run at once across all regions, and
+    per-resource calls fan out with a limit of 16 in flight per fan-out (ECS
+    nests two: clusters, then each cluster's services). Throttled calls from
+    tagctl's service clients are retried in the SDK's adaptive mode with up to
+    7 attempts: the client backs off and also slows its own request rate
+    (retries are visible at `--log-level debug`). Set `AWS_RETRY_MODE` and
+    `AWS_MAX_ATTEMPTS`, or `retry_mode` and `max_attempts` in the profile, to
+    change the retries. The concurrency is not configurable.
   </Accordion>
 </AccordionGroup>

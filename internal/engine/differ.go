@@ -13,7 +13,8 @@ import (
 // finding that fails in the current scan but not in the baseline is a
 // regression; one that failed in the baseline and no longer does is resolved.
 // Resources that only exist on one side are reported separately, since a
-// regression on a resource that did not exist before is still new work.
+// regression on a resource that did not exist before is still new work. A
+// scan's resources are its inventory plus the resources its findings name.
 func Diff(baseline, current *types.ScanResult) *types.DiffResult {
 	result := &types.DiffResult{
 		BaselineScannedAt:   baseline.ScannedAt,
@@ -44,8 +45,10 @@ func Diff(baseline, current *types.ScanResult) *types.DiffResult {
 	sortFindings(result.Regressions)
 	sortFindings(result.Resolved)
 
-	result.NewResources = resourcesOnlyIn(current, baseline)
-	result.RemovedResources = resourcesOnlyIn(baseline, current)
+	baselineResources := knownResources(baseline)
+	currentResources := knownResources(current)
+	result.NewResources = resourcesOnlyIn(currentResources, baselineResources)
+	result.RemovedResources = resourcesOnlyIn(baselineResources, currentResources)
 
 	diffTagStats(baseline, current, result)
 	diffAccountStats(baseline, current, result)
@@ -63,23 +66,12 @@ type findingKey struct {
 
 // failedFindingsByKey indexes only the FAILED findings of a scan.
 func failedFindingsByKey(scan *types.ScanResult) map[findingKey]types.Finding {
-	failures := make(map[findingKey]types.Finding, len(scan.Findings))
-
-	for _, finding := range scan.Findings {
-		if finding.Status != types.StatusFailed {
-			continue
-		}
-		failures[keyOf(finding)] = finding
+	failures := scan.FailedFindings()
+	byKey := make(map[findingKey]types.Finding, len(failures))
+	for _, finding := range failures {
+		byKey[keyOf(finding)] = finding
 	}
-
-	// Older scan files carry findings under the deprecated Violations field.
-	if len(failures) == 0 {
-		for _, finding := range types.ViolationsToFindings(scan.Violations) {
-			failures[keyOf(finding)] = finding
-		}
-	}
-
-	return failures
+	return byKey
 }
 
 func keyOf(finding types.Finding) findingKey {
@@ -91,31 +83,37 @@ func keyOf(finding types.Finding) findingKey {
 	}
 }
 
-// resourcesOnlyIn returns the resources that appear in a but not in b.
-func resourcesOnlyIn(a, b *types.ScanResult) []types.Resource {
-	inB := make(map[findingKey]bool)
-	for _, finding := range allFindings(b) {
-		inB[resourceKey(finding.Resource)] = true
+// knownResources indexes every resource a scan names: its inventory, then the
+// resources in its findings, which carry name and tags and so take precedence.
+func knownResources(scan *types.ScanResult) map[findingKey]types.Resource {
+	known := make(map[findingKey]types.Resource, len(scan.Resources))
+	for _, ref := range scan.Resources {
+		resource := ref.Resource()
+		known[resourceKey(resource)] = resource
 	}
+	for _, finding := range allFindings(scan) {
+		known[resourceKey(finding.Resource)] = finding.Resource
+	}
+	return known
+}
 
-	findings := allFindings(a)
-	seen := make(map[findingKey]bool, len(findings))
-	only := make([]types.Resource, 0, len(findings))
-
-	for _, finding := range findings {
-		key := resourceKey(finding.Resource)
-		if inB[key] || seen[key] {
-			continue
+// resourcesOnlyIn returns the resources that appear in a but not in b.
+func resourcesOnlyIn(a, b map[findingKey]types.Resource) []types.Resource {
+	only := make([]types.Resource, 0, len(a))
+	for key, resource := range a {
+		if _, inB := b[key]; !inB {
+			only = append(only, resource)
 		}
-		seen[key] = true
-		only = append(only, finding.Resource)
 	}
 
 	sort.Slice(only, func(i, j int) bool {
 		if only[i].Account != only[j].Account {
 			return only[i].Account < only[j].Account
 		}
-		return only[i].ID < only[j].ID
+		if only[i].ID != only[j].ID {
+			return only[i].ID < only[j].ID
+		}
+		return only[i].Identity() < only[j].Identity()
 	})
 
 	return only

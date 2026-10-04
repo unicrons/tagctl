@@ -20,7 +20,7 @@ type eksAPI interface {
 
 // listEKSClusters lists all EKS clusters in a region.
 func (p *Provider) listEKSClusters(ctx context.Context, region string) ([]types.Resource, error) {
-	return p.listEKSClustersFrom(ctx, p.getEKSClient(region), region)
+	return p.listEKSClustersFrom(ctx, regionalClient(p, region, eks.NewFromConfig), region)
 }
 
 // listEKSClustersFrom lists EKS clusters using the given client. DescribeCluster
@@ -38,7 +38,7 @@ func (p *Provider) listEKSClustersFrom(ctx context.Context, client eksAPI, regio
 		names = append(names, output.Clusters...)
 	}
 
-	resources := forEachConcurrently(names, func(name string) []types.Resource {
+	resources := forEachConcurrently(ctx, names, func(name string) []types.Resource {
 		output, err := client.DescribeCluster(ctx, &eks.DescribeClusterInput{Name: aws.String(name)})
 		if err != nil || output.Cluster == nil {
 			p.skipResource(ctx, "EKS", region, "cluster "+name, err)
@@ -68,8 +68,12 @@ func (p *Provider) listEKSClustersFrom(ctx context.Context, client eksAPI, regio
 
 // applyEKSTags applies tags to an EKS cluster addressed by ARN.
 func (p *Provider) applyEKSTags(ctx context.Context, arn string, tags map[string]string) error {
-	client := p.getEKSClient(extractRegionFromARN(arn))
-	_, err := client.TagResource(ctx, &eks.TagResourceInput{
+	region, err := regionForARN(arn)
+	if err != nil {
+		return provider.NewProviderError(providerName, "apply_eks_tags", arn, err)
+	}
+	client := regionalClient(p, region, eks.NewFromConfig)
+	_, err = client.TagResource(ctx, &eks.TagResourceInput{
 		ResourceArn: aws.String(arn),
 		Tags:        tags,
 	})

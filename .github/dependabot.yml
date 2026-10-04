@@ -4,18 +4,55 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 7
     commit-message:
       prefix: "deps"
     labels:
       - "dependencies"
       - "go"
+    groups:
+      aws-sdk:
+        patterns:
+          - "github.com/aws/*"
+      kubernetes:
+        patterns:
+          - "k8s.io/*"
+          - "sigs.k8s.io/*"
+      go-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: "deps"
+    labels:
+      - "dependencies"
+      - "docker"
 
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 7
     commit-message:
       prefix: "ci"
     labels:
       - "dependencies"
       - "ci"
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"

@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -12,6 +14,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	k8stypes "k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/validation"
 
 	"github.com/unicrons/tagctl/internal/provider"
 	"github.com/unicrons/tagctl/internal/types"
@@ -55,14 +58,14 @@ func eachPage[L pagedList](ctx context.Context, opts metav1.ListOptions,
 	}
 }
 
-// newResource builds a resource from object metadata; namespace is empty for
-// cluster-scoped objects.
-func (p *Provider) newResource(resourceType, namespace string, meta metav1.ObjectMeta) types.Resource {
+// newResource builds a resource from object metadata; the namespace is empty
+// for cluster-scoped objects.
+func (p *Provider) newResource(resourceType string, meta metav1.ObjectMeta) types.Resource {
 	resource := types.Resource{
-		ID:       buildResourceID(resourceType, namespace, meta.Name),
+		ID:       buildResourceID(resourceType, meta.Namespace, meta.Name),
 		Name:     meta.Name,
 		Type:     resourceType,
-		Region:   namespace,
+		Region:   meta.Namespace,
 		Account:  p.cluster.Name,
 		Provider: providerName,
 		Tags:     copyLabels(meta.Labels),
@@ -85,7 +88,7 @@ func (p *Provider) listPods(ctx context.Context, namespace string) ([]types.Reso
 			if pod.Status.Phase == corev1.PodSucceeded || pod.Status.Phase == corev1.PodFailed {
 				continue
 			}
-			resources = append(resources, p.newResource(ResourceTypePod, namespace, pod.ObjectMeta))
+			resources = append(resources, p.newResource(ResourceTypePod, pod.ObjectMeta))
 		}
 	})
 	if err != nil {
@@ -99,7 +102,7 @@ func (p *Provider) listDeployments(ctx context.Context, namespace string) ([]typ
 	var resources []types.Resource
 	err := eachPage(ctx, metav1.ListOptions{}, p.clientset.AppsV1().Deployments(namespace).List, func(page *appsv1.DeploymentList) {
 		for _, deploy := range page.Items {
-			resources = append(resources, p.newResource(ResourceTypeDeployment, namespace, deploy.ObjectMeta))
+			resources = append(resources, p.newResource(ResourceTypeDeployment, deploy.ObjectMeta))
 		}
 	})
 	if err != nil {
@@ -113,7 +116,7 @@ func (p *Provider) listServices(ctx context.Context, namespace string) ([]types.
 	var resources []types.Resource
 	err := eachPage(ctx, metav1.ListOptions{}, p.clientset.CoreV1().Services(namespace).List, func(page *corev1.ServiceList) {
 		for _, svc := range page.Items {
-			resources = append(resources, p.newResource(ResourceTypeService, namespace, svc.ObjectMeta))
+			resources = append(resources, p.newResource(ResourceTypeService, svc.ObjectMeta))
 		}
 	})
 	if err != nil {
@@ -122,34 +125,29 @@ func (p *Provider) listServices(ctx context.Context, namespace string) ([]types.
 	return resources, nil
 }
 
-// allNamespaces lists every namespace in the cluster.
-func (p *Provider) allNamespaces(ctx context.Context) ([]corev1.Namespace, error) {
-	var namespaces []corev1.Namespace
+// listNamespaces reads the configured namespaces one by one, which a
+// namespace-scoped Role allows, or lists every namespace when none is configured.
+func (p *Provider) listNamespaces(ctx context.Context) ([]types.Resource, error) {
+	var resources []types.Resource
+	if len(p.namespaces) > 0 {
+		for _, name := range p.namespaces {
+			ns, err := p.clientset.CoreV1().Namespaces().Get(ctx, name, metav1.GetOptions{})
+			if err != nil {
+				return resources, provider.NewProviderError(providerName, "get_namespace", name, err)
+			}
+			resources = append(resources, p.newResource(ResourceTypeNamespace, ns.ObjectMeta))
+		}
+		return resources, nil
+	}
+
 	err := eachPage(ctx, metav1.ListOptions{}, p.clientset.CoreV1().Namespaces().List, func(page *corev1.NamespaceList) {
-		namespaces = append(namespaces, page.Items...)
+		for _, ns := range page.Items {
+			resources = append(resources, p.newResource(ResourceTypeNamespace, ns.ObjectMeta))
+		}
 	})
 	if err != nil {
 		return nil, provider.NewProviderError(providerName, "list_namespaces", "", err)
 	}
-	return namespaces, nil
-}
-
-// listNamespaces lists all namespaces.
-func (p *Provider) listNamespaces(ctx context.Context) ([]types.Resource, error) {
-	namespaces, err := p.allNamespaces(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	resources := make([]types.Resource, 0, len(namespaces))
-	for _, ns := range namespaces {
-		// Filter by configured namespaces if set
-		if len(p.namespaces) > 0 && !contains(p.namespaces, ns.Name) {
-			continue
-		}
-		resources = append(resources, p.newResource(ResourceTypeNamespace, "", ns.ObjectMeta))
-	}
-
 	return resources, nil
 }
 
@@ -158,7 +156,7 @@ func (p *Provider) listConfigMaps(ctx context.Context, namespace string) ([]type
 	var resources []types.Resource
 	err := eachPage(ctx, metav1.ListOptions{}, p.clientset.CoreV1().ConfigMaps(namespace).List, func(page *corev1.ConfigMapList) {
 		for _, cm := range page.Items {
-			resources = append(resources, p.newResource(ResourceTypeConfigMap, namespace, cm.ObjectMeta))
+			resources = append(resources, p.newResource(ResourceTypeConfigMap, cm.ObjectMeta))
 		}
 	})
 	if err != nil {
@@ -173,7 +171,7 @@ func (p *Provider) listSecrets(ctx context.Context, namespace string) ([]types.R
 	opts := metav1.ListOptions{FieldSelector: withoutServiceAccountTokens}
 	err := eachPage(ctx, opts, p.metadata.Resource(secretsResource).Namespace(namespace).List, func(page *metav1.PartialObjectMetadataList) {
 		for _, secret := range page.Items {
-			resources = append(resources, p.newResource(ResourceTypeSecret, namespace, secret.ObjectMeta))
+			resources = append(resources, p.newResource(ResourceTypeSecret, secret.ObjectMeta))
 		}
 	})
 	if err != nil {
@@ -274,6 +272,25 @@ func buildLabelPatch(labels map[string]string) ([]byte, error) {
 	return data, nil
 }
 
+// validateLabels rejects keys and values the API server would refuse, so the
+// error names the offending label instead of a failed patch.
+func validateLabels(labels map[string]string) error {
+	var problems []string
+	for _, key := range slices.Sorted(maps.Keys(labels)) {
+		if msgs := validation.IsQualifiedName(key); len(msgs) > 0 {
+			problems = append(problems, fmt.Sprintf("label key %q is not valid: %s", key, strings.Join(msgs, "; ")))
+		}
+		if msgs := validation.IsValidLabelValue(labels[key]); len(msgs) > 0 {
+			problems = append(problems, fmt.Sprintf("value %q of label %q is not a valid Kubernetes label value: %s",
+				labels[key], key, strings.Join(msgs, "; ")))
+		}
+	}
+	if len(problems) > 0 {
+		return errors.New(strings.Join(problems, "; "))
+	}
+	return nil
+}
+
 // copyLabels makes a copy of a labels map.
 func copyLabels(labels map[string]string) map[string]string {
 	if labels == nil {
@@ -284,14 +301,4 @@ func copyLabels(labels map[string]string) map[string]string {
 		result[k] = v
 	}
 	return result
-}
-
-// contains checks if a slice contains a string.
-func contains(slice []string, item string) bool {
-	for _, s := range slice {
-		if s == item {
-			return true
-		}
-	}
-	return false
 }

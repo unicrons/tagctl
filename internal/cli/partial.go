@@ -13,5 +13,5 @@ func warnPartialScan(w io.Writer, path string, scan *types.ScanResult, consequen
 	if !scan.Partial {
 		return
 	}
-	fmt.Fprintf(w, "Warning: %s is a partial scan (%d provider(s) failed discovery); %s\n", path, len(scan.Errors), consequence)
+	fmt.Fprintf(w, "Warning: %s is a partial scan (%d provider(s) failed discovery); %s\n", printable(path), len(scan.Errors), consequence)
 }

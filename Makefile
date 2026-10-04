@@ -3,8 +3,10 @@
 # Variables
 BINARY_NAME=tagctl
 VERSION=$(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
+COMMIT=$(shell git rev-parse --short HEAD 2>/dev/null || echo "none")
 BUILD_TIME=$(shell date -u '+%Y-%m-%d_%H:%M:%S')
-LDFLAGS=-ldflags "-X main.version=${VERSION} -X main.buildTime=${BUILD_TIME}"
+CLI_PKG=github.com/unicrons/tagctl/internal/cli
+LDFLAGS=-ldflags "-X ${CLI_PKG}.Version=${VERSION} -X ${CLI_PKG}.Commit=${COMMIT} -X ${CLI_PKG}.Date=${BUILD_TIME}"
 
 # Go parameters
 GOCMD=go
@@ -12,7 +14,6 @@ GOBUILD=$(GOCMD) build
 GOTEST=$(GOCMD) test
 GOMOD=$(GOCMD) mod
 GOVET=$(GOCMD) vet
-GOFMT=$(GOCMD) fmt
 
 # Development tools, pinned to the versions .github/workflows/ci.yml uses
 GOLANGCI_LINT_VERSION := v2.13.2
@@ -36,11 +37,11 @@ build:
 
 ## test: Run tests
 test:
-	$(GOTEST) -v -race -coverprofile=coverage.out ./...
+	$(GOTEST) -v -race -shuffle=on -coverprofile=coverage.out ./...
 
 ## test-short: Run tests without race detector
 test-short:
-	$(GOTEST) -v ./...
+	$(GOTEST) -v -shuffle=on ./...
 
 ## coverage: Show test coverage report
 coverage: test
@@ -60,9 +61,13 @@ lint:
 vet:
 	$(GOVET) ./...
 
-## fmt: Format code
+## fmt: Format code with the formatters .golangci.yml enables
 fmt:
-	$(GOFMT) ./...
+	@if [ -n "$(GOLANGCI_LINT)" ]; then \
+		$(GOLANGCI_LINT) fmt; \
+	else \
+		echo "golangci-lint not installed (run: make tools)"; exit 1; \
+	fi
 
 ## clean: Remove build artifacts
 clean:

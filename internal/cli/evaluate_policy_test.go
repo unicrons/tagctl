@@ -13,7 +13,7 @@ func TestLoadConfigFromPath_ValidatesPolicyFile(t *testing.T) {
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	_, err := loadConfigFromPath(path)
+	_, _, err := loadConfigFromPath(path)
 	if err == nil || !strings.Contains(err.Error(), "policy.required[0]: invalid pattern") {
 		t.Fatalf("loadConfigFromPath() = %v, want the invalid pattern rejection", err)
 	}
@@ -25,8 +25,8 @@ func TestLoadConfigFromPath_UsesDiscoveredFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	useConfigFile(t, path)
-	cfg, err := loadConfigFromPath("")
-	if err != nil || cfg.Policy.Optional[0].Name != "Team" {
-		t.Fatalf("loadConfigFromPath() = %+v, %v; want the discovered policy", cfg, err)
+	cfg, read, err := loadConfigFromPath("")
+	if err != nil || cfg.Policy.Optional[0].Name != "Team" || read != path {
+		t.Fatalf("loadConfigFromPath() = %+v, %q, %v; want the discovered policy read from %q", cfg, read, err, path)
 	}
 }

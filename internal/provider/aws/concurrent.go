@@ -1,6 +1,7 @@
 package aws
 
 import (
+	"context"
 	"fmt"
 	"sync"
 
@@ -10,62 +11,42 @@ import (
 )
 
 // forEachConcurrently runs fn over items with at most maxConcurrentAPICalls in
-// flight and returns everything fn produced. Order is not preserved.
-func forEachConcurrently[T any](items []T, fn func(T) []types.Resource) []types.Resource {
+// flight and returns everything fn produced. Order is not preserved. Once ctx
+// is cancelled no further item is dispatched; the calls in flight finish.
+func forEachConcurrently[T any](ctx context.Context, items []T, fn func(T) []types.Resource) []types.Resource {
 	if len(items) == 0 {
 		return nil
 	}
 
-	sem := make(chan struct{}, maxConcurrentAPICalls)
-	results := make(chan []types.Resource, len(items))
+	slots := make(chan struct{}, maxConcurrentAPICalls)
+	resources := make([]types.Resource, 0, len(items))
+	var mu sync.Mutex
 	var wg sync.WaitGroup
 
 	for _, item := range items {
-		item := item
+		if !acquireSlot(ctx, slots) {
+			break
+		}
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
+			defer func() { <-slots }()
 
-			results <- fn(item)
+			batch := fn(item)
+			mu.Lock()
+			resources = append(resources, batch...)
+			mu.Unlock()
 		}()
 	}
-
-	go func() {
-		wg.Wait()
-		close(results)
-	}()
-
-	resources := make([]types.Resource, 0, len(items))
-	for batch := range results {
-		resources = append(resources, batch...)
-	}
+	wg.Wait()
 	return resources
 }
 
 // one wraps a single resource for forEachConcurrently.
 func one(r types.Resource) []types.Resource { return []types.Resource{r} }
 
-// cachedClient returns the client for region from cache, creating it on first use.
-func cachedClient[T, O any](p *Provider, cache map[string]*T, region string, newClient func(aws.Config, ...func(*O)) *T) *T {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	if client, ok := cache[region]; ok {
-		return client
-	}
-
-	regionalCfg := p.cfg.Copy()
-	regionalCfg.Region = region
-	client := newClient(regionalCfg)
-	cache[region] = client
-	return client
-}
-
 // regionalClient returns the client of type T for region, creating and caching
-// it in p.clients on first use. Services added after the typed cache maps use
-// this instead of a dedicated map and getter.
+// it in p.clients on first use.
 func regionalClient[T, O any](p *Provider, region string, newClient func(aws.Config, ...func(*O)) *T) *T {
 	key := fmt.Sprintf("%T/%s", (*T)(nil), region)
 	p.mu.Lock()

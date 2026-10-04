@@ -10,6 +10,9 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"unicode"
+
+	"golang.org/x/term"
 )
 
 // Level represents a log level.
@@ -32,6 +35,23 @@ const (
 	colorMagenta = "\033[35m"
 )
 
+// isTerminal reports whether w is a terminal; tests replace it.
+var isTerminal = func(w io.Writer) bool {
+	f, ok := w.(*os.File)
+	return ok && term.IsTerminal(int(f.Fd()))
+}
+
+// IsTerminal reports whether w is a terminal.
+func IsTerminal(w io.Writer) bool {
+	return isTerminal(w)
+}
+
+// UseColor reports whether ANSI colour may be written to w: only to a
+// terminal, and never when NO_COLOR is set to a non-empty value.
+func UseColor(w io.Writer) bool {
+	return os.Getenv("NO_COLOR") == "" && isTerminal(w)
+}
+
 // LineHolder is a terminal element that owns the current line, such as a
 // spinner. Suspend clears the line, runs fn, then redraws the element.
 type LineHolder interface {
@@ -53,6 +73,7 @@ func SetLevel(level Level) {
 }
 
 // SetLevelFromString sets the log level from a string (error, info, debug).
+// An unknown level is an error and leaves the current level untouched.
 func SetLevelFromString(level string) error {
 	switch strings.ToLower(level) {
 	case "error":
@@ -62,7 +83,7 @@ func SetLevelFromString(level string) error {
 	case "debug":
 		SetLevel(LevelDebug)
 	default:
-		return fmt.Errorf("invalid log level: %s (valid: error, info, debug)", level)
+		return fmt.Errorf("invalid log level %q (valid: error, info, debug)", level)
 	}
 	return nil
 }
@@ -105,6 +126,7 @@ func Debug(format string, args ...interface{}) {
 }
 
 func write(level Level, color, tag, format string, args ...interface{}) {
+	// Lock order: log.mu, then the holder's own lock inside Suspend. A holder must never log while holding its lock.
 	mu.Lock()
 	defer mu.Unlock()
 
@@ -112,7 +134,10 @@ func write(level Level, color, tag, format string, args ...interface{}) {
 		return
 	}
 
-	line := fmt.Sprintf("%s%s%s %s\n", color, tag, colorReset, fmt.Sprintf(format, args...))
+	if UseColor(out) {
+		tag = color + tag + colorReset
+	}
+	line := fmt.Sprintf("%s %s\n", tag, Printable(fmt.Sprintf(format, args...)))
 	emit := func() { fmt.Fprint(out, line) }
 
 	if holder != nil {
@@ -120,4 +145,15 @@ func write(level Level, color, tag, format string, args ...interface{}) {
 		return
 	}
 	emit()
+}
+
+// Printable replaces control characters, so a cloud value or error written to
+// a terminal cannot drive it through escape sequences. Line breaks and tabs stay.
+func Printable(s string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) && r != '\n' && r != '\t' {
+			return '?'
+		}
+		return r
+	}, s)
 }

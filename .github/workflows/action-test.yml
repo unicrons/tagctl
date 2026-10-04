@@ -1,0 +1,57 @@
+name: Action Test
+
+on:
+  pull_request:
+    paths:
+      - 'action.yml'
+      - '.github/workflows/action-test.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'action.yml'
+      - '.github/workflows/action-test.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  action:
+    name: Run the action from the checkout
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Mock scan
+        id: scan
+        uses: ./ # zizmor: ignore[self-repository] tests the action from this checkout
+        with:
+          args: scan --mock --sarif "${{ runner.temp }}/tagctl.sarif"
+          working-directory: ${{ runner.temp }}
+
+      - name: Mock scan under an unreachable gate
+        id: gate
+        continue-on-error: true
+        uses: ./ # zizmor: ignore[self-repository] tests the action from this checkout
+        with:
+          args: scan --mock --fail-under 100
+          working-directory: ${{ runner.temp }}
+
+      - name: Check exit codes and reports
+        env:
+          SCAN_CODE: ${{ steps.scan.outputs.exit-code }}
+          GATE_CODE: ${{ steps.gate.outputs.exit-code }}
+          GATE_OUTCOME: ${{ steps.gate.outcome }}
+        run: |
+          set -euo pipefail
+          [ "$SCAN_CODE" = "0" ] || { echo "scan exit-code: got $SCAN_CODE, want 0"; exit 1; }
+          [ "$GATE_CODE" = "1" ] || { echo "gate exit-code: got $GATE_CODE, want 1"; exit 1; }
+          [ "$GATE_OUTCOME" = "failure" ] || { echo "gate outcome: got $GATE_OUTCOME, want failure"; exit 1; }
+          [ -s "$RUNNER_TEMP/tagctl.sarif" ] || { echo "no SARIF report written"; exit 1; }

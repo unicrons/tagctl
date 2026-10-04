@@ -197,6 +197,11 @@ var (
 	}
 )
 
+func actionService(action string) string {
+	service, _, _ := strings.Cut(action, ":")
+	return service
+}
+
 func TestPermissionPolicies_WellFormed(t *testing.T) {
 	for _, name := range []string{scanPolicyFile, applyPolicyFile, codeBuildPolicyFile} {
 		doc := loadPolicyFile(t, name)
@@ -217,7 +222,7 @@ func TestPermissionPolicies_WellFormed(t *testing.T) {
 					t.Errorf("%s: %q listed in both %s and %s", name, a, prev, st.Sid)
 				}
 				seen[a] = st.Sid
-				services[a[:strings.Index(a, ":")]] = true
+				services[actionService(a)] = true
 			}
 			if st.Resource.isWildcard() {
 				for _, a := range st.Action {
@@ -240,7 +245,7 @@ func TestPermissionPolicies_WellFormed(t *testing.T) {
 				scoped[m[1]] = true
 			}
 			for _, a := range st.Action {
-				if !scoped[a[:strings.Index(a, ":")]] {
+				if !scoped[actionService(a)] {
 					t.Errorf("%s/%s: %s has no Resource in its service namespace, IAM would deny it", name, st.Sid, a)
 				}
 			}

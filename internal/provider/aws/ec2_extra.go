@@ -29,7 +29,7 @@ func (p *Provider) ec2Resource(region, arnType, resourceType, id string, tags []
 	r := types.Resource{
 		ID:        id,
 		Name:      id,
-		ARN:       buildEC2ARN(p.accountID, region, arnType, id),
+		ARN:       p.ec2ARN(region, arnType, id),
 		Type:      resourceType,
 		Region:    region,
 		Account:   p.accountID,
@@ -45,7 +45,7 @@ func (p *Provider) ec2Resource(region, arnType, resourceType, id string, tags []
 
 // listAMIs lists the AMIs owned by the account in a region.
 func (p *Provider) listAMIs(ctx context.Context, region string) ([]types.Resource, error) {
-	return p.listAMIsFrom(ctx, p.getEC2Client(region), region)
+	return p.listAMIsFrom(ctx, regionalClient(p, region, ec2.NewFromConfig), region)
 }
 
 func (p *Provider) listAMIsFrom(ctx context.Context, client ec2ExtraAPI, region string) ([]types.Resource, error) {
@@ -70,7 +70,7 @@ func (p *Provider) listAMIsFrom(ctx context.Context, client ec2ExtraAPI, region 
 
 // listElasticIPs lists the Elastic IP allocations in a region.
 func (p *Provider) listElasticIPs(ctx context.Context, region string) ([]types.Resource, error) {
-	return p.listElasticIPsFrom(ctx, p.getEC2Client(region), region)
+	return p.listElasticIPsFrom(ctx, regionalClient(p, region, ec2.NewFromConfig), region)
 }
 
 func (p *Provider) listElasticIPsFrom(ctx context.Context, client ec2ExtraAPI, region string) ([]types.Resource, error) {
@@ -96,7 +96,7 @@ func (p *Provider) listElasticIPsFrom(ctx context.Context, client ec2ExtraAPI, r
 
 // listNATGateways lists the NAT gateways in a region.
 func (p *Provider) listNATGateways(ctx context.Context, region string) ([]types.Resource, error) {
-	return p.listNATGatewaysFrom(ctx, p.getEC2Client(region), region)
+	return p.listNATGatewaysFrom(ctx, regionalClient(p, region, ec2.NewFromConfig), region)
 }
 
 func (p *Provider) listNATGatewaysFrom(ctx context.Context, client ec2ExtraAPI, region string) ([]types.Resource, error) {
@@ -120,7 +120,7 @@ func (p *Provider) listNATGatewaysFrom(ctx context.Context, client ec2ExtraAPI, 
 
 // listInternetGateways lists the internet gateways in a region.
 func (p *Provider) listInternetGateways(ctx context.Context, region string) ([]types.Resource, error) {
-	return p.listInternetGatewaysFrom(ctx, p.getEC2Client(region), region)
+	return p.listInternetGatewaysFrom(ctx, regionalClient(p, region, ec2.NewFromConfig), region)
 }
 
 func (p *Provider) listInternetGatewaysFrom(ctx context.Context, client ec2ExtraAPI, region string) ([]types.Resource, error) {
@@ -141,7 +141,7 @@ func (p *Provider) listInternetGatewaysFrom(ctx context.Context, client ec2Extra
 
 // listVPCEndpoints lists the VPC endpoints in a region.
 func (p *Provider) listVPCEndpoints(ctx context.Context, region string) ([]types.Resource, error) {
-	return p.listVPCEndpointsFrom(ctx, p.getEC2Client(region), region)
+	return p.listVPCEndpointsFrom(ctx, regionalClient(p, region, ec2.NewFromConfig), region)
 }
 
 func (p *Provider) listVPCEndpointsFrom(ctx context.Context, client ec2ExtraAPI, region string) ([]types.Resource, error) {
@@ -162,7 +162,7 @@ func (p *Provider) listVPCEndpointsFrom(ctx context.Context, client ec2ExtraAPI,
 
 // listLaunchTemplates lists the launch templates in a region.
 func (p *Provider) listLaunchTemplates(ctx context.Context, region string) ([]types.Resource, error) {
-	return p.listLaunchTemplatesFrom(ctx, p.getEC2Client(region), region)
+	return p.listLaunchTemplatesFrom(ctx, regionalClient(p, region, ec2.NewFromConfig), region)
 }
 
 func (p *Provider) listLaunchTemplatesFrom(ctx context.Context, client ec2ExtraAPI, region string) ([]types.Resource, error) {

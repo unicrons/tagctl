@@ -1,150 +1,129 @@
 package cli
 
 import (
+	"embed"
 	"fmt"
 	"os"
+	"strings"
+	"text/tabwriter"
 
 	"github.com/spf13/cobra"
 )
+
+//go:embed templates/*.yaml
+var configTemplateFS embed.FS
+
+const defaultTemplate = "default"
+
+// configTemplate is a starter tagctl.yaml embedded as templates/<name>.yaml.
+type configTemplate struct {
+	name        string
+	description string
+}
+
+var configTemplates = []configTemplate{
+	{defaultTemplate, "General starter: environment, cost-center and owner"},
+	{"finops", "Cost allocation: cost-center, owner, environment and project"},
+	{"security", "Security triage: data-classification, owner, environment and compliance"},
+	{"well-architected", "AWS tagging best practices: technical, business and security tags"},
+}
 
 var initCmd = &cobra.Command{
 	Use:   "init",
 	Short: "Initialize a new tagctl configuration file",
 	Long: `Initialize creates a new tagctl.yaml configuration file in the
-current directory with example settings.
+current directory from a built-in template.
 
 Examples:
   # Create default config
   tagctl init
 
   # Create config with specific name
-  tagctl init --name production.yaml`,
+  tagctl init --name production.yaml
+
+  # Start from a policy template
+  tagctl init --template finops
+
+  # Show the available templates
+  tagctl init --list-templates`,
 	RunE: runInit,
 }
 
 func init() {
 	initCmd.Flags().String("name", "tagctl.yaml", "name of the config file to create")
+	initCmd.Flags().String("template", defaultTemplate, "policy template to start from: "+strings.Join(templateNames(), ", "))
+	initCmd.Flags().Bool("list-templates", false, "list the available templates and exit")
+}
+
+func templateNames() []string {
+	names := make([]string, len(configTemplates))
+	for i, t := range configTemplates {
+		names[i] = t.name
+	}
+	return names
+}
+
+// readTemplate returns the embedded config for a template name.
+func readTemplate(name string) ([]byte, error) {
+	for _, t := range configTemplates {
+		if t.name != name {
+			continue
+		}
+		data, err := configTemplateFS.ReadFile("templates/" + name + ".yaml")
+		if err != nil {
+			return nil, fmt.Errorf("failed to read template %s: %w", name, err)
+		}
+		return data, nil
+	}
+	return nil, fmt.Errorf("unknown template %q (available: %s)", name, strings.Join(templateNames(), ", "))
+}
+
+func listTemplates() error {
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	for _, t := range configTemplates {
+		fmt.Fprintf(w, "%s\t%s\n", t.name, t.description)
+	}
+	if err := w.Flush(); err != nil {
+		return fmt.Errorf("failed to list templates: %w", err)
+	}
+	return nil
 }
 
 func runInit(cmd *cobra.Command, args []string) error {
 	configName, _ := cmd.Flags().GetString("name")
+	templateName, _ := cmd.Flags().GetString("template")
+	list, _ := cmd.Flags().GetBool("list-templates")
 
-	// Print banner
+	if _, err := outputFormatFor(cmd, formatTable); err != nil {
+		return err
+	}
+
+	if list {
+		return listTemplates()
+	}
+
+	content, err := readTemplate(templateName)
+	if err != nil {
+		return err
+	}
+
 	printBanner()
 
-	// Check if file already exists
 	if _, err := os.Stat(configName); err == nil {
 		return fmt.Errorf("config file %s already exists", configName)
 	}
 
-	// Create the config file
-	if err := os.WriteFile(configName, []byte(defaultConfig), 0o600); err != nil {
+	if err := os.WriteFile(configName, content, 0o600); err != nil {
 		return fmt.Errorf("failed to create config file: %w", err)
 	}
 
-	fmt.Printf("%s✓ Created %s%s\n", colorGreen, configName, colorReset)
-	fmt.Println()
-	fmt.Printf("%sNext steps:%s\n", colorBold, colorReset)
-	fmt.Printf("  1. Edit %s%s%s to add your cloud accounts\n", colorCyan, configName, colorReset)
-	fmt.Printf("  2. Define your required tags in the policy section\n")
-	fmt.Printf("  3. Run '%stagctl scan%s' to check compliance\n", colorGreen, colorReset)
+	c := paletteFor(os.Stderr)
+	fmt.Fprintf(os.Stderr, "%s✓ Created %s from the %s template%s\n\n", c.green, configName, templateName, c.reset)
+	fmt.Fprintf(os.Stderr, "%sNext steps:%s\n", c.bold, c.reset)
+	fmt.Fprintf(os.Stderr, "  1. Edit %s%s%s to add your cloud accounts\n", c.cyan, configName, c.reset)
+	fmt.Fprintf(os.Stderr, "  2. Adjust the required tags in the policy section\n")
+	fmt.Fprintf(os.Stderr, "  3. Run '%stagctl validate%s', then '%stagctl scan%s' to check compliance\n",
+		c.green, c.reset, c.green, c.reset)
 
 	return nil
 }
-
-const defaultConfig = `# tagctl configuration
-# See https://github.com/unicrons/tagctl for documentation
-
-# Cloud accounts to scan
-clouds:
-  aws:
-    # Credentials come from the AWS SDK chain: environment variables, then
-    # ~/.aws/config and ~/.aws/credentials (profiles, SSO), then an instance
-    # or container role. Never write keys in this file.
-    - profile: default
-      # regions: [us-east-1, eu-west-1]  # Optional: if omitted, all regions are scanned
-
-    # Omit profile to use whatever the chain resolves (AWS_PROFILE, exported
-    # keys, an instance role).
-    # - regions: [us-east-1]
-
-    # Assume a role on top of the resolved credentials, one entry per account.
-    # - profile: audit-base
-    #   role_arn: arn:aws:iam::123456789012:role/TagctlScan   # permissions/aws/ ships the role templates
-    #   external_id: my-external-id     # Optional
-    #   session_duration: 3600          # Optional, 900-43200 seconds
-    #   role_session_name: tagctl       # Optional
-    #   mfa_serial: arn:aws:iam::111111111111:mfa/me  # Optional, code read from stdin
-
-  # GCP (coming soon)
-  # gcp:
-  #   - project: my-project
-  #     credentials_file: ~/.config/gcloud/application_default_credentials.json
-
-  # Azure (coming soon)
-  # azure:
-  #   - subscription: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
-
-# Tag policy definition
-policy:
-  # Required tags - resources without these are non-compliant
-  required:
-    - name: environment
-      description: Deployment environment
-      values:
-        - dev
-        - staging
-        - prod
-
-    - name: cost-center
-      description: Finance cost allocation code
-      pattern: "^[A-Z]{2,4}-\\d{3,6}$"
-
-    - name: owner
-      description: Team or person responsible
-      pattern: "^.+@.+$"
-
-  # Optional tags - tracked but not required
-  optional:
-    - name: project
-    - name: team
-
-# Auto-fix rules
-rules:
-  # Infer tags from resource naming conventions
-  infer:
-    - tag: environment
-      from_name:
-        - pattern: "-prod-"
-          value: prod
-        - pattern: "-staging-|-stg-"
-          value: staging
-        - pattern: "-dev-"
-          value: dev
-
-  # Inherit tags from parent resources (parsed, not applied by plan yet)
-  # inherit:
-  #   - resource: aws_ebs_volume
-  #     from: attached_instance
-  #     tags: [environment, cost-center, owner]
-
-  # Default values for untagged resources
-  defaults:
-    - resource: "*"
-      when:
-        tag:owner: absent
-      set:
-        owner: platform-team@company.com
-        needs-review: "true"
-
-# Resources to ignore
-ignore:
-  # Skip these resource types (globs: aws_iam_*, *_group, aws_*_group)
-  resources:
-    - "aws_cloudwatch_*"
-    - "aws_iam_*"
-
-  # Skip resources with these tags
-  tags:
-    managed-by: [terraform, pulumi]
-`

@@ -13,12 +13,20 @@ import (
 	"github.com/unicrons/tagctl/internal/log"
 	"github.com/unicrons/tagctl/internal/provider"
 	"github.com/unicrons/tagctl/internal/provider/aws"
-	// TODO: Enable when ready
-	// "github.com/unicrons/tagctl/internal/provider/k8s"
+	"github.com/unicrons/tagctl/internal/provider/k8s"
 )
 
 // providerAWS is the provider name AWS resources and config entries carry.
 const providerAWS = "aws"
+
+// newKubernetesProvider builds the provider for one cluster; tests replace it.
+var newKubernetesProvider = func(ctx context.Context, cluster config.KubernetesCluster) (provider.Provider, error) {
+	p, err := k8s.New(ctx, cluster)
+	if err != nil {
+		return nil, err
+	}
+	return p, nil
+}
 
 // loadConfig loads the config file viper located, or an empty config when none was found.
 func loadConfig() (*config.Config, error) {
@@ -37,12 +45,12 @@ func loadConfig() (*config.Config, error) {
 }
 
 // initProviders initializes cloud providers from configuration.
-// If regionOverride is provided, it overrides the regions in the config.
-// Currently only AWS is supported. GCP, Azure, and Kubernetes coming soon.
+// If regionOverride is provided, it overrides the regions of the AWS accounts.
+// AWS accounts and Kubernetes clusters are initialized; GCP and Azure entries are ignored.
 func initProviders(ctx context.Context, cfg *config.Config, regionOverride []string) ([]provider.Provider, error) {
-	providers := make([]provider.Provider, 0, len(cfg.Clouds.AWS))
+	providers := make([]provider.Provider, 0, len(cfg.Clouds.AWS)+len(cfg.Clouds.Kubernetes))
 
-	log.Debug("Providers: Found %d AWS account(s)", len(cfg.Clouds.AWS))
+	log.Debug("Providers: Found %d AWS account(s), %d Kubernetes cluster(s)", len(cfg.Clouds.AWS), len(cfg.Clouds.Kubernetes))
 
 	if len(regionOverride) > 0 {
 		log.Info("Providers: Using region override: %v", regionOverride)
@@ -67,29 +75,27 @@ func initProviders(ctx context.Context, cfg *config.Config, regionOverride []str
 		providers = append(providers, p)
 	}
 
-	// TODO: Enable Kubernetes providers when ready
-	// for i, cluster := range cfg.Clouds.Kubernetes {
-	// 	log.Info("Providers: Initializing Kubernetes provider %d/%d (cluster=%s)",
-	// 		i+1, len(cfg.Clouds.Kubernetes), cluster.Name)
-	// 	p, err := k8s.New(ctx, cluster)
-	// 	if err != nil {
-	// 		log.Error("Providers: Failed to initialize Kubernetes provider for cluster '%s': %v",
-	// 			cluster.Name, err)
-	// 		return nil, fmt.Errorf("failed to initialize Kubernetes provider for cluster '%s': %w",
-	// 			cluster.Name, err)
-	// 	}
-	// 	providers = append(providers, p)
-	// }
+	for i, cluster := range cfg.Clouds.Kubernetes {
+		log.Info("Providers: Initializing Kubernetes provider %d/%d (cluster=%s, context=%s)",
+			i+1, len(cfg.Clouds.Kubernetes), cluster.Name, cluster.Context)
+		p, err := newKubernetesProvider(ctx, cluster)
+		if err != nil {
+			log.Error("Providers: Failed to initialize Kubernetes provider for cluster '%s': %v",
+				cluster.Name, err)
+			return nil, fmt.Errorf("failed to initialize Kubernetes provider for cluster '%s': %w",
+				cluster.Name, err)
+		}
+		providers = append(providers, p)
+	}
 
 	log.Debug("Providers: Successfully initialized %d provider(s)", len(providers))
 	return providers, nil
 }
 
-// hasConfiguredProviders checks if any providers are configured.
-// Currently only AWS is supported.
+// hasConfiguredProviders reports whether the config has an AWS account or a Kubernetes cluster.
 func hasConfiguredProviders(cfg *config.Config) bool {
-	has := len(cfg.Clouds.AWS) > 0
-	log.Debug("Config: hasConfiguredProviders=%v (AWS=%d)", has, len(cfg.Clouds.AWS))
+	has := len(cfg.Clouds.AWS) > 0 || len(cfg.Clouds.Kubernetes) > 0
+	log.Debug("Config: hasConfiguredProviders=%v (AWS=%d, Kubernetes=%d)", has, len(cfg.Clouds.AWS), len(cfg.Clouds.Kubernetes))
 	return has
 }
 

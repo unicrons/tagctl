@@ -20,7 +20,7 @@ type efsAPI interface {
 
 // listEFSFileSystems lists all EFS file systems in a region.
 func (p *Provider) listEFSFileSystems(ctx context.Context, region string) ([]types.Resource, error) {
-	return p.listEFSFileSystemsFrom(ctx, p.getEFSClient(region), region)
+	return p.listEFSFileSystemsFrom(ctx, regionalClient(p, region, efs.NewFromConfig), region)
 }
 
 // listEFSFileSystemsFrom lists EFS file systems using the given client.
@@ -41,6 +41,9 @@ func (p *Provider) listEFSFileSystemsFrom(ctx context.Context, client efsAPI, re
 			if name == "" {
 				name = id
 			}
+			tags := tagsToMap(fs.Tags,
+				func(t efstypes.Tag) *string { return t.Key },
+				func(t efstypes.Tag) *string { return t.Value })
 			resources = append(resources, types.Resource{
 				ID:        id,
 				Name:      name,
@@ -49,7 +52,7 @@ func (p *Provider) listEFSFileSystemsFrom(ctx context.Context, client efsAPI, re
 				Region:    region,
 				Account:   p.accountID,
 				Provider:  providerName,
-				Tags:      efsTagsToMap(fs.Tags),
+				Tags:      tags,
 				CreatedAt: fs.CreationTime,
 			})
 		}
@@ -67,8 +70,12 @@ func (p *Provider) applyEFSTags(ctx context.Context, arn string, tags map[string
 		tagList = append(tagList, efstypes.Tag{Key: aws.String(k), Value: aws.String(v)})
 	}
 
-	client := p.getEFSClient(extractRegionFromARN(arn))
-	_, err := client.TagResource(ctx, &efs.TagResourceInput{
+	region, err := regionForARN(arn)
+	if err != nil {
+		return provider.NewProviderError(providerName, "apply_efs_tags", arn, err)
+	}
+	client := regionalClient(p, region, efs.NewFromConfig)
+	_, err = client.TagResource(ctx, &efs.TagResourceInput{
 		ResourceId: aws.String(nameFromARN(arn)),
 		Tags:       tagList,
 	})
@@ -78,15 +85,4 @@ func (p *Provider) applyEFSTags(ctx context.Context, arn string, tags map[string
 
 	log.Debug("AWS EFS: Applied %d tags to %s", len(tags), arn)
 	return nil
-}
-
-// efsTagsToMap converts EFS tags to a map.
-func efsTagsToMap(tags []efstypes.Tag) map[string]string {
-	result := make(map[string]string)
-	for _, tag := range tags {
-		if tag.Key != nil && tag.Value != nil {
-			result[*tag.Key] = *tag.Value
-		}
-	}
-	return result
 }

@@ -1,11 +1,18 @@
 package engine
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/unicrons/tagctl/internal/config"
 	"github.com/unicrons/tagctl/internal/types"
 )
+
+func failures(e *Evaluator, r types.Resource) []types.Finding {
+	return slices.DeleteFunc(e.EvaluateResourceFindings(r), func(f types.Finding) bool {
+		return f.Status != types.StatusFailed
+	})
+}
 
 func TestNewEvaluator(t *testing.T) {
 	policy := config.PolicyConfig{
@@ -38,7 +45,23 @@ func TestNewEvaluator_InvalidPattern(t *testing.T) {
 	}
 }
 
-func TestEvaluateResource_Compliant(t *testing.T) {
+func TestNewEvaluator_EachRequirementKeepsItsPattern(t *testing.T) {
+	evaluator, err := NewEvaluator(config.PolicyConfig{
+		Required: []config.TagRequirement{{Name: "owner", Pattern: "^.+@.+$"}},
+		Optional: []config.TagRequirement{{Name: "owner", Pattern: "^team-"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	findings := evaluator.EvaluateResourceFindings(types.Resource{ID: "i-1", Tags: map[string]string{"owner": "a@example.com"}})
+
+	if len(findings) != 2 || findings[0].Status != types.StatusPass || findings[1].Reason != types.ReasonInvalidFormat {
+		t.Errorf("findings = %+v, want the required pattern to pass and the optional one to fail", findings)
+	}
+}
+
+func TestEvaluate_Compliant(t *testing.T) {
 	policy := config.PolicyConfig{
 		Required: []config.TagRequirement{
 			{Name: "environment", Values: []string{"dev", "staging", valueProd}},
@@ -57,13 +80,12 @@ func TestEvaluateResource_Compliant(t *testing.T) {
 		},
 	}
 
-	violations := evaluator.EvaluateResource(resource)
-	if len(violations) != 0 {
-		t.Errorf("EvaluateResource() returned %d violations, want 0", len(violations))
+	if failed := failures(evaluator, resource); len(failed) != 0 {
+		t.Errorf("failed findings = %d, want 0", len(failed))
 	}
 }
 
-func TestEvaluateResource_MissingTag(t *testing.T) {
+func TestEvaluate_MissingTag(t *testing.T) {
 	policy := config.PolicyConfig{
 		Required: []config.TagRequirement{
 			{Name: "environment", Values: []string{"dev", "staging", valueProd}},
@@ -78,24 +100,23 @@ func TestEvaluateResource_MissingTag(t *testing.T) {
 		Name: "test-instance",
 		Tags: map[string]string{
 			"environment": valueProd,
-			// Missing "owner" tag
 		},
 	}
 
-	violations := evaluator.EvaluateResource(resource)
-	if len(violations) != 1 {
-		t.Fatalf("EvaluateResource() returned %d violations, want 1", len(violations))
+	failed := failures(evaluator, resource)
+	if len(failed) != 1 {
+		t.Fatalf("failed findings = %d, want 1", len(failed))
 	}
 
-	if violations[0].Tag != "owner" {
-		t.Errorf("violation.Tag = %q, want %q", violations[0].Tag, "owner")
+	if failed[0].Tag != "owner" {
+		t.Errorf("finding.Tag = %q, want %q", failed[0].Tag, "owner")
 	}
-	if violations[0].Reason != types.ReasonMissing {
-		t.Errorf("violation.Reason = %q, want %q", violations[0].Reason, types.ReasonMissing)
+	if failed[0].Reason != types.ReasonMissing {
+		t.Errorf("finding.Reason = %q, want %q", failed[0].Reason, types.ReasonMissing)
 	}
 }
 
-func TestEvaluateResource_InvalidValue(t *testing.T) {
+func TestEvaluate_InvalidValue(t *testing.T) {
 	policy := config.PolicyConfig{
 		Required: []config.TagRequirement{
 			{Name: "environment", Values: []string{"dev", "staging", valueProd}},
@@ -112,20 +133,20 @@ func TestEvaluateResource_InvalidValue(t *testing.T) {
 		},
 	}
 
-	violations := evaluator.EvaluateResource(resource)
-	if len(violations) != 1 {
-		t.Fatalf("EvaluateResource() returned %d violations, want 1", len(violations))
+	failed := failures(evaluator, resource)
+	if len(failed) != 1 {
+		t.Fatalf("failed findings = %d, want 1", len(failed))
 	}
 
-	if violations[0].Reason != types.ReasonInvalidValue {
-		t.Errorf("violation.Reason = %q, want %q", violations[0].Reason, types.ReasonInvalidValue)
+	if failed[0].Reason != types.ReasonInvalidValue {
+		t.Errorf("finding.Reason = %q, want %q", failed[0].Reason, types.ReasonInvalidValue)
 	}
-	if violations[0].Actual != "invalid-value" {
-		t.Errorf("violation.Actual = %q, want %q", violations[0].Actual, "invalid-value")
+	if failed[0].Actual != "invalid-value" {
+		t.Errorf("finding.Actual = %q, want %q", failed[0].Actual, "invalid-value")
 	}
 }
 
-func TestEvaluateResource_InvalidFormat(t *testing.T) {
+func TestEvaluate_InvalidFormat(t *testing.T) {
 	policy := config.PolicyConfig{
 		Required: []config.TagRequirement{
 			{Name: "owner", Pattern: "^.+@company\\.com$"},
@@ -142,17 +163,17 @@ func TestEvaluateResource_InvalidFormat(t *testing.T) {
 		},
 	}
 
-	violations := evaluator.EvaluateResource(resource)
-	if len(violations) != 1 {
-		t.Fatalf("EvaluateResource() returned %d violations, want 1", len(violations))
+	failed := failures(evaluator, resource)
+	if len(failed) != 1 {
+		t.Fatalf("failed findings = %d, want 1", len(failed))
 	}
 
-	if violations[0].Reason != types.ReasonInvalidFormat {
-		t.Errorf("violation.Reason = %q, want %q", violations[0].Reason, types.ReasonInvalidFormat)
+	if failed[0].Reason != types.ReasonInvalidFormat {
+		t.Errorf("finding.Reason = %q, want %q", failed[0].Reason, types.ReasonInvalidFormat)
 	}
 }
 
-func TestEvaluateResource_OptionalTag(t *testing.T) {
+func TestEvaluate_OptionalTag(t *testing.T) {
 	policy := config.PolicyConfig{
 		Required: []config.TagRequirement{
 			{Name: "environment"},
@@ -164,7 +185,6 @@ func TestEvaluateResource_OptionalTag(t *testing.T) {
 
 	evaluator, _ := NewEvaluator(policy)
 
-	// Resource without optional tag - should be compliant
 	resource := types.Resource{
 		ID:   "i-123",
 		Name: "test-instance",
@@ -173,19 +193,17 @@ func TestEvaluateResource_OptionalTag(t *testing.T) {
 		},
 	}
 
-	violations := evaluator.EvaluateResource(resource)
-	if len(violations) != 0 {
-		t.Errorf("EvaluateResource() returned %d violations, want 0", len(violations))
+	if findings := evaluator.EvaluateResourceFindings(resource); len(findings) != 1 {
+		t.Errorf("findings = %+v, want only the required tag checked", findings)
 	}
 
-	// Resource with invalid optional tag value - should have violation
 	resource.Tags["cost-center"] = "invalid"
-	violations = evaluator.EvaluateResource(resource)
-	if len(violations) != 1 {
-		t.Fatalf("EvaluateResource() returned %d violations, want 1", len(violations))
+	failed := failures(evaluator, resource)
+	if len(failed) != 1 {
+		t.Fatalf("failed findings = %d, want 1", len(failed))
 	}
-	if violations[0].Tag != "cost-center" {
-		t.Errorf("violation.Tag = %q, want %q", violations[0].Tag, "cost-center")
+	if failed[0].Tag != "cost-center" {
+		t.Errorf("finding.Tag = %q, want %q", failed[0].Tag, "cost-center")
 	}
 }
 
@@ -254,6 +272,62 @@ func TestEvaluateResources(t *testing.T) {
 	}
 }
 
+func TestEvaluateResources_OptionalTagStats(t *testing.T) {
+	evaluator, err := NewEvaluator(config.PolicyConfig{
+		Required: []config.TagRequirement{{Name: "owner"}},
+		Optional: []config.TagRequirement{
+			{Name: "team", Values: []string{"backend"}},
+			{Name: "project"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result := evaluator.EvaluateResources([]types.Resource{
+		{ID: "i-1", Tags: map[string]string{"owner": "a", "team": "backend"}},
+		{ID: "i-2", Tags: map[string]string{"owner": "b", "team": "Backend"}},
+		{ID: "i-3", Tags: map[string]string{"owner": "c"}},
+		{ID: "i-4", Tags: map[string]string{}},
+	})
+
+	want := map[string]types.TagStats{
+		"owner":   {Tag: "owner", Required: true, Present: 3, Missing: 1, CompliancePct: 75},
+		"team":    {Tag: "team", Present: 2, Invalid: 1, CompliancePct: 50},
+		"project": {Tag: "project", CompliancePct: 100},
+	}
+	for tag, stats := range want {
+		if got := *result.ByTag[tag]; got != stats {
+			t.Errorf("ByTag[%s] = %+v, want %+v", tag, got, stats)
+		}
+	}
+	if result.CompliantCount != 2 || result.ViolationCount != 2 {
+		t.Errorf("compliant/violations = %d/%d, want 2/2", result.CompliantCount, result.ViolationCount)
+	}
+}
+
+func TestEvaluateResources_ViolationsAreFailedFindings(t *testing.T) {
+	evaluator, err := NewEvaluator(goldenPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result := evaluator.EvaluateResources(goldenResources())
+
+	failed := slices.DeleteFunc(slices.Clone(result.Findings), func(f types.Finding) bool {
+		return f.Status != types.StatusFailed
+	})
+	if len(failed) != len(result.Violations) || result.ViolationCount != len(failed) {
+		t.Fatalf("violations = %d, count = %d, failed findings = %d", len(result.Violations), result.ViolationCount, len(failed))
+	}
+	for i := range failed {
+		if got := result.Violations[i].ToFinding(); got.Tag != failed[i].Tag || got.Reason != failed[i].Reason ||
+			got.Resource.Identity() != failed[i].Resource.Identity() || got.Actual != failed[i].Actual || got.Expected != failed[i].Expected {
+			t.Errorf("violation %d = %+v, want failed finding %+v", i, got, failed[i])
+		}
+	}
+}
+
 func TestIsCompliant(t *testing.T) {
 	policy := config.PolicyConfig{
 		Required: []config.TagRequirement{
@@ -301,8 +375,7 @@ func TestFormatAllowedValues(t *testing.T) {
 	}
 }
 
-func TestEvaluateResource_ViolationStatus(t *testing.T) {
-	// Test that violations have Status = FAILED
+func TestEvaluate_FailuresCarryFailedStatus(t *testing.T) {
 	policy := config.PolicyConfig{
 		Required: []config.TagRequirement{
 			{Name: "environment", Values: []string{"dev", "staging", valueProd}},
@@ -312,22 +385,14 @@ func TestEvaluateResource_ViolationStatus(t *testing.T) {
 
 	evaluator, _ := NewEvaluator(policy)
 
-	resource := types.Resource{
-		ID:   "i-123",
-		Name: "test-instance",
-		Tags: map[string]string{
-			// Missing both required tags
-		},
+	findings := evaluator.EvaluateResourceFindings(types.Resource{ID: "i-123", Name: "test-instance", Tags: map[string]string{}})
+	if len(findings) != 2 {
+		t.Fatalf("findings = %d, want 2", len(findings))
 	}
 
-	violations := evaluator.EvaluateResource(resource)
-	if len(violations) != 2 {
-		t.Fatalf("EvaluateResource() returned %d violations, want 2", len(violations))
-	}
-
-	for _, v := range violations {
-		if v.Status != types.StatusFailed {
-			t.Errorf("violation.Status = %q, want %q", v.Status, types.StatusFailed)
+	for _, f := range findings {
+		if f.Status != types.StatusFailed {
+			t.Errorf("finding.Status = %q, want %q", f.Status, types.StatusFailed)
 		}
 	}
 }
@@ -472,6 +537,33 @@ func TestEvaluateResources_Findings(t *testing.T) {
 	}
 	if failCount != 1 {
 		t.Errorf("FAILED findings = %d, want 1", failCount)
+	}
+}
+
+func TestEvaluateResources_RecordsInventoryWithoutFindings(t *testing.T) {
+	evaluator, err := NewEvaluator(config.PolicyConfig{
+		Optional: []config.TagRequirement{{Name: "project"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resources := []types.Resource{
+		{ID: "i-1", Type: "aws_instance", Account: "111", Region: "eu-west-1", Provider: "aws", Tags: map[string]string{}},
+		{ID: "i-1", Type: "aws_instance", Account: "111", Region: "us-east-1", Provider: "aws", Tags: map[string]string{}},
+	}
+
+	result := evaluator.EvaluateResources(resources)
+
+	if len(result.Findings) != 0 {
+		t.Fatalf("findings = %d, want 0 for absent optional tags", len(result.Findings))
+	}
+	if len(result.Resources) != len(resources) {
+		t.Fatalf("Resources = %+v, want one entry per resource", result.Resources)
+	}
+	for i, ref := range result.Resources {
+		if ref.Identity != resources[i].Identity() {
+			t.Errorf("Resources[%d].Identity = %q, want %q", i, ref.Identity, resources[i].Identity())
+		}
 	}
 }
 

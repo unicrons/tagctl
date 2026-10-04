@@ -2,7 +2,6 @@ package aws
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	elb "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancing"
@@ -22,7 +21,7 @@ type classicELBAPI interface {
 
 // listClassicLoadBalancers lists classic (v1) load balancers in a region.
 func (p *Provider) listClassicLoadBalancers(ctx context.Context, region string) ([]types.Resource, error) {
-	return p.listClassicLoadBalancersFrom(ctx, p.getClassicELBClient(region), region)
+	return p.listClassicLoadBalancersFrom(ctx, regionalClient(p, region, elb.NewFromConfig), region)
 }
 
 func (p *Provider) listClassicLoadBalancersFrom(ctx context.Context, client classicELBAPI, region string) ([]types.Resource, error) {
@@ -42,7 +41,7 @@ func (p *Provider) listClassicLoadBalancersFrom(ctx context.Context, client clas
 	}
 
 	tagsByName := make(map[string]map[string]string, len(names))
-	useBulk := p.tagsFor(region).available()
+	useBulk := p.tagsFor(region).available(ctx)
 	if !useBulk {
 		for _, batch := range chunk(names, elbTagBatchSize) {
 			output, err := client.DescribeTags(ctx, &elb.DescribeTagsInput{LoadBalancerNames: batch})
@@ -50,13 +49,9 @@ func (p *Provider) listClassicLoadBalancersFrom(ctx context.Context, client clas
 				return nil, provider.NewProviderError(providerName, "describe_classic_elb_tags", "", err)
 			}
 			for _, desc := range output.TagDescriptions {
-				m := make(map[string]string, len(desc.Tags))
-				for _, tag := range desc.Tags {
-					if tag.Key != nil && tag.Value != nil {
-						m[*tag.Key] = *tag.Value
-					}
-				}
-				tagsByName[aws.ToString(desc.LoadBalancerName)] = m
+				tagsByName[aws.ToString(desc.LoadBalancerName)] = tagsToMap(desc.Tags,
+					func(t elbtypes.Tag) *string { return t.Key },
+					func(t elbtypes.Tag) *string { return t.Value })
 			}
 		}
 	}
@@ -64,10 +59,10 @@ func (p *Provider) listClassicLoadBalancersFrom(ctx context.Context, client clas
 	resources := make([]types.Resource, 0, len(lbs))
 	for _, lb := range lbs {
 		name := aws.ToString(lb.LoadBalancerName)
-		arn := fmt.Sprintf("arn:aws:elasticloadbalancing:%s:%s:loadbalancer/%s", region, p.accountID, name)
+		arn := p.buildARN("elasticloadbalancing", region, p.accountID, "loadbalancer/"+name)
 		tags := tagsByName[name]
 		if useBulk {
-			tags = p.bulkTags(region, arn)
+			tags = p.bulkTags(ctx, region, arn)
 		}
 		if tags == nil {
 			tags = map[string]string{}
@@ -95,8 +90,12 @@ func (p *Provider) applyClassicELBTags(ctx context.Context, arn string, tags map
 		tagList = append(tagList, elbtypes.Tag{Key: aws.String(k), Value: aws.String(v)})
 	}
 
-	client := p.getClassicELBClient(extractRegionFromARN(arn))
-	_, err := client.AddTags(ctx, &elb.AddTagsInput{
+	region, err := regionForARN(arn)
+	if err != nil {
+		return provider.NewProviderError(providerName, "apply_classic_elb_tags", arn, err)
+	}
+	client := regionalClient(p, region, elb.NewFromConfig)
+	_, err = client.AddTags(ctx, &elb.AddTagsInput{
 		LoadBalancerNames: []string{nameFromARN(arn)},
 		Tags:              tagList,
 	})
