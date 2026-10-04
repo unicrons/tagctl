@@ -229,9 +229,10 @@ of paginators in "How tags are read" on the AWS provider page.
 
 ## 4. Route tag writes
 
-`tagctl apply` addresses a resource by its ARN, or by its ID for the types in
-`idAddressedTypes`, and passes the region the plan recorded for it
-(`ApplyTagsInRegion`). `getResourceType` parses the ARN and picks a route from
+`tagctl apply` hands the provider each resource of the plan (`TagResource`).
+The provider addresses it by its ARN, or by its ID for the types in
+`idAddressedTypes` (`taggingIdentifier`), in the region the plan recorded for
+it. `getResourceType` parses the ARN and picks a route from
 its service segment in `arnServiceRoutes`, whatever the partition, and
 `tagAppliers` maps the route to a method. An ARN whose service is not
 in the table goes to `tagging_api`, which is `applyTagsViaTaggingAPI`
@@ -268,7 +269,7 @@ A route that also depends on the resource segment (ECS clusters and services,
 the Elastic Load Balancing families, S3 buckets) is decided in the `switch` of
 `getResourceType` instead.
 
-Only add the type to `idAddressedTypes` in `internal/engine/applier.go` when
+Only add the type to `idAddressedTypes`, also in `provider.go`, when
 its tag API takes a bare ID instead of an ARN (the EC2 family). The ID then
 needs a prefix in `ec2IDPrefixes`, such as `i-`, and its applier needs the
 region from the plan, because an ID does not carry one: `regionTagAppliers`
@@ -306,7 +307,7 @@ fails:
 |------|------|-----|
 | `TestRegionalListers` / `TestGlobalListers` | `internal/provider/aws/provider_test.go` | The lister label, in the same position |
 | `TestGetResourceType_AllSupportedServices` | `internal/provider/aws/provider_test.go` | A sample ARN and its route; the test also checks that the route has an applier |
-| `TestTaggingIdentifier` | `internal/engine/applier_test.go` | The type, and whether it is tagged by ID or by ARN |
+| `TestTaggingIdentifier` | `internal/provider/aws/provider_test.go` | The type, and whether it is tagged by ID or by ARN |
 
 Test the lister next to its file, with a fake that implements the narrow
 interface. `sqs_test.go` covers a per-resource tag API, including the skip

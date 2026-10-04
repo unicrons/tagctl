@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
@@ -17,6 +19,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 
+	"github.com/unicrons/tagctl/internal/provider"
 	"github.com/unicrons/tagctl/internal/types"
 )
 
@@ -367,6 +370,136 @@ func TestApplyTags_ServiceAppliersRejectAnARNWithoutARegion(t *testing.T) {
 				t.Errorf("ApplyTags() err = %v, want an error naming the ARN", err)
 			}
 		})
+	}
+}
+
+var _ provider.ResourceTagger = (*Provider)(nil)
+
+func TestTaggingIdentifier(t *testing.T) {
+	cases := []struct {
+		typ  string
+		want string
+	}{
+		{"aws_instance", "i-1"},
+		{"aws_s3_bucket", "arn:x"},
+		{"aws_db_instance", "arn:x"},
+		{"aws_lambda_function", "arn:x"},
+		{"aws_dynamodb_table", "arn:x"},
+		{"aws_ecs_service", "arn:x"},
+		{"aws_eks_cluster", "arn:x"},
+		{"aws_elasticache_cluster", "arn:x"},
+		{"aws_efs_file_system", "arn:x"},
+		{"aws_ecr_repository", "arn:x"},
+		{"aws_kms_key", "arn:x"},
+		{"aws_kinesis_stream", "arn:x"},
+		{"aws_cloudwatch_log_group", "arn:x"},
+		{"aws_rds_cluster", "arn:x"},
+		{"aws_elb", "arn:x"},
+		{"aws_lb_target_group", "arn:x"},
+		{"aws_sfn_state_machine", "arn:x"},
+		{"aws_iam_role", "arn:x"},
+		{"aws_ami", "i-1"},
+		{"aws_eip", "i-1"},
+		{"aws_lb", "arn:x"},
+		{"aws_autoscaling_group", "arn:x"},
+		{"aws_sns_topic", "arn:x"},
+		{"aws_sqs_queue", "arn:x"},
+		{"aws_cloudtrail", "arn:x"},
+		{"aws_lightsail_instance", "arn:x"},
+		{"aws_docdb_cluster", "arn:x"},
+	}
+	for _, tc := range cases {
+		r := types.Resource{Provider: "aws", ID: "i-1", ARN: "arn:x", Type: tc.typ}
+		if got := taggingIdentifier(r); got != tc.want {
+			t.Errorf("%s: got %q, want %q", tc.typ, got, tc.want)
+		}
+	}
+	if got := taggingIdentifier(types.Resource{Provider: "aws", ID: "i-1", Type: "aws_kms_key"}); got != "i-1" {
+		t.Errorf("without ARN want the ID, got %q", got)
+	}
+}
+
+// sdkRecorder answers every SDK request with response and keeps what was sent.
+type sdkRecorder struct {
+	response string
+	hosts    []string
+	bodies   []string
+}
+
+func (c *sdkRecorder) Do(req *http.Request) (*http.Response, error) {
+	body, err := io.ReadAll(req.Body)
+	if err != nil {
+		return nil, err
+	}
+	c.hosts = append(c.hosts, req.URL.Host)
+	c.bodies = append(c.bodies, string(body))
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{},
+		Body:       io.NopCloser(strings.NewReader(c.response)),
+	}, nil
+}
+
+func TestTagResource_AddressesTheResourceByItsIdentifierAndRegion(t *testing.T) {
+	const createTagsResponse = `<CreateTagsResponse xmlns="http://ec2.amazonaws.com/doc/2016-11-15/"><return>true</return></CreateTagsResponse>`
+	tests := []struct {
+		name     string
+		resource types.Resource
+		response string
+		wantHost string
+		wantBody string
+	}{
+		{
+			name:     "EC2 instance by bare ID in the region of the plan",
+			resource: types.Resource{ID: "i-0abc", ARN: "arn:aws:ec2:eu-west-1:123456789012:instance/i-0abc", Provider: "aws", Type: "aws_instance", Region: "eu-west-1"},
+			response: createTagsResponse,
+			wantHost: "ec2.eu-west-1.amazonaws.com",
+			wantBody: "ResourceId.1=i-0abc&",
+		},
+		{
+			name:     "state machine by ARN in the region of the ARN",
+			resource: types.Resource{ID: "orders", ARN: "arn:aws:states:eu-west-1:123456789012:stateMachine:orders", Provider: "aws", Type: "aws_sfn_state_machine", Region: "eu-west-1"},
+			response: `{}`,
+			wantHost: "tagging.eu-west-1.amazonaws.com",
+			wantBody: `"ResourceARNList":["arn:aws:states:eu-west-1:123456789012:stateMachine:orders"]`,
+		},
+		{
+			name:     "bucket by ARN in the region of the plan",
+			resource: types.Resource{ID: "logs", ARN: "arn:aws:s3:::logs", Provider: "aws", Type: "aws_s3_bucket", Region: "ap-south-1"},
+			response: `{}`,
+			wantHost: "tagging.ap-south-1.amazonaws.com",
+			wantBody: `"ResourceARNList":["arn:aws:s3:::logs"]`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := &sdkRecorder{response: tt.response}
+			p := &Provider{
+				cfg:     aws.Config{Region: "us-east-1", HTTPClient: recorder, Credentials: aws.AnonymousCredentials{}},
+				clients: map[string]any{},
+			}
+
+			if err := p.TagResource(context.Background(), tt.resource, map[string]string{"owner": "x"}); err != nil {
+				t.Fatalf("TagResource() error = %v", err)
+			}
+
+			if !slices.Equal(recorder.hosts, []string{tt.wantHost}) {
+				t.Fatalf("requests sent to %v, want one to %s", recorder.hosts, tt.wantHost)
+			}
+			if !strings.Contains(recorder.bodies[0], tt.wantBody) {
+				t.Errorf("request body = %s, want it to contain %s", recorder.bodies[0], tt.wantBody)
+			}
+		})
+	}
+}
+
+func TestTagResource_EC2ResourceWithoutARegionFailsWithoutACall(t *testing.T) {
+	instance := types.Resource{ID: "i-0abc", ARN: "arn:aws:ec2:eu-west-1:123456789012:instance/i-0abc", Provider: "aws", Type: "aws_instance"}
+
+	err := (&Provider{}).TagResource(context.Background(), instance, map[string]string{"owner": "x"})
+
+	if err == nil || !strings.Contains(err.Error(), "need the region") || !strings.Contains(err.Error(), "for i-0abc:") {
+		t.Errorf("TagResource() err = %v, want a missing region error naming the bare ID", err)
 	}
 }
 

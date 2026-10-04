@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/unicrons/tagctl/internal/config"
-	"github.com/unicrons/tagctl/internal/engine"
 	"github.com/unicrons/tagctl/internal/log"
 	"github.com/unicrons/tagctl/internal/provider"
 	"github.com/unicrons/tagctl/internal/types"
@@ -61,35 +60,6 @@ func TestRenderProgressBar(t *testing.T) {
 				t.Errorf("renderProgressBar(%v, %v) = %v, want %v", tt.percent, tt.width, got, tt.want)
 			}
 		})
-	}
-}
-
-func TestMockScanner(t *testing.T) {
-	scanner := engine.NewMockScanner()
-	result, err := scanner.Scan(context.Background())
-
-	if err != nil {
-		t.Fatalf("MockScanner.Scan() error = %v", err)
-	}
-
-	if result == nil {
-		t.Fatal("MockScanner.Scan() returned nil")
-	}
-
-	if result.TotalResources == 0 {
-		t.Error("TotalResources should not be 0")
-	}
-
-	if len(result.ByAccount) == 0 {
-		t.Error("ByAccount should not be empty")
-	}
-
-	if len(result.ByTag) == 0 {
-		t.Error("ByTag should not be empty")
-	}
-
-	if len(result.Violations) == 0 {
-		t.Error("Violations should not be empty for mock data")
 	}
 }
 

@@ -281,9 +281,9 @@ func TestApplyTags_EC2IDWithoutARegionFailsWithoutACall(t *testing.T) {
 	p := &Provider{regions: []string{"us-east-1", "eu-west-1"}}
 	for _, region := range []string{"", regionGlobal} {
 		for _, id := range []string{"i-0abc", "vol-0abc", "sg-0abc", "subnet-0abc"} {
-			err := p.ApplyTagsInRegion(context.Background(), id, region, map[string]string{"owner": "x"})
+			err := p.applyTagsInRegion(context.Background(), id, region, map[string]string{"owner": "x"})
 			if err == nil || !strings.Contains(err.Error(), "need the region") {
-				t.Errorf("ApplyTagsInRegion(%q, %q) err = %v, want a missing region error", id, region, err)
+				t.Errorf("applyTagsInRegion(%q, %q) err = %v, want a missing region error", id, region, err)
 			}
 		}
 	}

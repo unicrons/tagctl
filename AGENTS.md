@@ -48,6 +48,8 @@ internal/
 │   ├── auth.go           # AWS auth flags shared by scan/apply/cost
 │   └── providers.go      # Provider initialization
 ├── config/config.go      # YAML config parsing and validation
+├── demo/                 # Example data: scan.go (scan --mock, demo mode),
+│                         # plan.go (demo plan), applier.go (simulated apply)
 ├── engine/
 │   ├── scanner.go        # Resource discovery coordinator
 │   ├── evaluator.go      # Tag policy evaluation
@@ -221,7 +223,7 @@ ignore:
 
 ### Data Flow
 
-1. **Scan**: `engine.Scanner` → `provider.Provider.ListResources()` → `[]types.Resource`.
+1. **Scan**: `engine.RealScanner` → `provider.Provider.ListResources()` → `[]types.Resource`.
    A provider error keeps the other resources, sets `ScanResult.Partial`/`Errors`
    and is returned joined; `scan` writes its reports, then fails unless
    `--allow-partial`. `plan`, `diff` and `--baseline` warn on a partial scan file.
@@ -229,7 +231,7 @@ ignore:
    types after discovery, before `ignore`: listers do not declare their
    resource types, so no API call is saved
 2. **Evaluate**: `engine.Evaluator` → `[]types.Finding` (PASS or FAILED)
-3. **Plan**: `engine.Planner` → `[]types.TagChange`. `rules.rename` runs first, on
+3. **Plan**: `engine.RealPlanner` → `[]types.TagChange`. `rules.rename` runs first, on
    every resource in the scan carrying `from`: an `add` of `to` plus a `remove`
    of `from`, only the `remove` when `to` already holds the value, and a
    `Plan.Conflicts` entry (nothing planned, `from` kept even if forbidden) when
@@ -239,7 +241,7 @@ ignore:
    is skipped. Inherit resolves `Resource.Parents` (relation → parent
    `Identity()`, set by the provider) against the resources in the scan; a
    scan with no parents at all adds a `Plan.Warnings` entry that `plan` prints
-4. **Apply**: `engine.ValidatePlan` (add/update/remove, a named tag, never set and removed on one resource) → `engine.Applier` → `provider.Provider.ApplyTags()`, then `provider.TagRemover.RemoveTags()` (see Tag removal) → cloud API calls
+4. **Apply**: `engine.ValidatePlan` (add/update/remove, a named tag, never set and removed on one resource) → `engine.Applier` → `provider.ResourceTagger.TagResource()` (the whole resource; `provider.Provider.ApplyTags()` with `Resource.ID` when the provider does not implement it), then `provider.TagRemover.RemoveTags()` (see Tag removal) → cloud API calls
 
 `apply --interactive` runs `reviewChanges` between loading the plan and the
 applier: one prompt per `Resource.Identity()` on stderr, answers read from
@@ -248,6 +250,21 @@ become a filtered copy of the plan, checked again with `engine.ValidatePlan`;
 skipped changes are counted apart, never as applied or failed. The review runs
 on the plan `withoutRemovals` returned, so it only offers a removal (`- tag`)
 with `--allow-removals`.
+
+A plan file is untrusted input: everything `apply` prints from it or from a
+provider (resource type and ID, tag keys and values, the plan path, error
+text) goes through `printable()`. `TestApply_NeutralisesControlCharactersFromThePlan`
+runs each field through the normal, `--interactive` and `--mock` paths; add a
+row for a new printed field.
+
+### Demo data
+
+`internal/demo` holds everything that is example data, so `internal/engine`
+has none: `demo.Scan()` is the result of `scan --mock` and of `scan` without a
+configured provider, `demo.Plan()` the plan `plan` prints (never saved) in
+that case, and `demo.Applier` the `engine.Applier` behind `apply --mock` and
+an apply without a provider. `demo` imports `engine`, never the reverse. The
+fixtures `demo-scan.golden.json` and `demo-plan.golden.json` pin the data.
 
 ### Exit codes
 
@@ -378,10 +395,13 @@ Each provider implements the `provider.Provider` interface (`Name`,
 Kubernetes cluster name): the applier routes a change to the provider whose
 `AccountID()` equals the resource's `Account`, so a provider that can be
 configured more than once must implement it.
-A provider that also implements `ApplyTagsInRegion` (engine `regionalTagger`)
-receives `Resource.Region` from the plan: AWS needs it for EC2 resources,
-tagged by bare ID with one `CreateTags` call in that region, and fails without
-it instead of probing regions.
+A provider that also implements `provider.ResourceTagger` (`TagResource(ctx,
+resource, tags)`) receives the whole resource of the plan instead of its ID
+and decides how to address it; the engine knows no identifier scheme. AWS
+picks the ARN, or the bare ID for `idAddressedTypes` (`taggingIdentifier` in
+`internal/provider/aws/provider.go`), and needs `Resource.Region` for EC2
+resources, tagged by bare ID with one `CreateTags` call in that region: it
+fails without it instead of probing regions.
 
 Provider status has one table, "Provider Status" in `docs/development.mdx`.
 README, CONTRIBUTING, `tagctl.yaml.example`, the `init` templates and the docs
@@ -492,9 +512,9 @@ Checklist:
 4. Writes: `tagging_api` (`applyTagsViaTaggingAPI`) by default;
    `apply<Service>Tags` (region from `regionForARN(arn)`, never a configured
    region) + `tagAppliers` + `arnServiceRoutes` only when the Tagging
-   API cannot tag the type; `idAddressedTypes` + `ec2IDPrefixes` only for
-   bare-ID tag APIs, which get the plan's region through `regionTagAppliers`
-   (built once from `ec2IDPrefixes`, plus S3)
+   API cannot tag the type; `idAddressedTypes` + `ec2IDPrefixes` (both in
+   `provider.go`) only for bare-ID tag APIs, which get the plan's region
+   through `regionTagAppliers` (built once from `ec2IDPrefixes`, plus S3)
 5. Register in `regionalListers()` (`provider.go`) or `globalListers()`
 6. Pinned tests: `TestRegionalListers`/`TestGlobalListers`,
    `TestGetResourceType_AllSupportedServices`, `TestTaggingIdentifier`
@@ -693,7 +713,7 @@ Install with: `make hooks`
     `lightsailEndpoints` returns (`GetRegions` once per provider, commercial
     partition only; `lightsailFallbackRegions` and one `log.Error` when the
     call fails); both are addressed by their own tag API, not the Tagging API.
-    `idAddressedTypes` in the applier is the short list of types tagged by ID
+    `idAddressedTypes` in the AWS provider is the short list of types tagged by ID
     (EC2 family); everything else, S3 buckets included, is tagged by ARN. An
     identifier that is neither an ARN nor an EC2 ID has no route and
     `ApplyTags` fails with `unknown resource type`

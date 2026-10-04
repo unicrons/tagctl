@@ -15,8 +15,15 @@ type Provider interface {
 	// ListResources discovers and returns all taggable resources.
 	ListResources(ctx context.Context) ([]types.Resource, error)
 
-	// ApplyTags applies the given tags to a resource.
+	// ApplyTags applies the given tags to the resource with that ID.
 	ApplyTags(ctx context.Context, resourceID string, tags map[string]string) error
+}
+
+// ResourceTagger is implemented by providers that address a resource by more
+// than its ID, such as an ARN or the region it lives in.
+type ResourceTagger interface {
+	// TagResource applies the given tags to a resource.
+	TagResource(ctx context.Context, resource types.Resource, tags map[string]string) error
 }
 
 // TagRemover is implemented by providers that can delete tags from a resource.

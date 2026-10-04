@@ -1,0 +1,339 @@
+{
+  "scanned_at": "0001-01-01T00:00:00Z",
+  "total_resources": 150,
+  "compliant_count": 98,
+  "violation_count": 52,
+  "compliance_percent": 65.3,
+  "violations": [
+    {
+      "resource": {
+        "id": "i-0abc123",
+        "arn": "arn:aws:ec2:us-east-1:123456789012:instance/i-0abc123",
+        "type": "aws_instance",
+        "name": "web-staging-1",
+        "region": "us-east-1",
+        "account": "staging",
+        "provider": "aws",
+        "tags": null
+      },
+      "tag": "cost-center",
+      "status": "",
+      "reason": "missing"
+    },
+    {
+      "resource": {
+        "id": "i-0def456",
+        "arn": "arn:aws:ec2:us-east-1:123456789012:instance/i-0def456",
+        "type": "aws_instance",
+        "name": "api-staging-2",
+        "region": "us-east-1",
+        "account": "staging",
+        "provider": "aws",
+        "tags": null
+      },
+      "tag": "owner",
+      "status": "",
+      "reason": "missing"
+    },
+    {
+      "resource": {
+        "id": "bucket-legacy",
+        "arn": "arn:aws:s3:::legacy-data-bucket",
+        "type": "aws_s3_bucket",
+        "name": "legacy-data-bucket",
+        "region": "us-west-2",
+        "account": "production",
+        "provider": "aws",
+        "tags": null
+      },
+      "tag": "owner",
+      "status": "",
+      "reason": "invalid_format",
+      "expected": "^.+@company\\.com$",
+      "actual": "john"
+    }
+  ],
+  "findings": [
+    {
+      "resource": {
+        "id": "i-0prod123",
+        "arn": "arn:aws:ec2:us-east-1:123456789012:instance/i-0prod123",
+        "type": "aws_instance",
+        "name": "web-prod-1",
+        "region": "us-east-1",
+        "account": "production",
+        "provider": "aws",
+        "tags": null
+      },
+      "tag": "environment",
+      "status": "PASS",
+      "reason": "compliant",
+      "actual": "prod"
+    },
+    {
+      "resource": {
+        "id": "i-0prod123",
+        "arn": "arn:aws:ec2:us-east-1:123456789012:instance/i-0prod123",
+        "type": "aws_instance",
+        "name": "web-prod-1",
+        "region": "us-east-1",
+        "account": "production",
+        "provider": "aws",
+        "tags": null
+      },
+      "tag": "cost-center",
+      "status": "PASS",
+      "reason": "compliant",
+      "actual": "TECH-001"
+    },
+    {
+      "resource": {
+        "id": "i-0prod123",
+        "arn": "arn:aws:ec2:us-east-1:123456789012:instance/i-0prod123",
+        "type": "aws_instance",
+        "name": "web-prod-1",
+        "region": "us-east-1",
+        "account": "production",
+        "provider": "aws",
+        "tags": null
+      },
+      "tag": "owner",
+      "status": "PASS",
+      "reason": "compliant",
+      "actual": "team@company.com"
+    },
+    {
+      "resource": {
+        "id": "i-0prod456",
+        "arn": "arn:aws:ec2:us-east-1:123456789012:instance/i-0prod456",
+        "type": "aws_instance",
+        "name": "api-prod-1",
+        "region": "us-east-1",
+        "account": "production",
+        "provider": "aws",
+        "tags": null
+      },
+      "tag": "environment",
+      "status": "PASS",
+      "reason": "compliant",
+      "actual": "prod"
+    },
+    {
+      "resource": {
+        "id": "i-0prod456",
+        "arn": "arn:aws:ec2:us-east-1:123456789012:instance/i-0prod456",
+        "type": "aws_instance",
+        "name": "api-prod-1",
+        "region": "us-east-1",
+        "account": "production",
+        "provider": "aws",
+        "tags": null
+      },
+      "tag": "cost-center",
+      "status": "PASS",
+      "reason": "compliant",
+      "actual": "TECH-002"
+    },
+    {
+      "resource": {
+        "id": "i-0prod456",
+        "arn": "arn:aws:ec2:us-east-1:123456789012:instance/i-0prod456",
+        "type": "aws_instance",
+        "name": "api-prod-1",
+        "region": "us-east-1",
+        "account": "production",
+        "provider": "aws",
+        "tags": null
+      },
+      "tag": "owner",
+      "status": "PASS",
+      "reason": "compliant",
+      "actual": "api@company.com"
+    },
+    {
+      "resource": {
+        "id": "i-0abc123",
+        "arn": "arn:aws:ec2:us-east-1:123456789012:instance/i-0abc123",
+        "type": "aws_instance",
+        "name": "web-staging-1",
+        "region": "us-east-1",
+        "account": "staging",
+        "provider": "aws",
+        "tags": null
+      },
+      "tag": "environment",
+      "status": "PASS",
+      "reason": "compliant",
+      "actual": "staging"
+    },
+    {
+      "resource": {
+        "id": "i-0abc123",
+        "arn": "arn:aws:ec2:us-east-1:123456789012:instance/i-0abc123",
+        "type": "aws_instance",
+        "name": "web-staging-1",
+        "region": "us-east-1",
+        "account": "staging",
+        "provider": "aws",
+        "tags": null
+      },
+      "tag": "cost-center",
+      "status": "FAILED",
+      "reason": "missing"
+    },
+    {
+      "resource": {
+        "id": "i-0abc123",
+        "arn": "arn:aws:ec2:us-east-1:123456789012:instance/i-0abc123",
+        "type": "aws_instance",
+        "name": "web-staging-1",
+        "region": "us-east-1",
+        "account": "staging",
+        "provider": "aws",
+        "tags": null
+      },
+      "tag": "owner",
+      "status": "PASS",
+      "reason": "compliant",
+      "actual": "dev@company.com"
+    },
+    {
+      "resource": {
+        "id": "i-0def456",
+        "arn": "arn:aws:ec2:us-east-1:123456789012:instance/i-0def456",
+        "type": "aws_instance",
+        "name": "api-staging-2",
+        "region": "us-east-1",
+        "account": "staging",
+        "provider": "aws",
+        "tags": null
+      },
+      "tag": "environment",
+      "status": "PASS",
+      "reason": "compliant",
+      "actual": "staging"
+    },
+    {
+      "resource": {
+        "id": "i-0def456",
+        "arn": "arn:aws:ec2:us-east-1:123456789012:instance/i-0def456",
+        "type": "aws_instance",
+        "name": "api-staging-2",
+        "region": "us-east-1",
+        "account": "staging",
+        "provider": "aws",
+        "tags": null
+      },
+      "tag": "cost-center",
+      "status": "PASS",
+      "reason": "compliant",
+      "actual": "DEV-001"
+    },
+    {
+      "resource": {
+        "id": "i-0def456",
+        "arn": "arn:aws:ec2:us-east-1:123456789012:instance/i-0def456",
+        "type": "aws_instance",
+        "name": "api-staging-2",
+        "region": "us-east-1",
+        "account": "staging",
+        "provider": "aws",
+        "tags": null
+      },
+      "tag": "owner",
+      "status": "FAILED",
+      "reason": "missing"
+    },
+    {
+      "resource": {
+        "id": "bucket-legacy",
+        "arn": "arn:aws:s3:::legacy-data-bucket",
+        "type": "aws_s3_bucket",
+        "name": "legacy-data-bucket",
+        "region": "us-west-2",
+        "account": "production",
+        "provider": "aws",
+        "tags": null
+      },
+      "tag": "environment",
+      "status": "PASS",
+      "reason": "compliant",
+      "actual": "prod"
+    },
+    {
+      "resource": {
+        "id": "bucket-legacy",
+        "arn": "arn:aws:s3:::legacy-data-bucket",
+        "type": "aws_s3_bucket",
+        "name": "legacy-data-bucket",
+        "region": "us-west-2",
+        "account": "production",
+        "provider": "aws",
+        "tags": null
+      },
+      "tag": "cost-center",
+      "status": "PASS",
+      "reason": "compliant",
+      "actual": "LEGACY-001"
+    },
+    {
+      "resource": {
+        "id": "bucket-legacy",
+        "arn": "arn:aws:s3:::legacy-data-bucket",
+        "type": "aws_s3_bucket",
+        "name": "legacy-data-bucket",
+        "region": "us-west-2",
+        "account": "production",
+        "provider": "aws",
+        "tags": null
+      },
+      "tag": "owner",
+      "status": "FAILED",
+      "reason": "invalid_format",
+      "expected": "^.+@company\\.com$",
+      "actual": "john"
+    }
+  ],
+  "by_account": {
+    "production": {
+      "account": "production",
+      "provider": "aws",
+      "total": 100,
+      "compliant": 85,
+      "compliance_percent": 85
+    },
+    "staging": {
+      "account": "staging",
+      "provider": "aws",
+      "total": 50,
+      "compliant": 13,
+      "compliance_percent": 26
+    }
+  },
+  "by_tag": {
+    "cost-center": {
+      "tag": "cost-center",
+      "required": true,
+      "present": 98,
+      "missing": 52,
+      "invalid": 5,
+      "compliance_percent": 62
+    },
+    "environment": {
+      "tag": "environment",
+      "required": true,
+      "present": 140,
+      "missing": 10,
+      "invalid": 0,
+      "compliance_percent": 93.3
+    },
+    "owner": {
+      "tag": "owner",
+      "required": true,
+      "present": 75,
+      "missing": 75,
+      "invalid": 10,
+      "compliance_percent": 43.3
+    }
+  }
+}

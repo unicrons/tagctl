@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/unicrons/tagctl/internal/demo"
 	"github.com/unicrons/tagctl/internal/engine"
 	"github.com/unicrons/tagctl/internal/log"
 	"github.com/unicrons/tagctl/internal/types"
@@ -85,7 +86,7 @@ func runPlan(cmd *cobra.Command, args []string) error {
 		fmt.Fprint(os.Stderr, "Analyzing resources for auto-fix opportunities (demo mode)...\n\n")
 
 		// A demo plan on disk would be picked up by apply as a real one.
-		if err = printPlan(getMockPlan(), format); err != nil {
+		if err = printPlan(demo.Plan(), format); err != nil {
 			return err
 		}
 		fmt.Fprint(os.Stderr, "\nDemo plan: example data only, not saved.\n")
@@ -247,93 +248,4 @@ func printPlan(plan *types.Plan, format string) error {
 	}
 	outputPlanTable(plan)
 	return nil
-}
-
-// getMockPlan returns the example plan shown when no provider is configured.
-func getMockPlan() *types.Plan {
-	plan := &types.Plan{
-		ID:        fmt.Sprintf("plan-%s", time.Now().Format("20060102-150405")),
-		CreatedAt: time.Now(),
-		Changes: []types.TagChange{
-			{
-				Resource: types.Resource{
-					ID:       "i-0abc123",
-					Name:     "web-prod-api-1",
-					Type:     "aws_instance",
-					Account:  "production",
-					Provider: "aws",
-				},
-				Tag:      "environment",
-				Action:   types.ActionAdd,
-				NewValue: valueProd,
-				Reason:   types.ReasonInferred,
-				Source:   "name contains '-prod-'",
-			},
-			{
-				Resource: types.Resource{
-					ID:       "i-0abc123",
-					Name:     "web-prod-api-1",
-					Type:     "aws_instance",
-					Account:  "production",
-					Provider: "aws",
-				},
-				Tag:      "team",
-				Action:   types.ActionAdd,
-				NewValue: "backend",
-				Reason:   types.ReasonInherited,
-				Source:   "from ASG 'backend-asg'",
-			},
-			{
-				Resource: types.Resource{
-					ID:       "vol-xyz789",
-					Name:     "",
-					Type:     "aws_ebs_volume",
-					Account:  "production",
-					Provider: "aws",
-				},
-				Tag:      "environment",
-				Action:   types.ActionAdd,
-				NewValue: valueProd,
-				Reason:   types.ReasonInherited,
-				Source:   "from attached instance i-0abc123",
-			},
-			{
-				Resource: types.Resource{
-					ID:       "legacy-bucket",
-					Name:     "legacy-data-2019",
-					Type:     "aws_s3_bucket",
-					Account:  "production",
-					Provider: "aws",
-				},
-				Tag:      "owner",
-				Action:   types.ActionAdd,
-				NewValue: "platform-team@company.com",
-				Reason:   types.ReasonDefault,
-				Source:   "default for untagged S3 buckets",
-			},
-			{
-				Resource: types.Resource{
-					ID:       "legacy-bucket",
-					Name:     "legacy-data-2019",
-					Type:     "aws_s3_bucket",
-					Account:  "production",
-					Provider: "aws",
-				},
-				Tag:      "needs-review",
-				Action:   types.ActionAdd,
-				NewValue: "true",
-				Reason:   types.ReasonDefault,
-				Source:   "default for untagged S3 buckets",
-			},
-		},
-		Summary: types.PlanSummary{
-			TotalResources: 3,
-			TotalChanges:   5,
-			TagsAdded:      5,
-			TagsUpdated:    0,
-			TagsRemoved:    0,
-		},
-	}
-
-	return plan
 }

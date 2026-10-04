@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/unicrons/tagctl/internal/demo"
 )
 
 const demoPolicy = "policy:\n  required:\n    - name: owner\n"
@@ -157,7 +159,7 @@ func TestApply_OutputDirSuppliesTheLatestPlan(t *testing.T) {
 	if err := os.Mkdir(reports, 0o750); err != nil {
 		t.Fatal(err)
 	}
-	data, err := json.Marshal(getMockPlan())
+	data, err := json.Marshal(demo.Plan())
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,0 +1,93 @@
+{
+  "id": "plan-demo",
+  "created_at": "0001-01-01T00:00:00Z",
+  "changes": [
+    {
+      "resource": {
+        "id": "i-0abc123",
+        "type": "aws_instance",
+        "name": "web-prod-api-1",
+        "region": "",
+        "account": "production",
+        "provider": "aws",
+        "tags": null
+      },
+      "tag": "environment",
+      "action": "add",
+      "new_value": "prod",
+      "reason": "inferred",
+      "source": "name contains '-prod-'"
+    },
+    {
+      "resource": {
+        "id": "i-0abc123",
+        "type": "aws_instance",
+        "name": "web-prod-api-1",
+        "region": "",
+        "account": "production",
+        "provider": "aws",
+        "tags": null
+      },
+      "tag": "team",
+      "action": "add",
+      "new_value": "backend",
+      "reason": "inherited",
+      "source": "from ASG 'backend-asg'"
+    },
+    {
+      "resource": {
+        "id": "vol-xyz789",
+        "type": "aws_ebs_volume",
+        "name": "",
+        "region": "",
+        "account": "production",
+        "provider": "aws",
+        "tags": null
+      },
+      "tag": "environment",
+      "action": "add",
+      "new_value": "prod",
+      "reason": "inherited",
+      "source": "from attached instance i-0abc123"
+    },
+    {
+      "resource": {
+        "id": "legacy-bucket",
+        "type": "aws_s3_bucket",
+        "name": "legacy-data-2019",
+        "region": "",
+        "account": "production",
+        "provider": "aws",
+        "tags": null
+      },
+      "tag": "owner",
+      "action": "add",
+      "new_value": "platform-team@company.com",
+      "reason": "default",
+      "source": "default for untagged S3 buckets"
+    },
+    {
+      "resource": {
+        "id": "legacy-bucket",
+        "type": "aws_s3_bucket",
+        "name": "legacy-data-2019",
+        "region": "",
+        "account": "production",
+        "provider": "aws",
+        "tags": null
+      },
+      "tag": "needs-review",
+      "action": "add",
+      "new_value": "true",
+      "reason": "default",
+      "source": "default for untagged S3 buckets"
+    }
+  ],
+  "summary": {
+    "total_resources": 3,
+    "total_changes": 5,
+    "tags_added": 5,
+    "tags_updated": 0,
+    "tags_removed": 0
+  }
+}

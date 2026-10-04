@@ -16,6 +16,9 @@ import (
 	"github.com/unicrons/tagctl/internal/types"
 )
 
+// valueProd is the environment tag value the fixtures use.
+const valueProd = "prod"
+
 func TestExitCode(t *testing.T) {
 	gate := gateFailed(errors.New("compliance gate failed"))
 

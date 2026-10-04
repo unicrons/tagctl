@@ -56,12 +56,6 @@ type accountProvider interface {
 	AccountID() string
 }
 
-// regionalTagger is implemented by providers that need a resource's region to
-// address it, because the tagging identifier alone does not carry one.
-type regionalTagger interface {
-	ApplyTagsInRegion(ctx context.Context, resourceID, region string, tags map[string]string) error
-}
-
 // providerKey addresses a provider by name and, when known, account, so a
 // plan entry is only ever applied through the credentials of its own account.
 func providerKey(name, account string) string {
@@ -240,36 +234,10 @@ func setTags(ctx context.Context, p provider.Provider, resource types.Resource, 
 	for _, change := range changes {
 		tags[change.Tag] = change.NewValue
 	}
-	if regional, ok := p.(regionalTagger); ok {
-		return regional.ApplyTagsInRegion(ctx, taggingIdentifier(resource), resource.Region, tags)
+	if tagger, ok := p.(provider.ResourceTagger); ok {
+		return tagger.TagResource(ctx, resource, tags)
 	}
-	return p.ApplyTags(ctx, taggingIdentifier(resource), tags)
-}
-
-// idAddressedTypes lists the AWS resource types whose tagging API takes the
-// bare ID (EC2 family). Every other type is addressed by ARN.
-var idAddressedTypes = map[string]bool{
-	"aws_instance":         true,
-	"aws_ami":              true,
-	"aws_ebs_volume":       true,
-	"aws_ebs_snapshot":     true,
-	"aws_launch_template":  true,
-	"aws_vpc":              true,
-	"aws_subnet":           true,
-	"aws_security_group":   true,
-	"aws_internet_gateway": true,
-	"aws_nat_gateway":      true,
-	"aws_vpc_endpoint":     true,
-	"aws_eip":              true,
-}
-
-// taggingIdentifier returns the identifier a provider expects when tagging a
-// resource: the ID for idAddressedTypes, the ARN otherwise.
-func taggingIdentifier(resource types.Resource) string {
-	if resource.Provider == "aws" && resource.ARN != "" && !idAddressedTypes[resource.Type] {
-		return resource.ARN
-	}
-	return resource.ID
+	return p.ApplyTags(ctx, resource.ID, tags)
 }
 
 // groupChangesByResource groups changes by resource identity.
@@ -280,30 +248,4 @@ func groupChangesByResource(changes []types.TagChange) map[string][]types.TagCha
 		grouped[key] = append(grouped[key], change)
 	}
 	return grouped
-}
-
-// MockApplier is an Applier implementation that simulates changes.
-type MockApplier struct{}
-
-// NewMockApplier creates a new MockApplier.
-func NewMockApplier() *MockApplier {
-	return &MockApplier{}
-}
-
-// Apply simulates applying changes and returns success.
-func (a *MockApplier) Apply(ctx context.Context, plan *types.Plan) (*ApplyResult, error) {
-	start := time.Now()
-
-	// Simulate applying each change
-	for range plan.Changes {
-		time.Sleep(50 * time.Millisecond)
-	}
-
-	return &ApplyResult{
-		TotalChanges: len(plan.Changes),
-		SuccessCount: len(plan.Changes),
-		ErrorCount:   0,
-		Errors:       nil,
-		Duration:     time.Since(start),
-	}, nil
 }

@@ -14,6 +14,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/unicrons/tagctl/internal/config"
+	"github.com/unicrons/tagctl/internal/demo"
 	"github.com/unicrons/tagctl/internal/engine"
 	"github.com/unicrons/tagctl/internal/types"
 )
@@ -178,11 +179,13 @@ func runApply(cmd *cobra.Command, args []string) error {
 // no callback to report them one by one.
 func printSimulatedProgress(plan *types.Plan) {
 	for i, change := range plan.Changes {
-		fmt.Printf("  [%d/%d] %s.%s (%s) ✓\n",
-			i+1, len(plan.Changes),
-			change.Resource.Type, change.Resource.ID,
-			describeChange(change))
+		fmt.Printf("  [%d/%d] %s (%s) ✓\n", i+1, len(plan.Changes), changeTarget(change), describeChange(change))
 	}
+}
+
+// changeTarget names the resource of a change in a progress or failure line.
+func changeTarget(change types.TagChange) string {
+	return printable(change.Resource.Type) + "." + printable(change.Resource.ID)
 }
 
 func checkInteractive(interactive, autoApprove bool) error {
@@ -234,7 +237,7 @@ func approveWhole(ctx context.Context, plan *types.Plan) (*types.Plan, error) {
 // printPlanSummary describes the plan about to be applied on stderr.
 func printPlanSummary(planFile string, plan *types.Plan) {
 	summary := plan.Summarize()
-	fmt.Fprintf(os.Stderr, "Applying plan from %s\n", planFile)
+	fmt.Fprintf(os.Stderr, "Applying plan from %s\n", printable(planFile))
 	fmt.Fprintf(os.Stderr, "Plan created at: %s\n\n", plan.CreatedAt.Format("2006-01-02 15:04:05"))
 	fmt.Fprintf(os.Stderr, "Changes to apply:\n")
 	fmt.Fprintf(os.Stderr, "  • %d resources will be modified\n", summary.TotalResources)
@@ -273,7 +276,7 @@ func confirmApply(ctx context.Context, in io.Reader) (bool, error) {
 // simulating, otherwise a real applier wired to the configured providers.
 func buildApplier(ctx context.Context, cfg *config.Config, plan *types.Plan, simulated bool) (engine.Applier, error) {
 	if simulated {
-		return engine.NewMockApplier(), nil
+		return demo.Applier{}, nil
 	}
 
 	spinner := NewSpinner("Initializing cloud providers...")
@@ -296,12 +299,9 @@ func buildApplier(ctx context.Context, cfg *config.Config, plan *types.Plan, sim
 		if !success {
 			status = "✗"
 		}
-		fmt.Printf("  [%d/%d] %s.%s (%s) %s\n",
-			changeIndex, len(plan.Changes),
-			change.Resource.Type, change.Resource.ID,
-			describeChange(change), status)
+		fmt.Printf("  [%d/%d] %s (%s) %s\n", changeIndex, len(plan.Changes), changeTarget(change), describeChange(change), status)
 		if err != nil {
-			fmt.Printf("         Error: %v\n", err)
+			fmt.Printf("         Error: %s\n", printable(err.Error()))
 		}
 	})
 
@@ -324,9 +324,7 @@ func printApplyResult(result *engine.ApplyResult, skipped int) {
 		fmt.Println()
 		fmt.Println("Failed changes:")
 		for _, e := range result.Errors {
-			fmt.Printf("  • %s.%s: %s - %s\n",
-				e.Change.Resource.Type, e.Change.Resource.ID,
-				e.Change.Tag, e.Error)
+			fmt.Printf("  • %s: %s - %s\n", changeTarget(e.Change), printable(e.Change.Tag), printable(e.Error))
 		}
 	}
 
