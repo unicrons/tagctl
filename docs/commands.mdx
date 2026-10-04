@@ -526,8 +526,31 @@ rejected when it is loaded, before the confirmation prompt, and nothing is
 written. Interrupting a run (Ctrl-C) stops sending changes: the ones not sent
 yet are reported as failed with `context canceled`.
 
-Removals cannot be undone from the plan, so the summary before the prompt
-counts them apart and lists the first 20 with the value each tag holds:
+Removals are opt-in. Without `--allow-removals`, `apply` writes the additions
+and updates and skips every removal in the plan: a rename adds the new key
+and keeps the old one, a forbidden tag stays. Skipped removals are not
+failures and do not change the exit code. The summary before the prompt says
+how many will be skipped, and the result names the flag:
+
+```
+Changes to apply:
+  • 1 resources will be modified
+  • 1 tags will be added
+  • 0 tags will be updated
+  • 2 removals will be SKIPPED (pass --allow-removals to perform them)
+
+...
+Applied successfully: 1 changes
+Errors: 0
+Skipped: 2 removal(s), no tag was removed. Run again with --allow-removals to perform them.
+```
+
+A plan with nothing but removals does nothing without the flag, and does not
+prompt.
+
+With `--allow-removals` the removals are performed. They cannot be undone
+from the plan, so the summary counts them apart and lists the first 20 with
+the value each tag holds:
 
 ```
 Changes to apply:
@@ -541,9 +564,9 @@ Changes to apply:
 
 On each resource the tags to set are written first; if that fails nothing is
 removed from it, so a rename never drops the old key without the new one in
-place. Removing needs the untag permissions, which the `TagctlApply` role only
-has with [`AllowTagRemoval=true`](/providers/aws#tag-removal-opt-in); without
-them the removals fail and the additions are still applied.
+place. Removing also needs the untag permissions, which the `TagctlApply` role
+only has with [`AllowTagRemoval=true`](/providers/aws#tag-removal-opt-in);
+without them the removals fail and the additions are still applied.
 
 <ParamField path="--plan" type="string" default="latest in --output-dir">
   Plan file to apply. If not specified, uses the most recent plan.
@@ -569,6 +592,10 @@ them the removals fail and the additions are still applied.
   Review the plan resource by resource and apply only the approved changes (see [Interactive review](#interactive-review)). Cannot be combined with `--auto-approve` and needs a terminal on stdin
 </ParamField>
 
+<ParamField path="--allow-removals" type="boolean" default="false">
+  Perform the removals in the plan (old keys of `rules.rename`, tags `policy.forbidden` forbids). Without it they are skipped and reported
+</ParamField>
+
 <ParamField path="--mock" type="boolean" default="false">
   Simulate the apply without calling any cloud API. Also used automatically when the config has no cloud provider
 </ParamField>
@@ -588,6 +615,10 @@ tagctl apply --auto-approve
 
 ```bash Review each resource
 tagctl apply --interactive
+```
+
+```bash Also remove the tags the plan removes
+tagctl apply --allow-removals
 ```
 
 ```bash Full workflow

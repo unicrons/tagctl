@@ -241,8 +241,12 @@ ignore:
    and removed on one resource) → `engine.Applier` → per resource
    `Provider.ApplyTags()` for the tags to set, then `provider.TagRemover.RemoveTags()`
    for the keys to remove. A failed set skips the removals of that resource; a
-   provider without `TagRemover` fails them with a clear error. `apply` lists
-   removals apart before the prompt (`printPlanSummary`)
+   provider without `TagRemover` fails them with a clear error. Removals are
+   opt-in at the CLI: without `apply --allow-removals`, `withoutRemovals`
+   drops them from the plan before the applier runs (a rename then adds the
+   new key and keeps the old one) and they are reported as skipped, never as
+   failed, with no effect on the exit code; with the flag `printPlanSummary`
+   lists them apart before the prompt
 
 `apply --interactive` runs `reviewChanges` between loading the plan and the
 applier: one prompt per `Resource.Identity()` on stderr, answers read from

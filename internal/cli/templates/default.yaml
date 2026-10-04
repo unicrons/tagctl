@@ -59,7 +59,7 @@ policy:
     - name: team
 
   # Forbidden tags - a resource carrying one is non-compliant and
-  # 'tagctl plan' proposes removing it
+  # 'tagctl plan' proposes removing it ('tagctl apply --allow-removals')
   # forbidden:
   #   - name: Env                  # the key itself
   #   - name: environment          # or only some values
@@ -86,7 +86,8 @@ rules:
   #     from: attached_instance   # or source_volume, vpc
   #     tags: [environment, cost-center, owner]
 
-  # Rename a tag key: adds the new key with the old value, removes the old key.
+  # Rename a tag key: adds the new key with the old value, removes the old key
+  # ('tagctl apply --allow-removals'; without it the old key stays).
   # Skipped as a conflict when the new key already holds another value
   # rename:
   #   - from: Env

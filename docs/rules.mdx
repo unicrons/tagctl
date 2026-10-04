@@ -104,13 +104,22 @@ Two things make `tagctl plan` propose a removal (`-` in the plan):
   reason `forbidden`. No rule is needed: forbidding a tag is asking for it to
   go.
 
+The plan only proposes. `tagctl apply` skips every removal unless it is run
+with `--allow-removals`: by default a rename adds the new key and keeps the
+old one, and a forbidden tag stays where it is. The skipped removals are
+reported, not counted as failures.
+
+```bash
+tagctl apply                    # additions and updates only
+tagctl apply --allow-removals   # also removes the tags the plan removes
+```
+
 <Warning>
   Removing a tag cannot be undone from the plan: the plan file keeps the old
-  value (`old_value`), tagctl does not put it back. `tagctl apply` lists every
-  removal before asking for confirmation, and the shipped apply role cannot
-  remove tags until it is deployed with `AllowTagRemoval=true`
-  ([Tag Removal](/providers/aws#tag-removal-opt-in)). Review plans with
-  removals before using `--auto-approve`.
+  value (`old_value`), tagctl does not put it back. With `--allow-removals`
+  `tagctl apply` lists the removals before asking for confirmation. The
+  shipped apply role also needs `AllowTagRemoval=true`
+  ([Tag Removal](/providers/aws#tag-removal-opt-in)) to remove a tag.
 </Warning>
 
 A forbidden value on a required tag (`environment: test`) is removed like any
@@ -453,7 +462,7 @@ tagctl scan --verbose
   <Accordion title="Rename rules">
     - Resolve conflicts by hand; tagctl never picks one of two values
     - Forbid the old key in `policy.forbidden` so it does not come back
-    - Deploy the apply role with `AllowTagRemoval=true`, or the old keys stay
+    - Run `tagctl apply --allow-removals` with a role deployed with `AllowTagRemoval=true`, or the old keys stay
   </Accordion>
 
   <Accordion title="Inheritance rules">

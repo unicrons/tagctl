@@ -132,11 +132,11 @@ changes as failed.
 
 ### Tag removal
 
-`tagctl apply` removes tags for `rules.rename` (the old key) and
-`policy.forbidden`. The untag actions are in `tagctl-apply-untag-policy.json`,
+`tagctl apply --allow-removals` removes tags for `rules.rename` (the old key)
+and `policy.forbidden`. The untag actions are in `tagctl-apply-untag-policy.json`,
 one per tag write action of the apply policy and scoped to the same ARNs. They
-are off by default: `tagctl apply` then reports every removal as failed and
-still applies the additions. `AllowTagRemoval=true` creates the policy as a
+are off by default: `tagctl apply --allow-removals` then reports every removal
+as failed and still applies the additions. `AllowTagRemoval=true` creates the policy as a
 managed policy (`AWS::IAM::ManagedPolicy`, limit 6,144 characters) and attaches
 it to the role, because the role's inline policies have no room for it.
 

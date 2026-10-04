@@ -181,7 +181,7 @@ tagctl apply ◀────────────┘
     1. Load plan file (latest or specified with `--plan`)
     2. Show summary and ask for confirmation
     3. Group changes by resource and region
-    4. Call `ApplyTags()` on AWS provider, then `RemoveTags()` for the keys to remove
+    4. Call `ApplyTags()` on AWS provider, then, with `--allow-removals`, `RemoveTags()` for the keys to remove
     5. Report success/failure for each change
   </Step>
 </Steps>

@@ -240,8 +240,9 @@ when the value is forbidden, the usual check otherwise. Forbidding such a tag
 without `values` or `pattern` is a contradiction and is rejected, as is a tag
 listed twice.
 
-`tagctl plan` proposes removing every forbidden tag it finds, and
-`tagctl apply` removes them. See [Removing Tags](/rules#removing-tags).
+`tagctl plan` proposes removing every forbidden tag it finds;
+`tagctl apply` removes them only with `--allow-removals`. See
+[Removing Tags](/rules#removing-tags).
 
 ## Section: `rules`
 

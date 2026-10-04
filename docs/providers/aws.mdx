@@ -835,11 +835,11 @@ template with `AllowCodeBuildTagging=true`, or attach this policy yourself:
 
 ### Tag Removal (Opt-In)
 
-`tagctl apply` removes a tag only when the plan says so: the old key of a
-[`rules.rename`](/rules#rename-rules) and the tags
+`tagctl apply --allow-removals` removes the tags the plan removes: the old key
+of a [`rules.rename`](/rules#rename-rules) and the tags
 [`policy.forbidden`](/configuration#forbidden-tags) forbids. The apply policy
-grants no untag action, so by default those removals are reported as failed
-and the rest of the plan is applied. Deploy the apply template with
+grants no untag action, so with the default role those removals are reported
+as failed and the rest of the plan is applied. Deploy the apply template with
 `AllowTagRemoval=true`, or attach this policy yourself. The template attaches
 it as a managed policy, because the inline policies of the role have no room
 left for it.
