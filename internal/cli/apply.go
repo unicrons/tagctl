@@ -162,14 +162,8 @@ func runApply(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("apply failed: %w", err)
 	}
 
-	// The mock applier has no callback, so its progress is printed afterwards.
 	if simulated {
-		for i, change := range plan.Changes {
-			fmt.Printf("  [%d/%d] %s.%s (%s) ✓\n",
-				i+1, len(plan.Changes),
-				change.Resource.Type, change.Resource.ID,
-				describeChange(change))
-		}
+		printSimulatedProgress(plan)
 	}
 
 	printApplyResult(result, skipped)
@@ -178,6 +172,17 @@ func runApply(cmd *cobra.Command, args []string) error {
 	}
 	printSkippedRemovals(os.Stdout, skippedRemovals)
 	return err
+}
+
+// printSimulatedProgress prints every change as applied: the mock applier has
+// no callback to report them one by one.
+func printSimulatedProgress(plan *types.Plan) {
+	for i, change := range plan.Changes {
+		fmt.Printf("  [%d/%d] %s.%s (%s) ✓\n",
+			i+1, len(plan.Changes),
+			change.Resource.Type, change.Resource.ID,
+			describeChange(change))
+	}
 }
 
 func checkInteractive(interactive, autoApprove bool) error {
