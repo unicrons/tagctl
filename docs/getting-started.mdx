@@ -5,16 +5,23 @@ description: 'Get tagctl up and running in 5 minutes'
 
 ## Prerequisites
 
-- **Go 1.26.6+** (for building from source)
+- **Go 1.26.6+** (for `go install` and building from source)
 - **AWS credentials** configured
 
 ## Installation
+
+`go install` and building from source work today. The binaries, the container
+image and the Homebrew cask are published by the release pipeline: they exist
+after the first release is tagged, and
+[GitHub Releases](https://github.com/unicrons/tagctl/releases) shows whether
+that has happened.
 
 <Tabs>
   <Tab title="Go Install">
     ```bash
     go install github.com/unicrons/tagctl/cmd/tagctl@latest
     ```
+    The binary reports version `dev`: only release builds are stamped.
   </Tab>
   <Tab title="Build from Source">
     ```bash
@@ -25,7 +32,49 @@ description: 'Get tagctl up and running in 5 minutes'
     The binary will be at `./bin/tagctl`.
   </Tab>
   <Tab title="Download Binary">
-    Download the latest release from [GitHub Releases](https://github.com/unicrons/tagctl/releases).
+    Available after the first release. Each release carries one archive per
+    platform, `tagctl_<os>_<arch>.tar.gz` (`.zip` on Windows) for `linux`,
+    `darwin` and `windows` on `amd64` and `arm64`, and a `checksums.txt`:
+
+    ```bash
+    curl -fsSLO https://github.com/unicrons/tagctl/releases/latest/download/tagctl_linux_amd64.tar.gz
+    curl -fsSLO https://github.com/unicrons/tagctl/releases/latest/download/checksums.txt
+    sha256sum --check --ignore-missing checksums.txt
+    tar -xzf tagctl_linux_amd64.tar.gz tagctl
+    sudo install tagctl /usr/local/bin/tagctl
+    ```
+
+    On macOS use `shasum -a 256 --check --ignore-missing checksums.txt`. The
+    binaries are not notarized: an archive downloaded with a browser is
+    quarantined, so run `xattr -d com.apple.quarantine tagctl` once before the
+    first run.
+  </Tab>
+  <Tab title="Container">
+    Available after the first release, for `linux/amd64` and `linux/arm64`:
+
+    ```bash
+    docker run --rm ghcr.io/unicrons/tagctl version
+    ```
+
+    Pin a release with its tag (`ghcr.io/unicrons/tagctl:v0.1.0`). The image
+    runs as a non-root user and has no shell. Mount the directory that holds
+    `tagctl.yaml` as the working directory, where `output/` is written too,
+    and pass credentials through the environment:
+
+    ```bash
+    docker run --rm \
+      -v "$PWD:/work" -w /work --user "$(id -u):$(id -g)" \
+      -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e AWS_SESSION_TOKEN \
+      ghcr.io/unicrons/tagctl scan
+    ```
+  </Tab>
+  <Tab title="Homebrew">
+    Available once the `unicrons/homebrew-tap` repository is published, which
+    happens after the first release (macOS and Linux):
+
+    ```bash
+    brew install --cask unicrons/tap/tagctl
+    ```
   </Tab>
 </Tabs>
 
@@ -34,8 +83,9 @@ description: 'Get tagctl up and running in 5 minutes'
 ```bash
 tagctl version
 # prints the banner, then:
-#   Version: v1.0.0
-#   Built:   2026-02-02_10:00:00
+#   Version: 0.1.0
+#   Commit:  88b954e
+#   Built:   2026-10-04T14:22:22Z
 ```
 
 ## Your First Scan

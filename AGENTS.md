@@ -23,7 +23,7 @@ others) working on this project.
 cmd/tagctl/main.go        # Entry point
 internal/
 ├── cli/
-│   ├── root.go           # Root command, global flags, version
+│   ├── root.go           # Root command, global flags
 │   ├── scan.go           # Scan command
 │   ├── plan.go           # Plan command
 │   ├── apply.go          # Apply command

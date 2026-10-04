@@ -1597,12 +1597,14 @@ tagctl version
 Prints the banner followed by:
 
 ```
-  Version: v1.0.0
-  Built:   2026-02-02_10:00:00
+  Version: 0.1.0
+  Commit:  88b954e
+  Built:   2026-10-04T14:22:22Z
 ```
 
-Binaries built with `go install` report `dev` and `unknown`; `make build`
-stamps the git revision and build time.
+Release binaries and images carry the release version, its commit and the
+build time. Binaries built with `go install` report `dev`, `none` and
+`unknown`; `make build` stamps `git describe`, the commit and the build time.
 
 ## CI/CD Integration
 
