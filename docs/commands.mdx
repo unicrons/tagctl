@@ -83,6 +83,14 @@ tagctl init [flags]
   Name of the config file to create
 </ParamField>
 
+<ParamField path="--template" type="string" default="default">
+  Policy template to start from: `default`, `finops`, `security` or `well-architected`. An unknown name is rejected with the list of valid ones and nothing is written
+</ParamField>
+
+<ParamField path="--list-templates" type="boolean" default="false">
+  Print the available templates, one per line, and exit without writing a file
+</ParamField>
+
 <CodeGroup>
 ```bash Basic
 tagctl init
@@ -91,7 +99,34 @@ tagctl init
 ```bash Custom name
 tagctl init --name production.yaml
 ```
+
+```bash From a template
+tagctl init --template finops
+```
+
+```bash List templates
+tagctl init --list-templates
+```
 </CodeGroup>
+
+### Templates
+
+Every template is a complete configuration that `tagctl validate` accepts as
+written. They differ in the tag policy and the auto-fix rules:
+
+| Template | Required tags | Optional tags |
+|----------|---------------|---------------|
+| `default` | `environment`, `cost-center`, `owner` | `project`, `team` |
+| `finops` | `cost-center`, `owner`, `environment`, `project` | `application`, `business-unit` |
+| `security` | `data-classification`, `owner`, `environment`, `compliance` | `security-contact`, `exposure` |
+| `well-architected` | `application`, `environment`, `owner`, `cost-center`, `project`, `confidentiality`, `compliance` | `application-role`, `cluster`, `version`, `business-unit`, `customer` |
+
+`well-architected` follows the technical, business and security tag categories of
+the AWS whitepaper [Best Practices for Tagging AWS Resources](https://docs.aws.amazon.com/whitepapers/latest/tagging-best-practices/tagging-best-practices.html).
+
+The allowed values, patterns and default owners are placeholders: edit them to
+match your organisation before the first `plan`. `init` never overwrites an
+existing file.
 
 ## tagctl validate
 
@@ -503,6 +538,10 @@ changes: the ones not sent yet are reported as failed with `context canceled`.
   Skip confirmation prompt
 </ParamField>
 
+<ParamField path="--interactive, -i" type="boolean" default="false">
+  Review the plan resource by resource and apply only the approved changes (see [Interactive review](#interactive-review)). Cannot be combined with `--auto-approve` and needs a terminal on stdin
+</ParamField>
+
 <ParamField path="--mock" type="boolean" default="false">
   Simulate the apply without calling any cloud API. Also used automatically when the config has no cloud provider
 </ParamField>
@@ -518,6 +557,10 @@ tagctl apply --plan output/plan-20260202-143052.json
 
 ```bash Auto-approve (CI/CD)
 tagctl apply --auto-approve
+```
+
+```bash Review each resource
+tagctl apply --interactive
 ```
 
 ```bash Full workflow
@@ -555,6 +598,59 @@ Duration: 312ms
 Run 'tagctl scan' to verify compliance.
 ```
 </Accordion>
+
+### Interactive review
+
+`--interactive` replaces the single yes/no confirmation with one question per
+resource. Changes are grouped by resource identity (the ARN), so two resources
+that share a name in different regions are asked about separately. Each
+question lists the tags that would be written:
+
+```
+[1/3] aws_instance web-prod-1 (arn:aws:ec2:us-east-1:123456789012:instance/i-0abc123)
+  + environment: "prod"
+  ~ team: "Backend" -> "backend"
+Apply these changes? [y]es / [n]o / [a]ll remaining / [q]uit:
+```
+
+| Answer | Effect |
+|--------|--------|
+| `y`, `yes` | Approve the changes of this resource |
+| `n`, `no` | Skip this resource |
+| `a`, `all` | Approve this resource and every remaining one without asking again |
+| `q`, `quit` | Skip this resource and every remaining one; resources already approved are still applied |
+
+Any other answer repeats the question. Nothing is written until the review
+ends: the approved changes are then applied together and the rest are reported
+as skipped, never as applied or failed.
+
+```
+Review: 2 resource(s) approved (3 changes), 1 skipped (2 changes)
+Skipped:
+  • aws_s3_bucket legacy-bucket (arn:aws:s3:::legacy-bucket): owner, needs-review
+
+Applying changes...
+
+  [1/3] aws_instance.i-0abc123 (environment: prod) ✓
+  [2/3] aws_instance.i-0abc123 (team: backend) ✓
+  [3/3] aws_ebs_volume.vol-xyz789 (environment: prod) ✓
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Applied successfully: 3 changes
+Skipped: 2 changes
+Errors: 0
+Duration: 187ms
+```
+
+The questions and the review summary are written to stderr; stdout carries the
+same progress lines and totals as a plain `apply`, plus `Skipped: N changes`.
+When no resource is approved nothing is applied and the command exits `0`.
+Skipped changes stay in the plan file, so a later `apply` offers them again.
+
+`--interactive` fails before loading the plan when it is combined with
+`--auto-approve`, or when stdin is not a terminal (a pipe, CI): use
+`--auto-approve` there. Ctrl-C at a question, or input that ends before every
+resource is answered, exits `2` without applying anything.
 
 | Exit Code | Meaning |
 |-----------|---------|

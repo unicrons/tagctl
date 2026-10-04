@@ -80,7 +80,7 @@ tagctl apply   # Fix it.           → tags written after a confirmation prompt
 ```bash
 go install github.com/unicrons/tagctl/cmd/tagctl@latest
 
-tagctl init        # scaffolds tagctl.yaml
+tagctl init        # scaffolds tagctl.yaml (--template finops, security or well-architected)
 tagctl scan        # audits the account and writes the reports
 tagctl plan        # proposes the tags to add
 tagctl apply       # writes them, after you confirm

@@ -27,6 +27,7 @@ internal/
 │   ├── scan.go           # Scan command
 │   ├── plan.go           # Plan command
 │   ├── apply.go          # Apply command
+│   ├── apply_interactive.go # apply --interactive: per-resource review
 │   ├── evaluate.go       # Evaluate command (Prowler integration)
 │   ├── diff.go           # Compliance drift between two scans
 │   ├── normalize.go      # Tag value drift detection
@@ -34,7 +35,8 @@ internal/
 │   ├── cost.go           # Cost attribution reporting
 │   ├── gate.go           # CI gate flags shared by scan/evaluate/terraform
 │   ├── exitcode.go       # ExitCode: 0 success, 1 gate failed, 2 other error
-│   ├── init.go           # Config scaffolding
+│   ├── init.go           # Config scaffolding (--template, --list-templates)
+│   ├── templates/        # Embedded tagctl.yaml templates, one per --template name
 │   ├── validate.go       # Config validation
 │   ├── output.go         # Table/JSON/CSV/HTML output
 │   ├── format.go         # -o validation per command (outputFormatFor)
@@ -216,6 +218,12 @@ ignore:
 3. **Plan**: `engine.Planner` → filters FAILED findings with `missing` reason → `[]types.TagChange`
 4. **Apply**: `engine.ValidatePlan` (add/update only) → `engine.Applier` → `provider.Provider.ApplyTags()` → cloud API calls
 
+`apply --interactive` runs `reviewChanges` between loading the plan and the
+applier: one prompt per `Resource.Identity()` on stderr, answers read from
+`applyInput` (tests replace it and `stdinIsTerminal`). The approved changes
+become a filtered copy of the plan, checked again with `engine.ValidatePlan`;
+skipped changes are counted apart, never as applied or failed.
+
 ### Exit codes
 
 `main` exits with `cli.ExitCode(err)`: 0 on success, 1 when the error is marked
@@ -326,7 +334,7 @@ Kubernetes cluster name): the applier routes a change to the provider whose
 configured more than once must implement it.
 
 Provider status has one table, "Provider Status" in `docs/development.mdx`.
-README, CONTRIBUTING, `tagctl.yaml.example`, the `init` template and the docs
+README, CONTRIBUTING, `tagctl.yaml.example`, the `init` templates and the docs
 pages introduction, configuration, architecture, credentials, rules, roadmap
 and providers/kubernetes summarize it and link there: change them together.
 
@@ -425,6 +433,15 @@ Checklist:
 2. Register it with `rootCmd.AddCommand(newCmd)` in `root.go`
 3. Add `internal/cli/newcmd_test.go`
 4. Document it in `docs/commands.mdx`
+
+### Adding an init Template
+
+1. Add `internal/cli/templates/<name>.yaml`, a complete config using only
+   keys `config.Load` accepts
+2. List it in `configTemplates` (`internal/cli/init.go`);
+   `TestConfigTemplates_MatchEmbeddedFiles` fails on a file that is not listed
+   and `TestInit_EveryTemplateLoadsAndValidates` on one `validate` rejects
+3. Add it to the templates table in `docs/commands.mdx`
 
 ### Adding a New Tag Rule Type
 

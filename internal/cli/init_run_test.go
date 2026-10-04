@@ -37,7 +37,7 @@ func TestRunInit_CreatesTheTemplateReadableOnlyByItsOwner(t *testing.T) {
 	if err != nil {
 		t.Fatalf("config not created: %v", err)
 	}
-	if string(data) != defaultConfig {
+	if string(data) != defaultTemplateText(t) {
 		t.Error("created file differs from the init template")
 	}
 	info, err := os.Stat(path)
@@ -83,4 +83,13 @@ func TestRunInit_FailsWhenTheDirectoryDoesNotExist(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "failed to create config file") {
 		t.Fatalf("runInit() = %v, want the create failure", err)
 	}
+}
+
+func defaultTemplateText(t *testing.T) string {
+	t.Helper()
+	data, err := readTemplate(defaultTemplate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
 }

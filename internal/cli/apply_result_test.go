@@ -56,7 +56,7 @@ func captureStream(t *testing.T, stream **os.File, fn func()) string {
 func TestPrintApplyResult_SuccessReportsCountsWithoutFailureSection(t *testing.T) {
 	result := &engine.ApplyResult{TotalChanges: 3, SuccessCount: 3, Duration: 1234567 * time.Microsecond}
 
-	out := captureStdout(t, func() { printApplyResult(result) })
+	out := captureStdout(t, func() { printApplyResult(result, 0) })
 
 	for _, want := range []string{
 		"Applied successfully: 3 changes\n",
@@ -90,7 +90,7 @@ func TestPrintApplyResult_ListsEveryFailedChange(t *testing.T) {
 		},
 	}
 
-	out := captureStdout(t, func() { printApplyResult(result) })
+	out := captureStdout(t, func() { printApplyResult(result, 0) })
 
 	for _, want := range []string{
 		"Applied successfully: 1 changes\n",

@@ -1,0 +1,95 @@
+# tagctl configuration - FinOps template
+# Cost allocation tags: who pays for a resource, who runs it and what it is for.
+# Activate the same keys as cost allocation tags in AWS Billing so
+# 'tagctl cost' and Cost Explorer can group spend by them.
+# See https://github.com/unicrons/tagctl for documentation
+
+# Cloud accounts to scan
+clouds:
+  aws:
+    # Credentials come from the AWS SDK chain: environment variables, then
+    # ~/.aws/config and ~/.aws/credentials (profiles, SSO), then an instance
+    # or container role. Never write keys in this file.
+    - profile: default
+      # regions: [us-east-1, eu-west-1]  # Optional: if omitted, all regions are scanned
+
+    # Assume a role on top of the resolved credentials, one entry per account.
+    # - profile: audit-base
+    #   role_arn: arn:aws:iam::123456789012:role/TagctlScan   # permissions/aws/ ships the role templates
+
+  # Kubernetes clusters go under a kubernetes key. Provider status:
+  # https://github.com/unicrons/tagctl/blob/main/docs/development.mdx
+
+policy:
+  required:
+    - name: cost-center
+      description: Finance code the spend is charged to
+      pattern: "^[A-Z]{2,4}-\\d{3,6}$"
+
+    - name: owner
+      description: Team mailbox accountable for the spend
+      pattern: "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$"
+
+    - name: environment
+      description: Deployment stage, used to split production from non-production spend
+      values:
+        - dev
+        - staging
+        - prod
+
+    - name: project
+      description: Project or product the resource belongs to
+      pattern: "^[a-z0-9][a-z0-9-]{1,62}$"
+
+  # Tracked when present, never reported as missing
+  optional:
+    - name: application
+      description: Workload inside the project
+      pattern: "^[a-z0-9][a-z0-9-]{1,62}$"
+
+    - name: business-unit
+      description: Organisational unit for showback reports
+
+# Auto-fix rules used by 'tagctl plan'
+rules:
+  # Infer tags from resource naming conventions
+  infer:
+    - tag: environment
+      from_name:
+        - pattern: "-prod-|-prod$|^prod-"
+          value: prod
+        - pattern: "-staging-|-stg-|-stg$|^stg-"
+          value: staging
+        - pattern: "-dev-|-dev$|^dev-"
+          value: dev
+
+  # Unowned spend goes to a review queue instead of staying unallocated.
+  # Replace both values with ones that exist in your organisation.
+  defaults:
+    - resource: "*"
+      when:
+        tag:owner: absent
+      set:
+        owner: finops@example.com
+
+    - resource: "*"
+      when:
+        tag:cost-center: absent
+      set:
+        cost-center: UNK-000
+        needs-review: "true"
+
+ignore:
+  # Resource types that carry no meaningful cost of their own
+  resources:
+    - "aws_iam_*"
+
+  # Skip resources with these tags
+  # tags:
+  #   managed-by: [terraform, pulumi]
+
+# Tag value drift detection, used by 'tagctl normalize': prod / Production /
+# PROD split every cost report grouped by that tag.
+normalize:
+  max_distance: 1
+  match_abbreviations: true

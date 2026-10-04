@@ -1,0 +1,127 @@
+# tagctl configuration - AWS tagging best practices template
+# Follows the tag categories of the AWS whitepaper "Best Practices for Tagging
+# AWS Resources": technical, business and security tags.
+# https://docs.aws.amazon.com/whitepapers/latest/tagging-best-practices/tagging-best-practices.html
+# See https://github.com/unicrons/tagctl for documentation
+
+# Cloud accounts to scan
+clouds:
+  aws:
+    # Credentials come from the AWS SDK chain: environment variables, then
+    # ~/.aws/config and ~/.aws/credentials (profiles, SSO), then an instance
+    # or container role. Never write keys in this file.
+    - profile: default
+      # regions: [us-east-1, eu-west-1]  # Optional: if omitted, all regions are scanned
+
+    # Assume a role on top of the resolved credentials, one entry per account.
+    # - profile: audit-base
+    #   role_arn: arn:aws:iam::123456789012:role/TagctlScan   # permissions/aws/ ships the role templates
+
+  # Kubernetes clusters go under a kubernetes key. Provider status:
+  # https://github.com/unicrons/tagctl/blob/main/docs/development.mdx
+
+policy:
+  required:
+    # Technical tags
+    - name: application
+      description: Workload the resource is part of
+      pattern: "^[a-z0-9][a-z0-9-]{1,62}$"
+
+    - name: environment
+      description: Deployment stage
+      values:
+        - dev
+        - test
+        - staging
+        - prod
+
+    # Business tags
+    - name: owner
+      description: Team mailbox responsible for the resource
+      pattern: "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$"
+
+    - name: cost-center
+      description: Finance code the spend is charged to
+      pattern: "^[A-Z]{2,4}-\\d{3,6}$"
+
+    - name: project
+      description: Project the resource supports
+      pattern: "^[a-z0-9][a-z0-9-]{1,62}$"
+
+    # Security tags
+    - name: confidentiality
+      description: Sensitivity of the data the resource stores or processes
+      values:
+        - public
+        - internal
+        - confidential
+        - restricted
+
+    - name: compliance
+      description: Compliance scope the resource must adhere to, "none" when out of scope
+      values:
+        - none
+        - pci-dss
+        - hipaa
+        - soc2
+        - iso27001
+        - gdpr
+
+  # Tracked when present, never reported as missing
+  optional:
+    # Technical tags
+    - name: application-role
+      description: Function of the resource inside the application (web, api, database)
+
+    - name: cluster
+      description: Resource farm sharing a configuration and function
+
+    - name: version
+      description: Version of the application or the resource
+      pattern: "^v?\\d+(\\.\\d+){0,2}([-+][0-9A-Za-z.-]+)?$"
+
+    # Business tags
+    - name: business-unit
+      description: Organisational unit the resource belongs to
+
+    - name: customer
+      description: Client a dedicated resource serves
+
+# Auto-fix rules used by 'tagctl plan'
+rules:
+  # Infer tags from resource naming conventions
+  infer:
+    - tag: environment
+      from_name:
+        - pattern: "-prod-|-prod$|^prod-"
+          value: prod
+        - pattern: "-staging-|-stg-|-stg$|^stg-"
+          value: staging
+        - pattern: "-test-|-test$|^test-"
+          value: test
+        - pattern: "-dev-|-dev$|^dev-"
+          value: dev
+
+  # Security tags have no default on purpose: guessing them hides the
+  # resources nobody has classified yet.
+  defaults:
+    - resource: "*"
+      when:
+        tag:owner: absent
+      set:
+        owner: cloud-platform@example.com
+        needs-review: "true"
+
+ignore:
+  # Skip these resource types (globs: aws_iam_*, *_group, aws_*_group)
+  resources:
+    - "aws_cloudwatch_*"
+
+  # Skip resources with these tags
+  # tags:
+  #   managed-by: [terraform, pulumi]
+
+# Tag value drift detection, used by 'tagctl normalize'
+normalize:
+  max_distance: 1
+  match_abbreviations: true
