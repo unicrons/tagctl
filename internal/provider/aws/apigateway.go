@@ -2,7 +2,6 @@ package aws
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/apigateway"
@@ -45,7 +44,7 @@ func (p *Provider) listRestAPIsFrom(ctx context.Context, client restAPIsAPI, reg
 			resources = append(resources, types.Resource{
 				ID:        id,
 				Name:      aws.ToString(api.Name),
-				ARN:       fmt.Sprintf("arn:aws:apigateway:%s::/restapis/%s", region, id),
+				ARN:       p.buildARN("apigateway", region, "", "/restapis/"+id),
 				Type:      "aws_api_gateway_rest_api",
 				Region:    region,
 				Account:   p.accountID,
@@ -80,7 +79,7 @@ func (p *Provider) listHTTPAPIsFrom(ctx context.Context, client httpAPIsAPI, reg
 			resources = append(resources, types.Resource{
 				ID:        id,
 				Name:      aws.ToString(api.Name),
-				ARN:       fmt.Sprintf("arn:aws:apigateway:%s::/apis/%s", region, id),
+				ARN:       p.buildARN("apigateway", region, "", "/apis/"+id),
 				Type:      "aws_apigatewayv2_api",
 				Region:    region,
 				Account:   p.accountID,

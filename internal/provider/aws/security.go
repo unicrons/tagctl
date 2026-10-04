@@ -3,7 +3,6 @@ package aws
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -105,7 +104,7 @@ func (p *Provider) listCertificateAuthorities(ctx context.Context, region string
 }
 
 func (p *Provider) listCertificateAuthoritiesFrom(ctx context.Context, client acmpcaAPI, region string) ([]types.Resource, error) {
-	if !p.requireBulkTags(region, "ACM PCA") {
+	if !p.requireBulkTags(ctx, region, "ACM PCA") {
 		return nil, nil
 	}
 	var resources []types.Resource
@@ -126,7 +125,7 @@ func (p *Provider) listCertificateAuthoritiesFrom(ctx context.Context, client ac
 					name = cn
 				}
 			}
-			resources = append(resources, p.bulkResource(region, "aws_acmpca_certificate_authority", nameFromARN(arn), name, arn, ca.CreatedAt))
+			resources = append(resources, p.bulkResource(ctx, region, "aws_acmpca_certificate_authority", nameFromARN(arn), name, arn, ca.CreatedAt))
 		}
 	}
 	log.Debug("AWS ACM PCA: Found %d certificate authorities in %s", len(resources), region)
@@ -177,9 +176,9 @@ func (p *Provider) listTrailsFrom(ctx context.Context, client cloudTrailAPI, reg
 // batches when it is unavailable.
 func (p *Provider) trailTags(ctx context.Context, client cloudTrailAPI, region string, arns []string) (map[string]map[string]string, error) {
 	tags := make(map[string]map[string]string, len(arns))
-	if p.tagsFor(region).available() {
+	if p.tagsFor(region).available(ctx) {
 		for _, arn := range arns {
-			tags[arn] = p.bulkTags(region, arn)
+			tags[arn] = p.bulkTags(ctx, region, arn)
 		}
 		return tags, nil
 	}
@@ -205,7 +204,7 @@ func (p *Provider) listConfigRules(ctx context.Context, region string) ([]types.
 // another service (Security Hub, conformance packs) carry CreatedBy and are
 // managed by that service.
 func (p *Provider) listConfigRulesFrom(ctx context.Context, client configAPI, region string) ([]types.Resource, error) {
-	if !p.requireBulkTags(region, "Config") {
+	if !p.requireBulkTags(ctx, region, "Config") {
 		return nil, nil
 	}
 	var resources []types.Resource
@@ -220,7 +219,7 @@ func (p *Provider) listConfigRulesFrom(ctx context.Context, client configAPI, re
 				continue
 			}
 			name := aws.ToString(r.ConfigRuleName)
-			resources = append(resources, p.bulkResource(region, "aws_config_config_rule", name, name, aws.ToString(r.ConfigRuleArn), nil))
+			resources = append(resources, p.bulkResource(ctx, region, "aws_config_config_rule", name, name, aws.ToString(r.ConfigRuleArn), nil))
 		}
 	}
 	log.Debug("AWS Config: Found %d rules in %s", len(resources), region)
@@ -232,7 +231,7 @@ func (p *Provider) listDirectories(ctx context.Context, region string) ([]types.
 }
 
 func (p *Provider) listDirectoriesFrom(ctx context.Context, client directoryAPI, region string) ([]types.Resource, error) {
-	if !p.requireBulkTags(region, "Directory Service") {
+	if !p.requireBulkTags(ctx, region, "Directory Service") {
 		return nil, nil
 	}
 	var resources []types.Resource
@@ -244,8 +243,8 @@ func (p *Provider) listDirectoriesFrom(ctx context.Context, client directoryAPI,
 		}
 		for _, d := range output.DirectoryDescriptions {
 			id := aws.ToString(d.DirectoryId)
-			arn := fmt.Sprintf("arn:aws:ds:%s:%s:directory/%s", region, p.accountID, id)
-			resources = append(resources, p.bulkResource(region, "aws_directory_service_directory", id, aws.ToString(d.Name), arn, d.LaunchTime))
+			arn := p.buildARN("ds", region, p.accountID, "directory/"+id)
+			resources = append(resources, p.bulkResource(ctx, region, "aws_directory_service_directory", id, aws.ToString(d.Name), arn, d.LaunchTime))
 		}
 	}
 	log.Debug("AWS Directory Service: Found %d directories in %s", len(resources), region)
@@ -259,7 +258,7 @@ func (p *Provider) listFMSPolicies(ctx context.Context, region string) ([]types.
 }
 
 func (p *Provider) listFMSPoliciesFrom(ctx context.Context, client fmsAPI, region string) ([]types.Resource, error) {
-	if !p.requireBulkTags(region, "Firewall Manager") {
+	if !p.requireBulkTags(ctx, region, "Firewall Manager") {
 		return nil, nil
 	}
 	var resources []types.Resource
@@ -274,7 +273,7 @@ func (p *Provider) listFMSPoliciesFrom(ctx context.Context, client fmsAPI, regio
 			return nil, provider.NewProviderError(providerName, "list_fms_policies", "", err)
 		}
 		for _, pol := range output.PolicyList {
-			resources = append(resources, p.bulkResource(region, "aws_fms_policy", aws.ToString(pol.PolicyId), aws.ToString(pol.PolicyName), aws.ToString(pol.PolicyArn), nil))
+			resources = append(resources, p.bulkResource(ctx, region, "aws_fms_policy", aws.ToString(pol.PolicyId), aws.ToString(pol.PolicyName), aws.ToString(pol.PolicyArn), nil))
 		}
 	}
 	log.Debug("AWS Firewall Manager: Found %d policies in %s", len(resources), region)
@@ -308,13 +307,13 @@ func (p *Provider) listDetectorsFrom(ctx context.Context, client guardDutyAPI, r
 		ids = append(ids, output.DetectorIds...)
 	}
 
-	resources := forEachConcurrently(ids, func(id string) []types.Resource {
+	resources := forEachConcurrently(ctx, ids, func(id string) []types.Resource {
 		detector, err := client.GetDetector(ctx, &guardduty.GetDetectorInput{DetectorId: aws.String(id)})
 		if err != nil {
 			p.skipResource(ctx, "GuardDuty", region, "detector "+id, err)
 			return nil
 		}
-		arn := fmt.Sprintf("arn:aws:guardduty:%s:%s:detector/%s", region, p.accountID, id)
+		arn := p.buildARN("guardduty", region, p.accountID, "detector/"+id)
 		return one(p.resource(region, "aws_guardduty_detector", id, id, arn, detector.Tags, parseRFC3339(detector.CreatedAt)))
 	})
 	log.Debug("AWS GuardDuty: Found %d detectors in %s", len(resources), region)
@@ -326,7 +325,7 @@ func (p *Provider) listFirewalls(ctx context.Context, region string) ([]types.Re
 }
 
 func (p *Provider) listFirewallsFrom(ctx context.Context, client networkFirewallAPI, region string) ([]types.Resource, error) {
-	if !p.requireBulkTags(region, "Network Firewall") {
+	if !p.requireBulkTags(ctx, region, "Network Firewall") {
 		return nil, nil
 	}
 	var resources []types.Resource
@@ -338,7 +337,7 @@ func (p *Provider) listFirewallsFrom(ctx context.Context, client networkFirewall
 		}
 		for _, f := range output.Firewalls {
 			name := aws.ToString(f.FirewallName)
-			resources = append(resources, p.bulkResource(region, "aws_networkfirewall_firewall", name, name, aws.ToString(f.FirewallArn), nil))
+			resources = append(resources, p.bulkResource(ctx, region, "aws_networkfirewall_firewall", name, name, aws.ToString(f.FirewallArn), nil))
 		}
 	}
 	log.Debug("AWS Network Firewall: Found %d firewalls in %s", len(resources), region)
@@ -350,7 +349,7 @@ func (p *Provider) listTrustAnchors(ctx context.Context, region string) ([]types
 }
 
 func (p *Provider) listTrustAnchorsFrom(ctx context.Context, client rolesAnywhereAPI, region string) ([]types.Resource, error) {
-	if !p.requireBulkTags(region, "Roles Anywhere") {
+	if !p.requireBulkTags(ctx, region, "Roles Anywhere") {
 		return nil, nil
 	}
 	var resources []types.Resource
@@ -361,7 +360,7 @@ func (p *Provider) listTrustAnchorsFrom(ctx context.Context, client rolesAnywher
 			return nil, provider.NewProviderError(providerName, "list_trust_anchors", "", err)
 		}
 		for _, ta := range output.TrustAnchors {
-			resources = append(resources, p.bulkResource(region, "aws_rolesanywhere_trust_anchor", aws.ToString(ta.TrustAnchorId), aws.ToString(ta.Name), aws.ToString(ta.TrustAnchorArn), ta.CreatedAt))
+			resources = append(resources, p.bulkResource(ctx, region, "aws_rolesanywhere_trust_anchor", aws.ToString(ta.TrustAnchorId), aws.ToString(ta.Name), aws.ToString(ta.TrustAnchorArn), ta.CreatedAt))
 		}
 	}
 	log.Debug("AWS Roles Anywhere: Found %d trust anchors in %s", len(resources), region)
@@ -374,7 +373,7 @@ func (p *Provider) listRegionalWebACLs(ctx context.Context, region string) ([]ty
 
 // listRegionalWebACLsFrom lists WAF Classic regional web ACLs.
 func (p *Provider) listRegionalWebACLsFrom(ctx context.Context, client wafRegionalAPI, region string) ([]types.Resource, error) {
-	if !p.requireBulkTags(region, "WAF Classic") {
+	if !p.requireBulkTags(ctx, region, "WAF Classic") {
 		return nil, nil
 	}
 	var resources []types.Resource
@@ -385,8 +384,8 @@ func (p *Provider) listRegionalWebACLsFrom(ctx context.Context, client wafRegion
 		}
 		for _, acl := range output.WebACLs {
 			id := aws.ToString(acl.WebACLId)
-			arn := fmt.Sprintf("arn:aws:waf-regional:%s:%s:webacl/%s", region, p.accountID, id)
-			resources = append(resources, p.bulkResource(region, "aws_wafregional_web_acl", id, aws.ToString(acl.Name), arn, nil))
+			arn := p.buildARN("waf-regional", region, p.accountID, "webacl/"+id)
+			resources = append(resources, p.bulkResource(ctx, region, "aws_wafregional_web_acl", id, aws.ToString(acl.Name), arn, nil))
 		}
 		return output.NextMarker, nil
 	})
@@ -402,9 +401,10 @@ func (p *Provider) listWAFv2RegionalWebACLs(ctx context.Context, region string) 
 }
 
 // listWAFv2WebACLsFrom lists WAFv2 web ACLs of one scope. The CLOUDFRONT
-// scope only exists in us-east-1 and is handled by the global listers.
+// scope only exists in the partition's global region and is handled by the
+// global listers.
 func (p *Provider) listWAFv2WebACLsFrom(ctx context.Context, client wafv2API, region string, scope wafv2types.Scope) ([]types.Resource, error) {
-	if !p.requireBulkTags(region, "WAFv2") {
+	if !p.requireBulkTags(ctx, region, "WAFv2") {
 		return nil, nil
 	}
 	var resources []types.Resource
@@ -414,7 +414,7 @@ func (p *Provider) listWAFv2WebACLsFrom(ctx context.Context, client wafv2API, re
 			return nil, err
 		}
 		for _, acl := range output.WebACLs {
-			resources = append(resources, p.bulkResource(region, "aws_wafv2_web_acl", aws.ToString(acl.Id), aws.ToString(acl.Name), aws.ToString(acl.ARN), nil))
+			resources = append(resources, p.bulkResource(ctx, region, "aws_wafv2_web_acl", aws.ToString(acl.Id), aws.ToString(acl.Name), aws.ToString(acl.ARN), nil))
 		}
 		return output.NextMarker, nil
 	})

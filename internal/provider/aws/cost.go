@@ -21,10 +21,6 @@ type costExplorerAPI interface {
 	GetCostAndUsage(ctx context.Context, params *costexplorer.GetCostAndUsageInput, optFns ...func(*costexplorer.Options)) (*costexplorer.GetCostAndUsageOutput, error)
 }
 
-// costExplorerRegion is where the Cost Explorer endpoint lives. It is a global
-// service reachable only through us-east-1.
-const costExplorerRegion = "us-east-1"
-
 // unattributedValue is the group key Cost Explorer returns for spend on
 // resources that do not carry the tag being grouped by.
 const unattributedKey = ""
@@ -238,7 +234,7 @@ func sortedValues(byValue map[string]float64) []types.ValueCost {
 }
 
 // getCostExplorerClient returns the Cost Explorer client, which is global and
-// only reachable through us-east-1.
+// reached through the partition's global region.
 func (p *Provider) getCostExplorerClient() *costexplorer.Client {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -248,7 +244,7 @@ func (p *Provider) getCostExplorerClient() *costexplorer.Client {
 	}
 
 	cfg := p.cfg.Copy()
-	cfg.Region = costExplorerRegion
+	cfg.Region = p.globalRegion()
 	p.costClient = costexplorer.NewFromConfig(cfg)
 
 	return p.costClient

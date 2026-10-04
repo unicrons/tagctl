@@ -120,7 +120,7 @@ func TestDiscover_BoundsListersAcrossRegionsAndFinishesTheirFanOuts(t *testing.T
 			return nil, errors.New("lister slots never filled")
 		}
 		time.Sleep(time.Millisecond)
-		return forEachConcurrently(items, func(int) []types.Resource { return one(types.Resource{}) }), nil
+		return forEachConcurrently(context.Background(), items, func(int) []types.Resource { return one(types.Resource{}) }), nil
 	}
 
 	var globals []globalLister
@@ -183,6 +183,42 @@ func TestDiscover_StartsNoQueuedListerOnceCancelled(t *testing.T) {
 	want := []string{fmt.Sprintf("account 123456789012: discovery interrupted, %d lister(s) not started: context canceled", maxConcurrentListers)}
 	if !slices.Equal(accountErrs, want) {
 		t.Errorf("account-level errors = %q\nwant one context error %q", accountErrs, want)
+	}
+}
+
+func TestForEachConcurrently_StopsDispatchingOnceCancelled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	items := make([]int, 10*maxConcurrentAPICalls)
+
+	var started atomic.Int64
+	resources := forEachConcurrently(ctx, items, func(int) []types.Resource {
+		if started.Add(1) == maxConcurrentAPICalls {
+			cancel()
+		}
+		<-ctx.Done()
+		return one(types.Resource{})
+	})
+
+	if got := started.Load(); got != maxConcurrentAPICalls {
+		t.Errorf("%d items dispatched, want only the %d in flight at the cancel", got, maxConcurrentAPICalls)
+	}
+	if len(resources) != maxConcurrentAPICalls {
+		t.Errorf("got %d resources, want the %d the in-flight calls returned", len(resources), maxConcurrentAPICalls)
+	}
+}
+
+func TestForEachConcurrently_CancelledBeforeTheFirstItemRunsNothing(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	resources := forEachConcurrently(ctx, []int{1, 2, 3}, func(int) []types.Resource {
+		t.Error("item dispatched after the cancel")
+		return nil
+	})
+
+	if len(resources) != 0 {
+		t.Errorf("got %d resources, want none", len(resources))
 	}
 }
 
@@ -260,7 +296,7 @@ func TestGetResourceType(t *testing.T) {
 		{"vol-0abc123def456", "ebs_volume"},
 		{"arn:aws:rds:us-east-1:123456789012:db:mydb", "rds_instance"},
 		{"arn:aws:lambda:us-east-1:123456789012:function:myfunction", "lambda_function"},
-		{"my-bucket-name", "s3_bucket"},
+		{"arn:aws:s3:::my-bucket-name", "s3_bucket"},
 	}
 
 	for _, tt := range tests {
@@ -273,54 +309,62 @@ func TestGetResourceType(t *testing.T) {
 	}
 }
 
-func TestExtractRegionFromARN(t *testing.T) {
+func TestRegionForARN(t *testing.T) {
 	tests := []struct {
-		arn            string
-		expectedRegion string
+		arn     string
+		want    string
+		wantErr bool
 	}{
-		{"arn:aws:rds:us-east-1:123456789012:db:mydb", "us-east-1"},
-		{"arn:aws:lambda:eu-west-1:123456789012:function:myfunction", "eu-west-1"},
-		{"arn:aws:ec2:ap-southeast-2:123456789012:instance/i-0abc123", "ap-southeast-2"},
-		{"invalid-arn", ""},
-		{"", ""},
+		{"arn:aws:rds:us-east-1:123456789012:db:mydb", "us-east-1", false},
+		{"arn:aws:lambda:eu-west-1:123456789012:function:myfunction", "eu-west-1", false},
+		{"arn:aws-cn:rds:cn-north-1:123456789012:db:mydb", "cn-north-1", false},
+		{"arn:aws-us-gov:lambda:us-gov-west-1:123456789012:function:fn", "us-gov-west-1", false},
+		{"arn:aws:iam::123456789012:role/admin", "", true},
+		{"arn:aws:s3:::my-bucket", "", true},
+		{"arn:aws:rds:us-east-1", "", true},
+		{"invalid-arn", "", true},
+		{"", "", true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.arn, func(t *testing.T) {
-			result := extractRegionFromARN(tt.arn)
-			if result != tt.expectedRegion {
-				t.Errorf("extractRegionFromARN(%q) = %q, want %q", tt.arn, result, tt.expectedRegion)
+			got, err := regionForARN(tt.arn)
+			if (err != nil) != tt.wantErr || got != tt.want {
+				t.Errorf("regionForARN(%q) = %q, %v; want %q, error %v", tt.arn, got, err, tt.want, tt.wantErr)
 			}
 		})
 	}
 }
 
-func TestSplitARN(t *testing.T) {
-	tests := []struct {
-		arn           string
-		expectedParts []string
-	}{
-		{
-			"arn:aws:rds:us-east-1:123456789012:db:mydb",
-			[]string{"arn", "aws", "rds", "us-east-1", "123456789012", "db", "mydb"},
-		},
-		{
-			"arn:aws:s3:::mybucket",
-			[]string{"arn", "aws", "s3", "", "", "mybucket"},
-		},
+func TestApplyTags_ServiceAppliersRejectAnARNWithoutARegion(t *testing.T) {
+	ids := []string{
+		"arn:aws:rds::123456789012:db:mydb",
+		"arn:aws:lambda::123456789012:function:fn",
+		"arn:aws:sns::123456789012:alerts",
+		"arn:aws:sqs::123456789012:jobs",
+		"arn:aws:autoscaling::123456789012:autoScalingGroup:uuid:autoScalingGroupName/web",
+		"arn:aws:dynamodb::123456789012:table/orders",
+		"arn:aws:ecs::123456789012:cluster/web",
+		"arn:aws:ecs::123456789012:service/web/api",
+		"arn:aws:eks::123456789012:cluster/prod",
+		"arn:aws:elasticache::123456789012:cluster:sessions",
+		"arn:aws:elasticfilesystem::123456789012:file-system/fs-0abc",
+		"arn:aws:ecr::123456789012:repository/api",
+		"arn:aws:kms::123456789012:key/1234abcd",
+		"arn:aws:kinesis::123456789012:stream/events",
+		"arn:aws:logs::123456789012:log-group:/aws/lambda/fn",
+		"arn:aws:lightsail::123456789012:Instance/abc",
+		"arn:aws:elasticloadbalancing::123456789012:loadbalancer/app/web/abc",
+		"arn:aws:elasticloadbalancing::123456789012:loadbalancer/classic-web",
+		"arn:aws:elasticloadbalancing::123456789012:targetgroup/web/abc",
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.arn, func(t *testing.T) {
-			result := splitARN(tt.arn)
-			if len(result) != len(tt.expectedParts) {
-				t.Errorf("splitARN(%q) returned %d parts, want %d", tt.arn, len(result), len(tt.expectedParts))
-				return
-			}
-			for i, part := range result {
-				if part != tt.expectedParts[i] {
-					t.Errorf("splitARN(%q)[%d] = %q, want %q", tt.arn, i, part, tt.expectedParts[i])
-				}
+	// A zero Provider has no client caches: creating a client would panic.
+	p := &Provider{}
+	for _, id := range ids {
+		t.Run(id, func(t *testing.T) {
+			err := p.ApplyTags(context.Background(), id, map[string]string{"owner": "x"})
+			if err == nil || !strings.Contains(err.Error(), id) {
+				t.Errorf("ApplyTags() err = %v, want an error naming the ARN", err)
 			}
 		})
 	}
@@ -331,34 +375,6 @@ func TestEC2TagsToMap(t *testing.T) {
 	result := ec2TagsToMap(nil)
 	if len(result) != 0 {
 		t.Errorf("ec2TagsToMap(nil) returned %d tags, want 0", len(result))
-	}
-}
-
-func TestBuildEC2ARN(t *testing.T) {
-	tests := []struct {
-		accountID    string
-		region       string
-		resourceType string
-		resourceID   string
-		expectedARN  string
-	}{
-		{
-			"123456789012", "us-east-1", "instance", "i-0abc123",
-			"arn:aws:ec2:us-east-1:123456789012:instance/i-0abc123",
-		},
-		{
-			"123456789012", "eu-west-1", "volume", "vol-0abc123",
-			"arn:aws:ec2:eu-west-1:123456789012:volume/vol-0abc123",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.expectedARN, func(t *testing.T) {
-			result := buildEC2ARN(tt.accountID, tt.region, tt.resourceType, tt.resourceID)
-			if result != tt.expectedARN {
-				t.Errorf("buildEC2ARN() = %q, want %q", result, tt.expectedARN)
-			}
-		})
 	}
 }
 
@@ -413,10 +429,10 @@ func TestGetResourceType_AllSupportedServices(t *testing.T) {
 		{"arn:aws:wafv2:us-east-1:123456789012:regional/webacl/web/abc", "tagging_api"},
 		{"arn:aws:lightsail:us-east-1:123456789012:Instance/abc", "lightsail"},
 		{"arn:aws:globalaccelerator::123456789012:accelerator/abc", "global_accelerator"},
-		{"my-bucket-name", "s3_bucket"},
+		{"arn:aws:s3:::my-bucket-name", "s3_bucket"},
 	}
 
-	appliers := p.tagAppliers()
+	appliers := p.tagAppliers("")
 	for _, tt := range tests {
 		t.Run(tt.expectedType, func(t *testing.T) {
 			if result := p.getResourceType(tt.resourceID); result != tt.expectedType {

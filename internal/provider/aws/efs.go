@@ -67,8 +67,12 @@ func (p *Provider) applyEFSTags(ctx context.Context, arn string, tags map[string
 		tagList = append(tagList, efstypes.Tag{Key: aws.String(k), Value: aws.String(v)})
 	}
 
-	client := p.getEFSClient(extractRegionFromARN(arn))
-	_, err := client.TagResource(ctx, &efs.TagResourceInput{
+	region, err := regionForARN(arn)
+	if err != nil {
+		return provider.NewProviderError(providerName, "apply_efs_tags", arn, err)
+	}
+	client := p.getEFSClient(region)
+	_, err = client.TagResource(ctx, &efs.TagResourceInput{
 		ResourceId: aws.String(nameFromARN(arn)),
 		Tags:       tagList,
 	})

@@ -43,9 +43,9 @@ func (p *Provider) listSNSTopicsFrom(ctx context.Context, client snsAPI, region 
 		}
 	}
 
-	resources := forEachConcurrently(arns, func(arn string) []types.Resource {
+	resources := forEachConcurrently(ctx, arns, func(arn string) []types.Resource {
 		name := nameFromARN(arn)
-		tags, err := p.resourceTags(region, arn, func() (map[string]string, error) {
+		tags, err := p.resourceTags(ctx, region, arn, func() (map[string]string, error) {
 			return getSNSTags(ctx, client, arn)
 		})
 		if err != nil {
@@ -72,9 +72,9 @@ func getSNSTags(ctx context.Context, client snsAPI, arn string) (map[string]stri
 
 // applySNSTags applies tags to an SNS topic.
 func (p *Provider) applySNSTags(ctx context.Context, arn string, tags map[string]string) error {
-	region := extractRegionFromARN(arn)
-	if region == "" && len(p.regions) > 0 {
-		region = p.regions[0]
+	region, err := regionForARN(arn)
+	if err != nil {
+		return provider.NewProviderError(providerName, "apply_sns_tags", arn, err)
 	}
 
 	tagList := make([]snstypes.Tag, 0, len(tags))
@@ -83,7 +83,7 @@ func (p *Provider) applySNSTags(ctx context.Context, arn string, tags map[string
 	}
 
 	client := p.getSNSClient(region)
-	_, err := client.TagResource(ctx, &sns.TagResourceInput{
+	_, err = client.TagResource(ctx, &sns.TagResourceInput{
 		ResourceArn: aws.String(arn),
 		Tags:        tagList,
 	})

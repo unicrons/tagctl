@@ -3,9 +3,11 @@ package aws
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/aws/arn"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/aws/smithy-go"
@@ -80,7 +82,7 @@ func (p *Provider) listS3BucketsFrom(ctx context.Context, global s3API, regional
 
 			region := aws.ToString(bucket.BucketRegion)
 			if region == "" {
-				region = getBucketRegion(ctx, global, bucketName)
+				region = p.getBucketRegion(ctx, global, bucketName)
 			}
 			log.Debug("AWS S3: Bucket %s is in region %s", bucketName, region)
 
@@ -90,7 +92,8 @@ func (p *Provider) listS3BucketsFrom(ctx context.Context, global s3API, regional
 				return
 			}
 
-			tags, err := p.resourceTags(region, "arn:aws:s3:::"+bucketName, func() (map[string]string, error) {
+			bucketARN := p.buildARN("s3", "", "", bucketName)
+			tags, err := p.resourceTags(ctx, region, bucketARN, func() (map[string]string, error) {
 				return getBucketTags(ctx, regional(region), bucketName)
 			})
 			if err != nil {
@@ -107,7 +110,7 @@ func (p *Provider) listS3BucketsFrom(ctx context.Context, global s3API, regional
 				Account:  p.accountID,
 				Provider: providerName,
 				Tags:     tags,
-				ARN:      "arn:aws:s3:::" + bucketName,
+				ARN:      bucketARN,
 			}
 
 			if bucket.CreationDate != nil {
@@ -150,21 +153,16 @@ func (p *Provider) isConfiguredRegion(region string) bool {
 	return false
 }
 
-// getBucketRegion resolves a bucket's region when ListBuckets did not report it.
-func getBucketRegion(ctx context.Context, client s3API, bucketName string) string {
+// getBucketRegion resolves a bucket's region when ListBuckets did not report
+// it. An empty location constraint or a failed lookup yields the global
+// region: only us-east-1 reports an empty constraint.
+func (p *Provider) getBucketRegion(ctx context.Context, client s3API, bucketName string) string {
 	output, err := client.GetBucketLocation(ctx, &s3.GetBucketLocationInput{
 		Bucket: aws.String(bucketName),
 	})
-	if err != nil {
-		// Default to us-east-1 if we can't determine the region
-		return defaultRegion
+	if err != nil || output.LocationConstraint == "" {
+		return p.globalRegion()
 	}
-
-	// Empty location constraint means us-east-1
-	if output.LocationConstraint == "" {
-		return defaultRegion
-	}
-
 	return string(output.LocationConstraint)
 }
 
@@ -194,45 +192,28 @@ func getBucketTags(ctx context.Context, client s3API, bucketName string) (map[st
 	return tags, nil
 }
 
-// applyS3Tags applies tags to an S3 bucket.
-func (p *Provider) applyS3Tags(ctx context.Context, bucketName string, tags map[string]string) error {
-	region := getBucketRegion(ctx, p.s3Client, bucketName)
-	log.Debug("AWS S3: Applying tags to bucket %s (region: %s)", bucketName, region)
+// isBucketARN reports whether an S3 ARN names a bucket, not an object or an
+// access point.
+func isBucketARN(parsed arn.ARN) bool {
+	return parsed.Region == "" && parsed.AccountID == "" && !strings.Contains(parsed.Resource, "/")
+}
 
-	regionalClient := p.getS3RegionalClient(region)
+// applyS3Tags applies tags to an S3 bucket addressed by ARN.
+func (p *Provider) applyS3Tags(ctx context.Context, bucketARN, region string, tags map[string]string) error {
+	taggingFor := func(region string) taggingAPI { return p.getTaggingClient(region) }
+	return p.applyS3TagsWith(ctx, p.s3Client, taggingFor, bucketARN, region, tags)
+}
 
-	// PutBucketTagging replaces the whole tag set, so the merge must start
-	// from the real existing tags or it would wipe them.
-	existingTags, err := getBucketTags(ctx, regionalClient, bucketName)
+// applyS3TagsWith tags a bucket through TagResources in the bucket's region.
+// PutBucketTagging replaces the whole tag set, so using it means reading the
+// set first and losing whatever is written in between.
+func (p *Provider) applyS3TagsWith(ctx context.Context, locator s3API, taggingFor func(region string) taggingAPI, bucketARN, region string, tags map[string]string) error {
+	parsed, err := arn.Parse(bucketARN)
 	if err != nil {
-		return provider.NewProviderError(providerName, "get_bucket_tagging", bucketName, err)
+		return provider.NewProviderError(providerName, "tag_resources", bucketARN, err)
 	}
-
-	// Merge tags (new tags override existing)
-	for k, v := range tags {
-		existingTags[k] = v
+	if region == "" || region == regionGlobal {
+		region = p.getBucketRegion(ctx, locator, parsed.Resource)
 	}
-
-	// Convert to S3 tag set
-	tagSet := make([]s3types.Tag, 0, len(existingTags))
-	for k, v := range existingTags {
-		tagSet = append(tagSet, s3types.Tag{
-			Key:   aws.String(k),
-			Value: aws.String(v),
-		})
-	}
-
-	_, err = regionalClient.PutBucketTagging(ctx, &s3.PutBucketTaggingInput{
-		Bucket: aws.String(bucketName),
-		Tagging: &s3types.Tagging{
-			TagSet: tagSet,
-		},
-	})
-
-	if err != nil {
-		return provider.NewProviderError(providerName, "put_bucket_tagging", bucketName, err)
-	}
-
-	log.Debug("AWS S3: Successfully applied %d tags to bucket %s", len(tagSet), bucketName)
-	return nil
+	return tagResources(ctx, taggingFor(region), bucketARN, tags)
 }

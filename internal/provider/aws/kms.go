@@ -42,7 +42,7 @@ func (p *Provider) listKMSKeysFrom(ctx context.Context, client kmsAPI, region st
 		}
 	}
 
-	resources := forEachConcurrently(keyIDs, func(keyID string) []types.Resource {
+	resources := forEachConcurrently(ctx, keyIDs, func(keyID string) []types.Resource {
 		desc, err := client.DescribeKey(ctx, &kms.DescribeKeyInput{KeyId: aws.String(keyID)})
 		if err != nil || desc.KeyMetadata == nil {
 			p.skipResource(ctx, "KMS", region, "key "+keyID, err)
@@ -53,7 +53,7 @@ func (p *Provider) listKMSKeysFrom(ctx context.Context, client kmsAPI, region st
 			return nil
 		}
 
-		tags, err := p.resourceTags(region, aws.ToString(meta.Arn), func() (map[string]string, error) {
+		tags, err := p.resourceTags(ctx, region, aws.ToString(meta.Arn), func() (map[string]string, error) {
 			return getKMSTags(ctx, client, keyID)
 		})
 		if err != nil {
@@ -107,8 +107,12 @@ func (p *Provider) applyKMSTags(ctx context.Context, arn string, tags map[string
 		tagList = append(tagList, kmstypes.Tag{TagKey: aws.String(k), TagValue: aws.String(v)})
 	}
 
-	client := p.getKMSClient(extractRegionFromARN(arn))
-	_, err := client.TagResource(ctx, &kms.TagResourceInput{
+	region, err := regionForARN(arn)
+	if err != nil {
+		return provider.NewProviderError(providerName, "apply_kms_tags", arn, err)
+	}
+	client := p.getKMSClient(region)
+	_, err = client.TagResource(ctx, &kms.TagResourceInput{
 		KeyId: aws.String(arn),
 		Tags:  tagList,
 	})

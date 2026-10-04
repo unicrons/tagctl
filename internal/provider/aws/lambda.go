@@ -38,9 +38,9 @@ func (p *Provider) listLambdaFunctionsFrom(ctx context.Context, client lambdaAPI
 		functions = append(functions, output.Functions...)
 	}
 
-	resources := forEachConcurrently(functions, func(fn lambdatypes.FunctionConfiguration) []types.Resource {
+	resources := forEachConcurrently(ctx, functions, func(fn lambdatypes.FunctionConfiguration) []types.Resource {
 		name, arn := aws.ToString(fn.FunctionName), aws.ToString(fn.FunctionArn)
-		tags, err := p.resourceTags(region, arn, func() (map[string]string, error) {
+		tags, err := p.resourceTags(ctx, region, arn, func() (map[string]string, error) {
 			return getLambdaTags(ctx, client, arn)
 		})
 		if err != nil {
@@ -74,18 +74,14 @@ func getLambdaTags(ctx context.Context, client lambdaAPI, arn string) (map[strin
 func (p *Provider) applyLambdaTags(ctx context.Context, functionARN string, tags map[string]string) error {
 	log.Debug("AWS Lambda: Applying tags to %s", functionARN)
 
-	// Extract region from ARN
-	region := extractRegionFromARN(functionARN)
-	if region == "" && len(p.regions) > 0 {
-		log.Debug("AWS Lambda: Could not extract region from ARN, using default %s", p.regions[0])
-		region = p.regions[0]
-	} else {
-		log.Debug("AWS Lambda: Extracted region %s from ARN", region)
+	region, err := regionForARN(functionARN)
+	if err != nil {
+		return provider.NewProviderError(providerName, "tag_lambda_function", functionARN, err)
 	}
 
 	client := p.getLambdaClient(region)
 
-	_, err := client.TagResource(ctx, &lambda.TagResourceInput{
+	_, err = client.TagResource(ctx, &lambda.TagResourceInput{
 		Resource: aws.String(functionARN),
 		Tags:     tags,
 	})

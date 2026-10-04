@@ -2,7 +2,6 @@ package aws
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
@@ -39,10 +38,10 @@ func (p *Provider) listDynamoDBTablesFrom(ctx context.Context, client dynamoDBAP
 		names = append(names, output.TableNames...)
 	}
 
-	resources := forEachConcurrently(names, func(name string) []types.Resource {
-		arn := fmt.Sprintf("arn:aws:dynamodb:%s:%s:table/%s", region, p.accountID, name)
+	resources := forEachConcurrently(ctx, names, func(name string) []types.Resource {
+		arn := p.buildARN("dynamodb", region, p.accountID, "table/"+name)
 
-		tags, err := p.resourceTags(region, arn, func() (map[string]string, error) {
+		tags, err := p.resourceTags(ctx, region, arn, func() (map[string]string, error) {
 			return getDynamoDBTags(ctx, client, arn)
 		})
 		if err != nil {
@@ -97,8 +96,12 @@ func (p *Provider) applyDynamoDBTags(ctx context.Context, arn string, tags map[s
 		tagList = append(tagList, ddbtypes.Tag{Key: aws.String(k), Value: aws.String(v)})
 	}
 
-	client := p.getDynamoDBClient(extractRegionFromARN(arn))
-	_, err := client.TagResource(ctx, &dynamodb.TagResourceInput{
+	region, err := regionForARN(arn)
+	if err != nil {
+		return provider.NewProviderError(providerName, "apply_dynamodb_tags", arn, err)
+	}
+	client := p.getDynamoDBClient(region)
+	_, err = client.TagResource(ctx, &dynamodb.TagResourceInput{
 		ResourceArn: aws.String(arn),
 		Tags:        tagList,
 	})

@@ -1,6 +1,7 @@
 package aws
 
 import (
+	"context"
 	"errors"
 	"time"
 
@@ -38,8 +39,8 @@ func (p *Provider) resource(region, resourceType, id, name, arn string, tags map
 
 // bulkResource builds an AWS resource whose tags come from the region's bulk
 // source. Only valid after requireBulkTags returned true.
-func (p *Provider) bulkResource(region, resourceType, id, name, arn string, created *time.Time) types.Resource {
-	return p.resource(region, resourceType, id, name, arn, p.bulkTags(region, arn), created)
+func (p *Provider) bulkResource(ctx context.Context, region, resourceType, id, name, arn string, created *time.Time) types.Resource {
+	return p.resource(region, resourceType, id, name, arn, p.bulkTags(ctx, region, arn), created)
 }
 
 // tagsToMap converts an SDK tag slice into a map using the given accessors.

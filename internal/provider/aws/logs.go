@@ -52,8 +52,8 @@ func (p *Provider) listLogGroupsFrom(ctx context.Context, client logsAPI, region
 		}
 	}
 
-	resources := forEachConcurrently(groups, func(g logGroup) []types.Resource {
-		tags, err := p.resourceTags(region, g.arn, func() (map[string]string, error) {
+	resources := forEachConcurrently(ctx, groups, func(g logGroup) []types.Resource {
+		tags, err := p.resourceTags(ctx, region, g.arn, func() (map[string]string, error) {
 			output, err := client.ListTagsForResource(ctx, &cloudwatchlogs.ListTagsForResourceInput{ResourceArn: aws.String(g.arn)})
 			if err != nil {
 				return nil, err
@@ -104,8 +104,12 @@ func epochMillis(ms *int64) *time.Time {
 
 // applyLogGroupTags applies tags to a log group addressed by ARN.
 func (p *Provider) applyLogGroupTags(ctx context.Context, arn string, tags map[string]string) error {
-	client := p.getLogsClient(extractRegionFromARN(arn))
-	_, err := client.TagResource(ctx, &cloudwatchlogs.TagResourceInput{
+	region, err := regionForARN(arn)
+	if err != nil {
+		return provider.NewProviderError(providerName, "apply_log_group_tags", arn, err)
+	}
+	client := p.getLogsClient(region)
+	_, err = client.TagResource(ctx, &cloudwatchlogs.TagResourceInput{
 		ResourceArn: aws.String(arn),
 		Tags:        tags,
 	})

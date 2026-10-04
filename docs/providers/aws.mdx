@@ -66,7 +66,7 @@ are then read in bulk through the Resource Groups Tagging API (see
 
 | Resource | Type | Write API |
 |----------|------|-----------|
-| S3 Bucket | `aws_s3_bucket` | `s3:PutBucketTagging` |
+| S3 Bucket | `aws_s3_bucket` | `tag:TagResources` |
 | EFS File System | `aws_efs_file_system` | `elasticfilesystem:TagResource` |
 | FSx File System | `aws_fsx_file_system` | `tag:TagResources` |
 | Backup Vault | `aws_backup_vault` | `tag:TagResources` |
@@ -212,9 +212,11 @@ every lister error, names the account (and region) it comes from, so
 
 Global services (Route 53, CloudFront, IAM, Shield, WAF Classic for
 CloudFront, WAFv2 CloudFront scope) are listed once per account and read their
-tags from the `us-east-1` sweep, which tagctl runs even when `us-east-1` is
-not in `regions`. Global Accelerator only exists in `us-west-2` and reads and
-writes its tags through its own API.
+tags from the sweep of the partition's global region (`us-east-1` in the
+commercial partition, see [Partitions](#partitions)), which tagctl runs even
+when that region is not in `regions`. Global Accelerator only exists in
+`us-west-2` of the commercial partition and reads and writes its tags through
+its own API.
 
 Some services report "not set up" instead of an empty list: DRS in a region
 never initialised, Shield without an Advanced subscription, Firewall Manager
@@ -293,6 +295,34 @@ tagctl scan --region eu-west-1
 tagctl scan --region eu-west-1 --region us-east-1
 ```
 
+## Partitions
+
+tagctl takes the partition from the caller identity (`sts:GetCallerIdentity`)
+and uses it for every ARN it builds and for the global services, so nothing
+has to be configured:
+
+| Partition | Identity ARN prefix | Global region |
+|-----------|---------------------|---------------|
+| Commercial | `arn:aws:` | `us-east-1` |
+| China | `arn:aws-cn:` | `cn-northwest-1` |
+| GovCloud (US) | `arn:aws-us-gov:` | `us-gov-west-1` |
+
+The global region is where Route 53, CloudFront, IAM, Shield, the CloudFront
+WAF scopes and Cost Explorer are called and where the bulk tag sweep for them
+runs. `tagctl apply` routes a change by the service and resource segments of
+its ARN, whatever the partition.
+
+<Note>
+  Outside the commercial partition Global Accelerator and Lightsail are not
+  scanned: they do not exist there. A global service the partition does not
+  offer answers with an error, which the scan reports as a lister error for
+  that service (see `--allow-partial`). The IAM policies below are written
+  for `arn:aws:`; replace the prefix as described under
+  [Read-Write (Apply)](#read-write-apply). China and GovCloud are covered by
+  unit tests against mocked APIs, not by scans of real accounts in those
+  partitions.
+</Note>
+
 ## Authentication
 
 Credentials come from the AWS SDK default chain (environment, `~/.aws`
@@ -319,8 +349,8 @@ CloudFormation templates under
 
 The apply policy is additive: it holds only the tag write actions and always
 sits next to the scan policy, which is where `sts:GetCallerIdentity`, the
-discovery calls and the S3 `Get*` reads that precede `PutBucketTagging` come
-from. Deploy the role in every account tagctl will touch:
+discovery calls and the `s3:GetBucketTagging` that tagging a bucket requires
+come from. Deploy the role in every account tagctl will touch:
 
 ```bash
 aws cloudformation deploy \
@@ -727,9 +757,12 @@ Every copy on this page is checked against those files by
 
 <Note>
   This policy only adds the write actions: attach it together with the scan
-  policy, as the `TagctlApply` role does. `PutBucketTagging` replaces the whole
-  tag set, so tagctl reads the existing tags first through the scan policy's
-  `s3:GetBucketTagging`. `tag:TagResources` delegates to each service, so the
+  policy, as the `TagctlApply` role does. S3 buckets are tagged through
+  `tag:TagResources`, which adds the new keys to the bucket's tag set on the
+  AWS side. tagctl does not read the set and write it back itself, a sequence
+  that drops any tag written by someone else between the two calls. For a
+  bucket the Tagging API needs `s3:PutBucketTagging` and `s3:GetBucketTagging`
+  (the latter comes from the scan policy). `tag:TagResources` delegates to each service, so the
   service's own tagging action must be allowed as well; a resource the service
   rejects is reported as a failed change with the service's error code, the
   rest of the batch still applies.

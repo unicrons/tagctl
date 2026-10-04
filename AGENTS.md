@@ -276,9 +276,10 @@ a scan file counts resources but has neither (written before the inventory).
   CloudFront, IAM, Shield, WAF Classic global, WAFv2 CloudFront, Global
   Accelerator; S3 is handled apart because buckets are filtered by region). Tags are read in bulk: `startTagSources()` launches one
   `tag:GetResources` sweep per region before discovery, and listers resolve
-  tags with `p.resourceTags(region, arn, fallback)` (services with their own
-  tag API) or `p.bulkTags(region, arn)` after `p.requireBulkTags(region,
-  label)` (services without one; the service is skipped with `log.Error`
+  tags with `p.resourceTags(ctx, region, arn, fallback)` (services with their own
+  tag API) or `p.bulkTags(ctx, region, arn)` after
+  `p.requireBulkTags(ctx, region, label)` (services without one; the service
+  is skipped with `log.Error`
   when the sweep is unavailable). Regions come from config; empty `regions`
   means all available regions. A resource whose tags cannot be read is
   skipped with `p.skipResource` (logs and records it), never reported as
@@ -286,14 +287,16 @@ a scan file counts resources but has neither (written before the inventory).
   not-found answer (`resourceGone`: deleted since it was listed) is dropped
   at debug level (a batch call failing that way is re-read one item at a
   time); a cancelled context records nothing and `discover` returns the
-  context error instead.
+  context error instead. The bulk tag helpers take the scan `ctx` and stop
+  waiting for the sweep once it is cancelled.
   `ListResources` returns what it found plus `errors.Join` of every lister
   error (prefixed `account <id>, region <region|global>: list <label>:`) and
   a per-service summary of those skips (prefixed `account <id>:`). `discover`
   runs at most `maxConcurrentListers` (32) listers at once and starts none
   once the context is cancelled (that one context error per account counts
   the listers not started); each per-resource fan-out has its own
-  `maxConcurrentAPICalls` (16) pool (ECS nests two, up to 256 calls on one
+  `maxConcurrentAPICalls` (16) pool that takes the scan `ctx` and dispatches
+  no further item once it is cancelled (ECS nests two, up to 256 calls on one
   client) and the tag sweeps run outside both, so never take a lister slot
   from inside a lister.
 - **AWS auth**: `aws.New` relies on `config.LoadDefaultConfig` (SDK chain);
@@ -305,6 +308,15 @@ a scan file counts resources but has neither (written before the inventory).
   `maxRetryAttempts` (7) unless `AWS_RETRY_MODE`/`AWS_MAX_ATTEMPTS` or the
   profile set them. `--profile`/`--role` and friends live in
   `internal/cli/auth.go` and override a config with at most one AWS entry.
+- **AWS partitions**: `New` reads the partition from the caller identity ARN
+  (`partitionOf`) into `Provider.partition`; empty means `aws` (providers built
+  in tests). Build every ARN with `p.buildARN`/`p.ec2ARN`, never a literal
+  `arn:aws:`. `p.globalRegion()` (table in `partition.go`, copied from the
+  SDK's `partitions.json`) is where the global clients, Cost Explorer, the
+  extra bulk sweep (`tagSweepRegions`) and the Tagging API for region-less
+  ARNs (`taggingRegion`) go. Global Accelerator is skipped outside `aws`.
+  `getResourceType` routes ARNs with `arn.Parse` on the service and resource
+  segments, so it is partition-agnostic; a malformed ARN has no route.
 - **Kubernetes**: `initProviders()` builds one `k8s.Provider` per
   `clouds.kubernetes` entry through `newKubernetesProvider` (a package var in
   `internal/cli/providers.go`; tests swap it for `k8s.NewWithClients` with
@@ -332,6 +344,10 @@ Each provider implements the `provider.Provider` interface (`Name`,
 Kubernetes cluster name): the applier routes a change to the provider whose
 `AccountID()` equals the resource's `Account`, so a provider that can be
 configured more than once must implement it.
+A provider that also implements `ApplyTagsInRegion` (engine `regionalTagger`)
+receives `Resource.Region` from the plan: AWS needs it for EC2 resources,
+tagged by bare ID with one `CreateTags` call in that region, and fails without
+it instead of probing regions.
 
 Provider status has one table, "Provider Status" in `docs/development.mdx`.
 README, CONTRIBUTING, `tagctl.yaml.example`, the `init` templates and the docs
@@ -406,15 +422,18 @@ Checklist:
    narrow API interface; `p.resource`/`p.bulkResource`, `tagsToMap`;
    `notSubscribed(err)` is zero resources at debug level; page with the SDK
    paginator or `paginate`
-3. Tags: inline, `p.resourceTags(region, arn, fallback)` inside
-   `forEachConcurrently`, or `p.requireBulkTags` + `p.bulkTags`. Types read
+3. Tags: inline, `p.resourceTags(ctx, region, arn, fallback)` inside
+   `forEachConcurrently(ctx, ...)`, or `p.requireBulkTags(ctx, ...)` +
+   `p.bulkTags(ctx, ...)`. ARNs the API does not return: `p.buildARN` /
+   `p.ec2ARN`, never a literal `arn:aws:`. Types read
    through the sweep go in `bulkTagFilterGroups` (a missing filter silently
    reads as untagged). Tag-read error: `p.skipResource`; add the not-found
    error type to `resourceGone`
 4. Writes: `tagging_api` (`applyTagsViaTaggingAPI`) by default;
-   `apply<Service>Tags` + `tagAppliers()` + `resourceTypePrefixes` only when
-   the Tagging API cannot tag the type; `idAddressedTypes` only for bare-ID
-   tag APIs
+   `apply<Service>Tags` (region from `regionForARN(arn)`, never a configured
+   region) + `tagAppliers(region)` + `arnServiceRoutes` only when the Tagging
+   API cannot tag the type; `idAddressedTypes` + `ec2IDPrefixes` only for
+   bare-ID tag APIs, which get the plan's region through `tagAppliers`
 5. Register in `regionalListers()` (`provider.go`) or `globalListers()`
 6. Pinned tests: `TestRegionalListers`/`TestGlobalListers`,
    `TestGetResourceType_AllSupportedServices`, `TestTaggingIdentifier`
@@ -505,7 +524,10 @@ Install with: `make hooks`
 1. **S3 is global**: buckets are listed once through `ListBuckets` (paginated, which
    also returns each bucket's region), then filtered by the configured `regions`
    before their tags are read with the right regional client. A bucket whose tags
-   cannot be read is skipped with an error, never reported as untagged
+   cannot be read is skipped with an error, never reported as untagged. Apply
+   tags a bucket by ARN through `tag:TagResources` in the bucket's region
+   (from the plan, else `GetBucketLocation`), never with a read followed by
+   `PutBucketTagging`, which replaces the whole tag set
 
 2. **Empty regions config**: `regions: []` means discover all available regions
    via the EC2 API
@@ -549,9 +571,9 @@ Install with: `make hooks`
    minutes behind `tagctl apply`. Per-resource tag APIs are read-after-write,
    so a fresh scan may disagree between services for a short while
 
-9. **Bulk tags only cover the configured regions plus `us-east-1`**: the
-   global listers read from the `us-east-1` sweep, which `startTagSources`
-   adds even when that region is not configured
+9. **Bulk tags only cover the configured regions plus the partition's global
+   region** (`us-east-1` in `aws`): the global listers read from that sweep,
+   which `startTagSources` adds even when the region is not configured
 
 10. **The bulk sweep must stay filtered**: an unfiltered `GetResources` in
    a real development account returned 33k tagged ARNs (337 sequential pages, 32 s)
@@ -566,7 +588,9 @@ Install with: `make hooks`
     Accelerator lives only in us-west-2 and Lightsail only in
     `lightsailRegions`; both are addressed by their own tag API, not the
     Tagging API. `idAddressedTypes` in the applier is the short list of types
-    tagged by ID (EC2 family, S3); everything else is tagged by ARN
+    tagged by ID (EC2 family); everything else, S3 buckets included, is tagged
+    by ARN. An identifier that is neither an ARN nor an EC2 ID has no route
+    and `ApplyTags` fails with `unknown resource type`
 
 12. **Cost Explorer bills per request**: `cost` runs one `GetCostAndUsage`
     query per tag (plus its pages). `--trend` switches that query to `DAILY`

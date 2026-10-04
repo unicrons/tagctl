@@ -58,7 +58,7 @@ func (p *Provider) listMemoryDBClusters(ctx context.Context, region string) ([]t
 }
 
 func (p *Provider) listMemoryDBClustersFrom(ctx context.Context, client memoryDBAPI, region string) ([]types.Resource, error) {
-	if !p.requireBulkTags(region, "MemoryDB") {
+	if !p.requireBulkTags(ctx, region, "MemoryDB") {
 		return nil, nil
 	}
 	var resources []types.Resource
@@ -70,7 +70,7 @@ func (p *Provider) listMemoryDBClustersFrom(ctx context.Context, client memoryDB
 		}
 		for _, c := range output.Clusters {
 			name := aws.ToString(c.Name)
-			resources = append(resources, p.bulkResource(region, "aws_memorydb_cluster", name, name, aws.ToString(c.ARN), nil))
+			resources = append(resources, p.bulkResource(ctx, region, "aws_memorydb_cluster", name, name, aws.ToString(c.ARN), nil))
 		}
 	}
 	log.Debug("AWS MemoryDB: Found %d clusters in %s", len(resources), region)
@@ -89,8 +89,8 @@ What the lister is responsible for:
   test in step 7 finds SDK calls by `.<Operation>(ctx` and
   `New<Operation>Paginator(`.
 - **The resource.** Build it with `p.resource(region, type, id, name, arn, tags,
-  created)` when the tags are known, or `p.bulkResource(...)` when they come
-  from the bulk sweep. Name the type after the Terraform resource where one
+  created)` when the tags are known, or `p.bulkResource(ctx, ...)` when they
+  come from the bulk sweep. Name the type after the Terraform resource where one
   exists (`aws_memorydb_cluster`). `ignore.resources` and the `resource` glob of
   `rules.defaults` match against it, and `tagctl terraform` reports resources
   under Terraform's type names, so one pattern covers both.
@@ -99,8 +99,15 @@ What the lister is responsible for:
   it. When the API returns no ARN, build it the way CodeBuild does:
 
   ```go
-  arn := fmt.Sprintf("arn:aws:codebuild:%s:%s:project/%s", region, p.accountID, name)
+  arn := p.buildARN("codebuild", region, p.accountID, "project/"+name)
   ```
+
+  `p.buildARN(service, region, account, resource)` uses the partition of the
+  account (`aws`, `aws-cn`, `aws-us-gov`), read from the caller identity;
+  `p.ec2ARN(region, type, id)` does the same for EC2 resources. Never write a
+  literal `arn:aws:`: it breaks tag lookups and tag writes outside the
+  commercial partition. Pass an empty account for the services whose ARNs
+  omit it (S3, Route 53, API Gateway).
 
 - **Resources that cannot be tagged.** Leave out what AWS owns on your behalf,
   such as AWS-managed KMS keys and automated snapshots. The
@@ -125,14 +132,16 @@ What the lister is responsible for:
 **Global services** such as Route 53, CloudFront and IAM are listed once per
 account, not per region. Their listers take only `ctx`, live next to
 `globalListers()` in `global.go` or `global_extra.go`, set `Region` to
-`regionGlobal` and read tags from the `us-east-1` sweep through `globalRegion`.
+`regionGlobal` and read tags from the sweep of `p.globalRegion()`, the
+partition's global region (`us-east-1` in the commercial partition). Use it
+for the client too, never a literal region.
 
 ## 3. Pick the tag source
 
 | The service... | Read tags with | Example |
 |----------------|----------------|---------|
 | returns tags in the List/Describe response | `tagsToMap` into `p.resource` | Lightsail, DRS, EFS |
-| has a per-resource tag read API | `p.resourceTags(region, arn, fallback)` inside `forEachConcurrently` | SQS, Kinesis, KMS |
+| has a per-resource tag read API | `p.resourceTags(ctx, region, arn, fallback)` inside `forEachConcurrently` | SQS, Kinesis, KMS |
 | has no usable tag read API | `p.requireBulkTags`, then `p.bulkResource` or `p.bulkTags` | MemoryDB, CodeBuild |
 
 ### Inline tags
@@ -154,18 +163,20 @@ one looks up.
 
 `p.resourceTags` looks the ARN up in the region's bulk sweep and only calls the
 fallback when the sweep failed, for example when `tag:GetResources` is denied.
-`forEachConcurrently` runs the lookups with at most 16 calls in flight. From
-`sqs.go`:
+`forEachConcurrently` runs the lookups with at most 16 calls in flight. Both
+take the scan `ctx`: once it is cancelled no further item is dispatched,
+nothing waits for the sweep and `resourceTags` returns the context error
+without calling the fallback. From `sqs.go`:
 
 ```go
-resources := forEachConcurrently(queueURLs, func(queueURL string) []types.Resource {
+resources := forEachConcurrently(ctx, queueURLs, func(queueURL string) []types.Resource {
 	name := nameFromARN(queueURL)
 	arn, err := getSQSQueueARN(ctx, client, queueURL)
 	if err != nil {
 		p.skipResource(ctx, "SQS", region, "queue "+name, err)
 		return nil
 	}
-	tags, err := p.resourceTags(region, arn, func() (map[string]string, error) {
+	tags, err := p.resourceTags(ctx, region, arn, func() (map[string]string, error) {
 		return getSQSTags(ctx, client, queueURL)
 	})
 	if err != nil {
@@ -187,9 +198,10 @@ item at a time (see `describePipelines` in `data_extra.go`).
 
 ### Bulk sweep only
 
-Call `p.requireBulkTags(region, label)` before listing, and return `nil, nil`
-when it is false. It logs the skipped service and counts it, so the scan does
-not look complete. After that, `p.bulkResource` or `p.bulkTags` gives the tags,
+Call `p.requireBulkTags(ctx, region, label)` before listing, and return
+`nil, nil` when it is false. It logs the skipped service and counts it, so the
+scan does not look complete (a cancelled scan counts nothing). After that,
+`p.bulkResource(ctx, ...)` or `p.bulkTags(ctx, region, arn)` gives the tags,
 and an ARN missing from the sweep is untagged.
 
 ### Add the type to the bulk filter
@@ -212,31 +224,52 @@ of paginators in "How tags are read" on the AWS provider page.
 
 ## 4. Route tag writes
 
-`tagctl apply` calls `ApplyTags` with the resource's ARN, or with its ID for
-the types in `idAddressedTypes`. `getResourceType` picks a route from the
-`resourceTypePrefixes` table, and `tagAppliers()` maps the route to a method.
-Any ARN that matches no prefix goes to `tagging_api`, which is
-`applyTagsViaTaggingAPI` (`tag:TagResources`). Most new types need nothing
-here.
+`tagctl apply` addresses a resource by its ARN, or by its ID for the types in
+`idAddressedTypes`, and passes the region the plan recorded for it
+(`ApplyTagsInRegion`). `getResourceType` parses the ARN and picks a route from
+its service segment in `arnServiceRoutes`, whatever the partition, and
+`tagAppliers(region)` maps the route to a method. An ARN whose service is not
+in the table goes to `tagging_api`, which is `applyTagsViaTaggingAPI`
+(`tag:TagResources`). Most new types need nothing here.
 
 Write an `apply<Service>Tags` method only when the Tagging API cannot tag the
 type, as with Lightsail. It has the `tagApplier` signature, takes the region
-from the ARN and wraps errors in `provider.NewProviderError`. Then add one
-entry to each map in `provider.go`:
+from the ARN with `regionForARN` and wraps errors in
+`provider.NewProviderError`:
 
 ```go
-// resourceTypePrefixes
-{"arn:aws:lightsail:", "lightsail"},
-
-// tagAppliers()
-"lightsail": p.applyLightsailTags,
+func (p *Provider) applyLightsailTags(ctx context.Context, arn string, tags map[string]string) error {
+	region, err := regionForARN(arn)
+	if err != nil {
+		return provider.NewProviderError(providerName, "apply_lightsail_tags", arn, err)
+	}
+	return applyLightsailTagsWith(ctx, regionalClient(p, region, lightsail.NewFromConfig), arn, tags)
+}
 ```
 
+`regionForARN` fails on an ARN that does not parse or has no region. Do not
+fall back to a configured region: the write would land in the wrong place or
+on a client with no region. Then add one entry to each map in `provider.go`:
+
+```go
+// arnServiceRoutes
+"lightsail":         routeLightsail,
+
+// tagAppliers()
+routeLightsail:       p.applyLightsailTags,
+```
+
+A route that also depends on the resource segment (ECS clusters and services,
+the Elastic Load Balancing families, S3 buckets) is decided in the `switch` of
+`getResourceType` instead.
+
 Only add the type to `idAddressedTypes` in `internal/engine/applier.go` when
-its tag API takes a bare ID instead of an ARN (the EC2 family, S3). The ID then
-needs a prefix that `resourceTypePrefixes` recognizes, such as `i-`, because
-`getResourceType` treats any other value that is not an ARN as an S3 bucket
-name.
+its tag API takes a bare ID instead of an ARN (the EC2 family). The ID then
+needs a prefix in `ec2IDPrefixes`, such as `i-`, and its applier needs the
+region from the plan, because an ID does not carry one: wrap it in
+`tagAppliers(region)` the way the EC2 entries are. An identifier that is
+neither an ARN nor a known ID prefix has no route, and `ApplyTags` fails with
+`unknown resource type`. S3 buckets are addressed by ARN.
 
 ## 5. Register the lister
 
@@ -289,7 +322,9 @@ action must be allowed as well.
 The scan policy stays on `"*"`. In the apply policy, add the ARN pattern of the
 tagged resource type to the statement's `Resource` list. Take the pattern from
 the Service Authorization Reference, for MemoryDB
-`arn:aws:memorydb:*:*:cluster/*`. Use `"*"` only when the reference lists no
+`arn:aws:memorydb:*:*:cluster/*`. The policies are written for the commercial
+partition; the AWS provider page tells China and GovCloud users to replace the
+`arn:aws:` prefix, so keep every pattern in that form. Use `"*"` only when the reference lists no
 resource type for the action. In that case, add the action to
 `unscopedWriteActions` in `internal/provider/aws/permissions_test.go` with that
 reason. If a write action can do more than tag, like `codebuild:UpdateProject`,

@@ -51,8 +51,8 @@ func (p *Provider) listKinesisStreamsFrom(ctx context.Context, client kinesisAPI
 		}
 	}
 
-	resources := forEachConcurrently(streams, func(s kinesisStream) []types.Resource {
-		tags, err := p.resourceTags(region, s.arn, func() (map[string]string, error) {
+	resources := forEachConcurrently(ctx, streams, func(s kinesisStream) []types.Resource {
+		tags, err := p.resourceTags(ctx, region, s.arn, func() (map[string]string, error) {
 			return getKinesisTags(ctx, client, s.arn)
 		})
 		if err != nil {
@@ -102,8 +102,12 @@ func getKinesisTags(ctx context.Context, client kinesisAPI, arn string) (map[str
 
 // applyKinesisTags applies tags to a Kinesis stream addressed by ARN.
 func (p *Provider) applyKinesisTags(ctx context.Context, arn string, tags map[string]string) error {
-	client := p.getKinesisClient(extractRegionFromARN(arn))
-	_, err := client.AddTagsToStream(ctx, &kinesis.AddTagsToStreamInput{
+	region, err := regionForARN(arn)
+	if err != nil {
+		return provider.NewProviderError(providerName, "apply_kinesis_tags", arn, err)
+	}
+	client := p.getKinesisClient(region)
+	_, err = client.AddTagsToStream(ctx, &kinesis.AddTagsToStreamInput{
 		StreamARN: aws.String(arn),
 		Tags:      tags,
 	})

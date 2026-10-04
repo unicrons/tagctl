@@ -4,9 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/aws/arn"
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 	sqstypes "github.com/aws/aws-sdk-go-v2/service/sqs/types"
 
@@ -47,14 +47,14 @@ func (p *Provider) listSQSQueuesFrom(ctx context.Context, client sqsAPI, region 
 		}
 	}
 
-	resources := forEachConcurrently(queueURLs, func(queueURL string) []types.Resource {
+	resources := forEachConcurrently(ctx, queueURLs, func(queueURL string) []types.Resource {
 		name := nameFromARN(queueURL)
 		arn, err := getSQSQueueARN(ctx, client, queueURL)
 		if err != nil {
 			p.skipResource(ctx, "SQS", region, "queue "+name, err)
 			return nil
 		}
-		tags, err := p.resourceTags(region, arn, func() (map[string]string, error) {
+		tags, err := p.resourceTags(ctx, region, arn, func() (map[string]string, error) {
 			return getSQSTags(ctx, client, queueURL)
 		})
 		if err != nil {
@@ -117,14 +117,13 @@ func (p *Provider) applySQSTags(ctx context.Context, arn string, tags map[string
 }
 
 // sqsQueueURLFromARN rebuilds a queue URL from an SQS ARN, which has the shape
-// arn:aws:sqs:<region>:<account>:<queue-name>. It returns the region alongside
-// the URL so callers can pick the right regional client.
-func sqsQueueURLFromARN(arn string) (region, queueURL string, err error) {
-	parts := strings.Split(arn, ":")
-	if len(parts) < 6 || parts[3] == "" || parts[4] == "" || parts[5] == "" {
-		return "", "", fmt.Errorf("malformed SQS ARN: %s", arn)
+// arn:<partition>:sqs:<region>:<account>:<queue-name>. It returns the region
+// alongside the URL so callers can pick the right regional client.
+func sqsQueueURLFromARN(queueARN string) (region, queueURL string, err error) {
+	parsed, err := arn.Parse(queueARN)
+	if err != nil || parsed.Region == "" || parsed.AccountID == "" || parsed.Resource == "" {
+		return "", "", fmt.Errorf("malformed SQS ARN: %s", queueARN)
 	}
-	region = parts[3]
-	queueURL = fmt.Sprintf("https://sqs.%s.amazonaws.com/%s/%s", region, parts[4], parts[5])
-	return region, queueURL, nil
+	queueURL = fmt.Sprintf("https://sqs.%s.%s/%s/%s", parsed.Region, dnsSuffix(parsed.Partition), parsed.AccountID, parsed.Resource)
+	return parsed.Region, queueURL, nil
 }

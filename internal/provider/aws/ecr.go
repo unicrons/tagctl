@@ -52,8 +52,8 @@ func (p *Provider) listECRRepositoriesFrom(ctx context.Context, client ecrAPI, r
 		}
 	}
 
-	resources := forEachConcurrently(repos, func(r ecrRepository) []types.Resource {
-		tags, err := p.resourceTags(region, r.arn, func() (map[string]string, error) {
+	resources := forEachConcurrently(ctx, repos, func(r ecrRepository) []types.Resource {
+		tags, err := p.resourceTags(ctx, region, r.arn, func() (map[string]string, error) {
 			output, err := client.ListTagsForResource(ctx, &ecr.ListTagsForResourceInput{ResourceArn: aws.String(r.arn)})
 			if err != nil {
 				return nil, err
@@ -88,8 +88,12 @@ func (p *Provider) applyECRTags(ctx context.Context, arn string, tags map[string
 		tagList = append(tagList, ecrtypes.Tag{Key: aws.String(k), Value: aws.String(v)})
 	}
 
-	client := p.getECRClient(extractRegionFromARN(arn))
-	_, err := client.TagResource(ctx, &ecr.TagResourceInput{
+	region, err := regionForARN(arn)
+	if err != nil {
+		return provider.NewProviderError(providerName, "apply_ecr_tags", arn, err)
+	}
+	client := p.getECRClient(region)
+	_, err = client.TagResource(ctx, &ecr.TagResourceInput{
 		ResourceArn: aws.String(arn),
 		Tags:        tagList,
 	})
