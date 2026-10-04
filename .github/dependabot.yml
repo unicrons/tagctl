@@ -7,7 +7,7 @@ updates:
     cooldown:
       default-days: 7
     commit-message:
-      prefix: "deps"
+      prefix: "deps(go)"
     labels:
       - "dependencies"
       - "go"
@@ -33,7 +33,7 @@ updates:
     cooldown:
       default-days: 7
     commit-message:
-      prefix: "deps"
+      prefix: "deps(docker)"
     labels:
       - "dependencies"
       - "docker"
@@ -45,7 +45,7 @@ updates:
     cooldown:
       default-days: 7
     commit-message:
-      prefix: "ci"
+      prefix: "ci(actions)"
     labels:
       - "dependencies"
       - "ci"
