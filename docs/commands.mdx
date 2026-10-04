@@ -47,8 +47,8 @@ that failed from a check that could not run:
 
 The reason is printed to stderr after `Error:`. An unknown command
 (`tagctl nosuch`) exits `2`, but `tagctl help <topic>` with an unknown topic
-prints the usage and exits `0`. Ctrl-C or SIGTERM makes `scan`, `apply` and
-`cost` stop and exit `2`; any other command is ended by the signal itself.
+prints the usage and exits `0`. Ctrl-C or SIGTERM makes `scan`, `plan`, `apply`
+and `cost` stop and exit `2`; any other command is ended by the signal itself.
 
 ## tagctl init
 

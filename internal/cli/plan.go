@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -48,10 +47,12 @@ func init() {
 	addOutputDirFlag(planCmd, "directory to read the latest scan from and write the plan to")
 }
 
+// planContext builds the context a plan runs under; tests replace it.
+var planContext = signalContext
+
 func runPlan(cmd *cobra.Command, args []string) error {
 	outFile, _ := cmd.Flags().GetString("out")
 	scanFile, _ := cmd.Flags().GetString("scan")
-	ctx := context.Background()
 
 	format, err := outputFormatFor(cmd, formatTable, formatJSON)
 	if err != nil {
@@ -62,6 +63,9 @@ func runPlan(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+
+	ctx, stop := planContext()
+	defer stop()
 
 	printBanner()
 
@@ -108,6 +112,9 @@ func runPlan(cmd *cobra.Command, args []string) error {
 	}
 
 	plan, err := planner.Plan(ctx, scanResult)
+	if err == nil {
+		err = ctx.Err()
+	}
 	if err != nil {
 		spinner.Fail("Failed to generate plan")
 		return fmt.Errorf("failed to generate plan: %w", err)

@@ -1,7 +1,9 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -57,5 +59,44 @@ func TestExecute_DemoPlanIsPrintedButNeverSaved(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestExecute_InterruptedPlanIsNotSaved(t *testing.T) {
+	dir := t.TempDir()
+	config := writeFixture(t, dir, "tagctl.yaml",
+		"clouds:\n  aws:\n    - profile: default\n      regions: [us-east-1]\npolicy:\n  required:\n    - name: owner\n")
+	scan := writeScan(t, dir, "scan.json", failedScan(0))
+	out := filepath.Join(dir, "plan.json")
+
+	original := planContext
+	planContext = func() (context.Context, context.CancelFunc) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		return ctx, cancel
+	}
+	t.Cleanup(func() { planContext = original })
+
+	run := execute(t, "-c", config, "plan", "--scan", scan, "--out", out)
+	if !errors.Is(run.err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", run.err)
+	}
+	if _, err := os.Stat(out); !os.IsNotExist(err) {
+		t.Errorf("interrupted plan was saved (stat err %v)", err)
+	}
+}
+
+func TestFindLatestScan_JoinsWithTheOutputDir(t *testing.T) {
+	original := OutputDir
+	OutputDir = t.TempDir()
+	t.Cleanup(func() { OutputDir = original })
+	writeScan(t, OutputDir, "scan-20260101-000000.json", failedScan(0))
+
+	got, err := findLatestScan()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(OutputDir, "scan-20260101-000000.json"); got != want {
+		t.Errorf("findLatestScan() = %q, want %q", got, want)
 	}
 }
