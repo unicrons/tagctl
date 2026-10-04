@@ -17,7 +17,7 @@ GOVET=$(GOCMD) vet
 
 # Development tools, pinned to the versions .github/workflows/ci.yml uses
 GOLANGCI_LINT_VERSION := v2.13.2
-TRUFFLEHOG_VERSION := v3.97.4
+TRUFFLEHOG_VERSION := v3.97.9
 TOOLS_BIN := $(or $(shell $(GOCMD) env GOBIN),$(shell $(GOCMD) env GOPATH)/bin)
 GOLANGCI_LINT := $(or $(wildcard $(TOOLS_BIN)/golangci-lint),$(shell command -v golangci-lint))
 
