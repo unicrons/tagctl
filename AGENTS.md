@@ -239,7 +239,7 @@ ignore:
    is skipped. Inherit resolves `Resource.Parents` (relation → parent
    `Identity()`, set by the provider) against the resources in the scan; a
    scan with no parents at all adds a `Plan.Warnings` entry that `plan` prints
-4. **Apply**: `engine.ValidatePlan` (add/update/remove, a named tag, never set and removed on one resource) → `engine.Applier` → `provider.Provider.ApplyTags()`, then `provider.TagRemover.RemoveTags()` (see Tag removal) → cloud API calls
+4. **Apply**: `engine.ValidatePlan` (add/update/remove, a named tag, never set and removed on one resource) → `engine.Applier` → `provider.ResourceTagger.TagResource()` (the whole resource; `provider.Provider.ApplyTags()` with `Resource.ID` when the provider does not implement it), then `provider.TagRemover.RemoveTags()` (see Tag removal) → cloud API calls
 
 `apply --interactive` runs `reviewChanges` between loading the plan and the
 applier: one prompt per `Resource.Identity()` on stderr, answers read from
@@ -378,10 +378,13 @@ Each provider implements the `provider.Provider` interface (`Name`,
 Kubernetes cluster name): the applier routes a change to the provider whose
 `AccountID()` equals the resource's `Account`, so a provider that can be
 configured more than once must implement it.
-A provider that also implements `ApplyTagsInRegion` (engine `regionalTagger`)
-receives `Resource.Region` from the plan: AWS needs it for EC2 resources,
-tagged by bare ID with one `CreateTags` call in that region, and fails without
-it instead of probing regions.
+A provider that also implements `provider.ResourceTagger` (`TagResource(ctx,
+resource, tags)`) receives the whole resource of the plan instead of its ID
+and decides how to address it; the engine knows no identifier scheme. AWS
+picks the ARN, or the bare ID for `idAddressedTypes` (`taggingIdentifier` in
+`internal/provider/aws/provider.go`), and needs `Resource.Region` for EC2
+resources, tagged by bare ID with one `CreateTags` call in that region: it
+fails without it instead of probing regions.
 
 Provider status has one table, "Provider Status" in `docs/development.mdx`.
 README, CONTRIBUTING, `tagctl.yaml.example`, the `init` templates and the docs
@@ -492,9 +495,9 @@ Checklist:
 4. Writes: `tagging_api` (`applyTagsViaTaggingAPI`) by default;
    `apply<Service>Tags` (region from `regionForARN(arn)`, never a configured
    region) + `tagAppliers` + `arnServiceRoutes` only when the Tagging
-   API cannot tag the type; `idAddressedTypes` + `ec2IDPrefixes` only for
-   bare-ID tag APIs, which get the plan's region through `regionTagAppliers`
-   (built once from `ec2IDPrefixes`, plus S3)
+   API cannot tag the type; `idAddressedTypes` + `ec2IDPrefixes` (both in
+   `provider.go`) only for bare-ID tag APIs, which get the plan's region
+   through `regionTagAppliers` (built once from `ec2IDPrefixes`, plus S3)
 5. Register in `regionalListers()` (`provider.go`) or `globalListers()`
 6. Pinned tests: `TestRegionalListers`/`TestGlobalListers`,
    `TestGetResourceType_AllSupportedServices`, `TestTaggingIdentifier`
@@ -693,7 +696,7 @@ Install with: `make hooks`
     `lightsailEndpoints` returns (`GetRegions` once per provider, commercial
     partition only; `lightsailFallbackRegions` and one `log.Error` when the
     call fails); both are addressed by their own tag API, not the Tagging API.
-    `idAddressedTypes` in the applier is the short list of types tagged by ID
+    `idAddressedTypes` in the AWS provider is the short list of types tagged by ID
     (EC2 family); everything else, S3 buckets included, is tagged by ARN. An
     identifier that is neither an ARN nor an EC2 ID has no route and
     `ApplyTags` fails with `unknown resource type`

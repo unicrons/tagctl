@@ -481,13 +481,45 @@ var regionTagAppliers = func() map[string]regionTagApplier {
 
 // ApplyTags applies tags to an AWS resource addressed by ARN.
 func (p *Provider) ApplyTags(ctx context.Context, resourceID string, tags map[string]string) error {
-	return p.ApplyTagsInRegion(ctx, resourceID, "", tags)
+	return p.applyTagsInRegion(ctx, resourceID, "", tags)
 }
 
-// ApplyTagsInRegion applies tags to an AWS resource. region is where the
+// TagResource applies tags to a resource, addressed by its taggingIdentifier
+// in the region it records.
+func (p *Provider) TagResource(ctx context.Context, resource types.Resource, tags map[string]string) error {
+	return p.applyTagsInRegion(ctx, taggingIdentifier(resource), resource.Region, tags)
+}
+
+// idAddressedTypes lists the resource types whose tagging API takes the bare
+// ID (EC2 family). Every other type is addressed by ARN.
+var idAddressedTypes = map[string]bool{
+	"aws_instance":         true,
+	"aws_ami":              true,
+	"aws_ebs_volume":       true,
+	"aws_ebs_snapshot":     true,
+	"aws_launch_template":  true,
+	"aws_vpc":              true,
+	"aws_subnet":           true,
+	"aws_security_group":   true,
+	"aws_internet_gateway": true,
+	"aws_nat_gateway":      true,
+	"aws_vpc_endpoint":     true,
+	"aws_eip":              true,
+}
+
+// taggingIdentifier returns the identifier a resource is tagged by: the ID
+// for idAddressedTypes or when it has no ARN, the ARN otherwise.
+func taggingIdentifier(resource types.Resource) string {
+	if resource.ARN != "" && !idAddressedTypes[resource.Type] {
+		return resource.ARN
+	}
+	return resource.ID
+}
+
+// applyTagsInRegion applies tags to an AWS resource. region is where the
 // resource lives; EC2 resources, addressed by bare ID, cannot be tagged
 // without it and S3 buckets need a GetBucketLocation call.
-func (p *Provider) ApplyTagsInRegion(ctx context.Context, resourceID, region string, tags map[string]string) error {
+func (p *Provider) applyTagsInRegion(ctx context.Context, resourceID, region string, tags map[string]string) error {
 	route := p.getResourceType(resourceID)
 	if apply, ok := tagAppliers[route]; ok {
 		return apply(p, ctx, resourceID, tags)

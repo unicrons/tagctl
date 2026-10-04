@@ -139,7 +139,17 @@ type Provider interface {
     ListResources(ctx context.Context) ([]types.Resource, error)
     ApplyTags(ctx context.Context, resourceID string, tags map[string]string) error
 }
+
+// Optional: the provider picks the identifier and region to tag with
+type ResourceTagger interface {
+    TagResource(ctx context.Context, resource types.Resource, tags map[string]string) error
+}
 ```
+
+The engine knows no cloud's identifier scheme. A provider that implements
+`ResourceTagger` receives the whole resource of the plan: AWS tags by ARN, or
+by bare ID for the EC2 family, in the resource's region. Any other provider
+gets `ApplyTags()` with the resource ID.
 
 ## Data Flow
 
@@ -181,7 +191,7 @@ tagctl apply ◀────────────┘
     1. Load plan file (latest or specified with `--plan`)
     2. Show summary and ask for confirmation
     3. Group changes by resource and region
-    4. Call `ApplyTags()` on AWS provider, then, with `--allow-removals`, `RemoveTags()` for the keys to remove
+    4. Call `TagResource()` on the AWS provider (`ApplyTags()` on Kubernetes), then, with `--allow-removals`, `RemoveTags()` for the keys to remove
     5. Report success/failure for each change
   </Step>
 </Steps>
@@ -263,7 +273,8 @@ A new AWS service is not a new provider: see
     Create `internal/provider/newcloud/`
   </Step>
   <Step title="Implement interface">
-    Implement `Provider` interface with `Name()`, `ListResources()`, `ApplyTags()`
+    Implement `Provider` interface with `Name()`, `ListResources()`, `ApplyTags()`,
+    plus `ResourceTagger` when the resource ID alone does not address a resource
   </Step>
   <Step title="Add config">
     Add config struct to `internal/config/config.go`

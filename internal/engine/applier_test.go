@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -69,50 +70,6 @@ func TestMockApplier_Apply_EmptyPlan(t *testing.T) {
 
 	if result.TotalChanges != 0 {
 		t.Errorf("TotalChanges = %d, want 0", result.TotalChanges)
-	}
-}
-
-func TestTaggingIdentifier(t *testing.T) {
-	cases := []struct {
-		typ  string
-		want string
-	}{
-		{"aws_instance", "i-1"},
-		{"aws_s3_bucket", "arn:x"},
-		{"aws_db_instance", "arn:x"},
-		{"aws_lambda_function", "arn:x"},
-		{"aws_dynamodb_table", "arn:x"},
-		{"aws_ecs_service", "arn:x"},
-		{"aws_eks_cluster", "arn:x"},
-		{"aws_elasticache_cluster", "arn:x"},
-		{"aws_efs_file_system", "arn:x"},
-		{"aws_ecr_repository", "arn:x"},
-		{"aws_kms_key", "arn:x"},
-		{"aws_kinesis_stream", "arn:x"},
-		{"aws_cloudwatch_log_group", "arn:x"},
-		{"aws_rds_cluster", "arn:x"},
-		{"aws_elb", "arn:x"},
-		{"aws_lb_target_group", "arn:x"},
-		{"aws_sfn_state_machine", "arn:x"},
-		{"aws_iam_role", "arn:x"},
-		{"aws_ami", "i-1"},
-		{"aws_eip", "i-1"},
-		{"aws_lb", "arn:x"},
-		{"aws_autoscaling_group", "arn:x"},
-		{"aws_sns_topic", "arn:x"},
-		{"aws_sqs_queue", "arn:x"},
-		{"aws_cloudtrail", "arn:x"},
-		{"aws_lightsail_instance", "arn:x"},
-		{"aws_docdb_cluster", "arn:x"},
-	}
-	for _, tc := range cases {
-		r := types.Resource{Provider: "aws", ID: "i-1", ARN: "arn:x", Type: tc.typ}
-		if got := taggingIdentifier(r); got != tc.want {
-			t.Errorf("%s: got %q, want %q", tc.typ, got, tc.want)
-		}
-	}
-	if got := taggingIdentifier(types.Resource{Provider: "aws", ID: "i-1", Type: "aws_kms_key"}); got != "i-1" {
-		t.Errorf("without ARN want the ID, got %q", got)
 	}
 }
 
@@ -291,27 +248,33 @@ func TestRealApplier_RoutesChangesToTheirOwnAccount(t *testing.T) {
 	}
 }
 
-type regionRecorder struct {
+type resourceRecorder struct {
 	funcProvider
-	mu      sync.Mutex
-	regions map[string]string
+	mu     sync.Mutex
+	tagged map[string]types.Resource
+	tags   map[string]map[string]string
 }
 
-func (p *regionRecorder) ApplyTagsInRegion(_ context.Context, id, region string, _ map[string]string) error {
+func (p *resourceRecorder) TagResource(_ context.Context, resource types.Resource, tags map[string]string) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.regions[id] = region
+	p.tagged[resource.ID] = resource
+	p.tags[resource.ID] = tags
 	return nil
 }
 
-func TestRealApplier_PassesTheResourceRegionToRegionalTaggers(t *testing.T) {
-	p := &regionRecorder{
-		funcProvider: func(id string) error { return fmt.Errorf("ApplyTags called for %s without its region", id) },
-		regions:      map[string]string{},
+func TestRealApplier_HandsTheWholeResourceToResourceTaggers(t *testing.T) {
+	p := &resourceRecorder{
+		funcProvider: func(id string) error { return fmt.Errorf("ApplyTags called for %s instead of TagResource", id) },
+		tagged:       map[string]types.Resource{},
+		tags:         map[string]map[string]string{},
 	}
+	instance := types.Resource{ID: "i-1", ARN: "arn:aws:ec2:eu-west-1:123456789012:instance/i-1", Provider: "aws", Type: "aws_instance", Region: "eu-west-1"}
+	volume := types.Resource{ID: "vol-1", Provider: "aws", Type: "aws_ebs_volume", Region: "ap-south-1"}
 	plan := &types.Plan{Changes: []types.TagChange{
-		{Resource: types.Resource{ID: "i-1", Provider: "aws", Type: "aws_instance", Region: "eu-west-1"}, Tag: "owner", NewValue: "x", Action: types.ActionAdd},
-		{Resource: types.Resource{ID: "vol-1", Provider: "aws", Type: "aws_ebs_volume", Region: "ap-south-1"}, Tag: "owner", NewValue: "x", Action: types.ActionAdd},
+		{Resource: instance, Tag: "owner", NewValue: "x", Action: types.ActionAdd},
+		{Resource: instance, Tag: "team", NewValue: "y", Action: types.ActionUpdate},
+		{Resource: volume, Tag: "owner", NewValue: "x", Action: types.ActionAdd},
 	}}
 
 	result, err := NewApplier([]provider.Provider{p}).Apply(context.Background(), plan)
@@ -321,8 +284,30 @@ func TestRealApplier_PassesTheResourceRegionToRegionalTaggers(t *testing.T) {
 	if result.ErrorCount != 0 {
 		t.Fatalf("errors = %+v", result.Errors)
 	}
-	want := map[string]string{"i-1": "eu-west-1", "vol-1": "ap-south-1"}
-	if !maps.Equal(p.regions, want) {
-		t.Errorf("regions = %v, want %v", p.regions, want)
+	for _, want := range []types.Resource{instance, volume} {
+		got := p.tagged[want.ID]
+		if got.Identity() != want.Identity() || got.ARN != want.ARN || got.Type != want.Type || got.Region != want.Region {
+			t.Errorf("TagResource got %+v, want %+v", got, want)
+		}
+	}
+	if want := map[string]string{"owner": "x", "team": "y"}; !maps.Equal(p.tags["i-1"], want) {
+		t.Errorf("tags of i-1 = %v, want %v in one call", p.tags["i-1"], want)
+	}
+}
+
+func TestRealApplier_AddressesOtherProvidersByResourceID(t *testing.T) {
+	var ids []string
+	p := funcProvider(func(id string) error { ids = append(ids, id); return nil })
+	plan := &types.Plan{Changes: []types.TagChange{{
+		Resource: types.Resource{ID: "fn", ARN: "arn:aws:lambda:us-east-1:123456789012:function:fn", Provider: "aws", Type: "aws_lambda_function", Region: "us-east-1"},
+		Tag:      "owner", NewValue: "x", Action: types.ActionAdd,
+	}}}
+
+	result, err := NewApplier([]provider.Provider{p}).Apply(context.Background(), plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.ErrorCount != 0 || !slices.Equal(ids, []string{"fn"}) {
+		t.Errorf("ApplyTags called with %q, errors %+v; want the resource ID", ids, result.Errors)
 	}
 }
