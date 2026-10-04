@@ -130,8 +130,9 @@ What the lister is responsible for:
   SDK models it (`types/errors.go` of the service module) and its
   documentation says the account or region is not set up, and test the lister
   with that SDK error type. A service with endpoints in only some regions
-  checks the region before building a client, like `lightsailRegions` for
-  Lightsail.
+  checks the region before building a client, like `lightsailEndpoints` for
+  Lightsail, which asks the service once per provider and keeps a built-in
+  list for when that call fails.
 
 **Global services** such as Route 53, CloudFront and IAM are listed once per
 account, not per region. Their listers take only `ctx`, live next to

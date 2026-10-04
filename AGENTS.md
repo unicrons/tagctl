@@ -587,12 +587,14 @@ Install with: `make hooks`
     `prowler/providers/aws/services` (90 services); the seven with nothing to
     tag per account are deliberately absent (account, inspector2, macie,
     organizations, resourceexplorer2, securityhub, trustedadvisor). Global
-    Accelerator lives only in us-west-2 and Lightsail only in
-    `lightsailRegions`; both are addressed by their own tag API, not the
-    Tagging API. `idAddressedTypes` in the applier is the short list of types
-    tagged by ID (EC2 family); everything else, S3 buckets included, is tagged
-    by ARN. An identifier that is neither an ARN nor an EC2 ID has no route
-    and `ApplyTags` fails with `unknown resource type`
+    Accelerator lives only in us-west-2 and Lightsail only in the regions
+    `lightsailEndpoints` returns (`GetRegions` once per provider, commercial
+    partition only; `lightsailFallbackRegions` and one `log.Error` when the
+    call fails); both are addressed by their own tag API, not the Tagging API.
+    `idAddressedTypes` in the applier is the short list of types tagged by ID
+    (EC2 family); everything else, S3 buckets included, is tagged by ARN. An
+    identifier that is neither an ARN nor an EC2 ID has no route and
+    `ApplyTags` fails with `unknown resource type`
 
 12. **Cost Explorer bills per request**: `cost` runs one `GetCostAndUsage`
     query per tag (plus its pages). `--trend` switches that query to `DAILY`

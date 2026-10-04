@@ -2,6 +2,7 @@ package aws
 
 import (
 	"context"
+	"errors"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/appstream"
@@ -48,6 +49,7 @@ type drsAPI interface {
 }
 
 type lightsailAPI interface {
+	GetRegions(ctx context.Context, params *lightsail.GetRegionsInput, optFns ...func(*lightsail.Options)) (*lightsail.GetRegionsOutput, error)
 	GetInstances(ctx context.Context, params *lightsail.GetInstancesInput, optFns ...func(*lightsail.Options)) (*lightsail.GetInstancesOutput, error)
 	TagResource(ctx context.Context, params *lightsail.TagResourceInput, optFns ...func(*lightsail.Options)) (*lightsail.TagResourceOutput, error)
 }
@@ -65,9 +67,9 @@ type workSpacesAPI interface {
 	DescribeWorkspaces(ctx context.Context, params *workspaces.DescribeWorkspacesInput, optFns ...func(*workspaces.Options)) (*workspaces.DescribeWorkspacesOutput, error)
 }
 
-// lightsailRegions are the regions where Lightsail has an endpoint; calling
-// it anywhere else fails at DNS.
-var lightsailRegions = map[string]bool{
+// lightsailFallbackRegions stand in for GetRegions when it cannot be called.
+// They may lag behind Lightsail: a region missing here is not scanned.
+var lightsailFallbackRegions = map[string]bool{
 	"us-east-1": true, "us-east-2": true, "us-west-2": true,
 	"ca-central-1": true,
 	"eu-west-1":    true, "eu-west-2": true, "eu-west-3": true, "eu-central-1": true, "eu-north-1": true,
@@ -225,10 +227,41 @@ func (p *Provider) listSourceServersFrom(ctx context.Context, client drsAPI, reg
 }
 
 func (p *Provider) listLightsailInstances(ctx context.Context, region string) ([]types.Resource, error) {
-	if !lightsailRegions[region] {
+	endpoints := p.lightsailEndpoints(ctx, func() lightsailAPI {
+		return regionalClient(p, p.globalRegion(), lightsail.NewFromConfig)
+	})
+	if !endpoints[region] {
 		return nil, nil
 	}
 	return p.listLightsailInstancesFrom(ctx, regionalClient(p, region, lightsail.NewFromConfig), region)
+}
+
+// lightsailEndpoints returns the regions where Lightsail has an endpoint;
+// calling it anywhere else fails at DNS. GetRegions is asked once per
+// provider, and only in the commercial partition, the one Lightsail is in.
+func (p *Provider) lightsailEndpoints(ctx context.Context, client func() lightsailAPI) map[string]bool {
+	p.lightsailOnce.Do(func() {
+		p.lightsailRegions = lightsailFallbackRegions
+		if p.partitionID() != partitionAWS {
+			return
+		}
+		output, err := client().GetRegions(ctx, &lightsail.GetRegionsInput{})
+		if err == nil && len(output.Regions) == 0 {
+			err = errors.New("no region returned")
+		}
+		if err != nil {
+			if ctx.Err() == nil {
+				log.Error("AWS Lightsail: cannot list its regions (lightsail:GetRegions), using the built-in list, which may lack newer regions: %v", err)
+			}
+			return
+		}
+		regions := make(map[string]bool, len(output.Regions))
+		for _, r := range output.Regions {
+			regions[string(r.Name)] = true
+		}
+		p.lightsailRegions = regions
+	})
+	return p.lightsailRegions
 }
 
 func (p *Provider) listLightsailInstancesFrom(ctx context.Context, client lightsailAPI, region string) ([]types.Resource, error) {

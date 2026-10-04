@@ -71,6 +71,10 @@ type Provider struct {
 	// clients caches the SDK clients created through regionalClient, keyed by
 	// client type and region.
 	clients map[string]any
+
+	// lightsailRegions is filled once by lightsailEndpoints.
+	lightsailOnce    sync.Once
+	lightsailRegions map[string]bool
 }
 
 // New creates a new AWS provider with the given account configuration.
