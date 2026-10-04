@@ -120,6 +120,12 @@ jobs:
     needs: changes
     if: needs.changes.outputs.go == 'true'
     steps:
+      # The race and coverage build of the AWS SDK fills the default disk.
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          df -h /
+
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -133,11 +139,6 @@ jobs:
 
       - name: Download dependencies
         run: go mod download
-
-      - name: Cross-compile
-        run: |
-          GOOS=windows GOARCH=amd64 go build ./...
-          GOOS=darwin GOARCH=arm64 go build ./...
 
       - name: Run tests
         run: go test -v -race -shuffle=on -coverprofile=coverage.out ./...
@@ -156,6 +157,16 @@ jobs:
           files: ./coverage.out
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
+
+      # Each target gets a throwaway build cache: three full caches of the
+      # AWS SDK do not fit on the runner's disk.
+      - name: Cross-compile
+        run: |
+          for target in windows/amd64 darwin/arm64; do
+            cache=$(mktemp -d)
+            GOCACHE="$cache" GOOS="${target%/*}" GOARCH="${target#*/}" go build ./...
+            rm -rf "$cache"
+          done
 
   gosec:
     name: Gosec
