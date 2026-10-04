@@ -250,14 +250,14 @@ func writeNormalizePlan(result *types.NormalizeResult, path string) error {
 		return fmt.Errorf("failed to write plan file: %w", err)
 	}
 
-	fmt.Fprintf(os.Stderr, "\nPlan written to %s (%d change(s))\n", path, len(plan.Changes))
-	fmt.Fprintln(os.Stderr, "Review it, then run: tagctl apply --plan "+path)
+	fmt.Fprintf(os.Stderr, "\nPlan written to %s (%d change(s))\n", printable(path), len(plan.Changes))
+	fmt.Fprintln(os.Stderr, "Review it, then run: tagctl apply --plan "+printable(path))
 
 	return nil
 }
 
 func printNormalizeTable(result *types.NormalizeResult, source string) {
-	fmt.Printf("Source: %s\n", source)
+	fmt.Printf("Source: %s\n", printable(source))
 	fmt.Printf("Scanned %d resources across %d tag(s)\n\n", result.ResourcesScanned, result.TagsScanned)
 
 	if result.IsEmpty() {

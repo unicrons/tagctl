@@ -194,8 +194,8 @@ func printJSON(value any) error {
 }
 
 func printDiffTable(result *types.DiffResult, baselinePath, currentPath string) {
-	fmt.Printf("Baseline: %s (%s)\n", baselinePath, result.BaselineScannedAt.Format("2006-01-02 15:04:05"))
-	fmt.Printf("Current:  %s (%s)\n", currentPath, result.CurrentScannedAt.Format("2006-01-02 15:04:05"))
+	fmt.Printf("Baseline: %s (%s)\n", printable(baselinePath), result.BaselineScannedAt.Format("2006-01-02 15:04:05"))
+	fmt.Printf("Current:  %s (%s)\n", printable(currentPath), result.CurrentScannedAt.Format("2006-01-02 15:04:05"))
 	fmt.Println()
 
 	delta := result.CompliancePctDelta()

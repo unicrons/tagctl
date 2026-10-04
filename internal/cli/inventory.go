@@ -13,5 +13,5 @@ func warnNoInventory(w io.Writer, path string, scan *types.ScanResult) {
 	if scan.TotalResources == 0 || len(scan.Resources) > 0 || len(scan.Findings) > 0 || len(scan.Violations) > 0 {
 		return
 	}
-	fmt.Fprintf(w, "Warning: %s counts %d resource(s) but names none (no inventory and no findings); new and removed resources may be wrong\n", path, scan.TotalResources)
+	fmt.Fprintf(w, "Warning: %s counts %d resource(s) but names none (no inventory and no findings); new and removed resources may be wrong\n", printable(path), scan.TotalResources)
 }

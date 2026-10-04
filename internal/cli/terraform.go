@@ -184,7 +184,7 @@ func printTerraformResult(result *types.ScanResult, source string, changedOnly b
 		scope = "resources being created or updated"
 	}
 
-	fmt.Printf("Source: %s (%s)\n", source, scope)
+	fmt.Printf("Source: %s (%s)\n", printable(source), scope)
 	fmt.Printf("Checked %d resources against the tag policy\n\n", result.TotalResources)
 
 	failures := result.FailedFindings()

@@ -185,3 +185,95 @@ func TestScan_ResourceTypeWarningNeutralisesEscapeSequences(t *testing.T) {
 	}
 	assertNoControlCharacters(t, run.stderr, "no discovered resource matches --resource-type zz?c?*")
 }
+
+func TestCommandNotices_NeutraliseEscapeSequencesInPaths(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("control characters are not valid in Windows file names")
+	}
+
+	const shown = "evil?[31m?dir"
+	dir := filepath.Join(t.TempDir(), "evil\x1b[31m\rdir")
+	if err := os.Mkdir(dir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	config := writeFixture(t, dir, "tagctl.yaml", awsPolicy)
+	tfPlan := writeFixture(t, dir, "plan.json", terraformPlanFixture)
+	resources := writeFixture(t, dir, "resources.json", `[
+		{"id": "i-1", "type": "aws_instance", "provider": "aws", "tags": {"environment": "prod"}},
+		{"id": "i-2", "type": "aws_instance", "provider": "aws", "tags": {"environment": "Prod"}}
+	]`)
+	unnamed := writeScan(t, dir, "unnamed.json", &types.ScanResult{TotalResources: 3})
+	scans := filepath.Join(dir, "scans")
+	if err := os.Mkdir(scans, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	scan := writeScan(t, scans, scanJan, failedScan(0))
+	writeScan(t, scans, scanFeb, failedScan(0))
+
+	tests := []struct {
+		name string
+		args []string
+		want []string
+	}{
+		{
+			name: "diff file arguments",
+			args: []string{"diff", scan, scan},
+			want: []string{"Baseline: ", "Current:  "},
+		},
+		{
+			name: "diff scans found in --output-dir",
+			args: []string{"diff", "--output-dir", scans},
+			want: []string{"Baseline: ", "Current:  "},
+		},
+		{
+			name: "diff scan without an inventory",
+			args: []string{"diff", unnamed, unnamed},
+			want: []string{"Warning: "},
+		},
+		{
+			name: "normalize --scan",
+			args: []string{"normalize", "--scan", scan},
+			want: []string{"Source: "},
+		},
+		{
+			name: "normalize --resources and --out",
+			args: []string{"normalize", "--resources", resources, "--out", filepath.Join(dir, "normalize-plan.json")},
+			want: []string{"Source: ", "Plan written to ", "tagctl apply --plan "},
+		},
+		{
+			name: "terraform --plan",
+			args: []string{"terraform", "--plan", tfPlan},
+			want: []string{"Source: "},
+		},
+		{
+			name: "validate config path",
+			args: []string{"validate"},
+			want: []string{"Validating "},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			run := execute(t, append([]string{"-c", config}, tt.args...)...)
+			if run.err != nil {
+				t.Fatalf("tagctl %v error = %v", tt.args, run.err)
+			}
+
+			out := run.stdout + run.stderr
+			for _, want := range tt.want {
+				found := false
+				for _, line := range strings.Split(out, "\n") {
+					if strings.Contains(line, want) && strings.Contains(line, shown) {
+						found = true
+					}
+				}
+				if !found {
+					t.Errorf("no line carries %q with the neutralised path %q:\n%q", want, shown, out)
+				}
+			}
+			if strings.ContainsAny(out, "\x1b\r") {
+				t.Errorf("output carries the raw escape sequence or carriage return: %q", out)
+			}
+		})
+	}
+}
