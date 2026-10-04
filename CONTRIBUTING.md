@@ -433,8 +433,9 @@ Follow standard Go conventions:
 
 ### Naming
 
-- Interfaces: `Scanner`, `Planner`, `Applier` (noun)
-- Implementations: `MockScanner`, `MockPlanner`, `MockApplier`
+- Interfaces: `Provider`, `Applier` (noun), declared only when a second
+  implementation exists
+- Implementations: `RealApplier`, `MockApplier`
 - Constructors: `NewScanner()`, `NewMockScanner()`
 
 ### Error Handling

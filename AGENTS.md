@@ -221,7 +221,7 @@ ignore:
 
 ### Data Flow
 
-1. **Scan**: `engine.Scanner` → `provider.Provider.ListResources()` → `[]types.Resource`.
+1. **Scan**: `engine.RealScanner` → `provider.Provider.ListResources()` → `[]types.Resource`.
    A provider error keeps the other resources, sets `ScanResult.Partial`/`Errors`
    and is returned joined; `scan` writes its reports, then fails unless
    `--allow-partial`. `plan`, `diff` and `--baseline` warn on a partial scan file.
@@ -229,7 +229,7 @@ ignore:
    types after discovery, before `ignore`: listers do not declare their
    resource types, so no API call is saved
 2. **Evaluate**: `engine.Evaluator` → `[]types.Finding` (PASS or FAILED)
-3. **Plan**: `engine.Planner` → `[]types.TagChange`. `rules.rename` runs first, on
+3. **Plan**: `engine.RealPlanner` → `[]types.TagChange`. `rules.rename` runs first, on
    every resource in the scan carrying `from`: an `add` of `to` plus a `remove`
    of `from`, only the `remove` when `to` already holds the value, and a
    `Plan.Conflicts` entry (nothing planned, `from` kept even if forbidden) when

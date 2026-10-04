@@ -14,13 +14,7 @@ import (
 	"github.com/unicrons/tagctl/internal/types"
 )
 
-// Scanner discovers cloud resources and evaluates tag compliance.
-type Scanner interface {
-	// Scan discovers resources and evaluates them against the policy.
-	Scan(ctx context.Context) (*types.ScanResult, error)
-}
-
-// RealScanner is the production implementation of Scanner.
+// RealScanner discovers cloud resources and evaluates their tag compliance.
 type RealScanner struct {
 	providers []provider.Provider
 	evaluator *Evaluator
@@ -28,7 +22,7 @@ type RealScanner struct {
 	onlyTypes []string
 }
 
-// NewScanner creates a new Scanner with the given providers and policy.
+// NewScanner creates a RealScanner with the given providers and policy.
 func NewScanner(providers []provider.Provider, policy config.PolicyConfig, ignore config.IgnoreConfig) (*RealScanner, error) {
 	log.Debug("Scanner: Creating scanner with %d provider(s)", len(providers))
 	log.Debug("Scanner: Policy has %d required tags, %d optional tags", len(policy.Required), len(policy.Optional))
@@ -212,7 +206,7 @@ func matchesAnyGlob(patterns []string, value string) bool {
 	return false
 }
 
-// MockScanner is a Scanner implementation that returns mock data.
+// MockScanner returns mock data instead of scanning.
 type MockScanner struct{}
 
 // NewMockScanner creates a new MockScanner.

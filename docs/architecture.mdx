@@ -109,19 +109,21 @@ Handles user interaction using [Cobra](https://github.com/spf13/cobra).
 
 ### Engine Layer
 
-Core business logic, abstracted behind interfaces.
+Core business logic. The scanner, evaluator and planner are concrete types;
+`Applier` is the one interface, because `apply` swaps in a simulated applier.
 
 ```go
-// Scanner discovers resources and checks compliance
-type Scanner interface {
-    Scan(ctx context.Context) (*types.ScanResult, error)
-}
+// RealScanner discovers resources and checks compliance
+func (s *RealScanner) Scan(ctx context.Context) (*types.ScanResult, error)
 
 // Evaluator evaluates resources against policy
 type Evaluator struct {
     policy   config.PolicyConfig
     compiled map[string]*regexp.Regexp
 }
+
+// RealPlanner turns the failed findings of a scan into tag changes
+func (p *RealPlanner) Plan(ctx context.Context, scan *types.ScanResult) (*types.Plan, error)
 
 // Applier applies tag changes
 type Applier interface {

@@ -13,12 +13,6 @@ import (
 	"github.com/unicrons/tagctl/internal/types"
 )
 
-// Planner generates fix plans based on scan results and rules.
-type Planner interface {
-	// Plan generates a fix plan from scan results.
-	Plan(ctx context.Context, scanResult *types.ScanResult) (*types.Plan, error)
-}
-
 // RealPlanner generates fix plans based on scan results and configured rules.
 type RealPlanner struct {
 	rules      config.RulesConfig
@@ -424,7 +418,7 @@ func (p *RealPlanner) checkConditions(when map[string]string, finding types.Find
 	return true
 }
 
-// MockPlanner is a Planner implementation that returns mock data.
+// MockPlanner returns a mock plan instead of planning.
 type MockPlanner struct{}
 
 // NewMockPlanner creates a new MockPlanner.
