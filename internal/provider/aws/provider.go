@@ -431,47 +431,49 @@ func acquireSlot(ctx context.Context, slots chan struct{}) bool {
 // routeLightsail is the tagging route of Lightsail resources.
 const routeLightsail = "lightsail"
 
-// tagApplier writes tags to one resource through its service API.
-type tagApplier func(ctx context.Context, resourceID string, tags map[string]string) error
+// tagApplier writes tags to a resource addressed by ARN through its service
+// API; the region comes from the ARN.
+type tagApplier func(p *Provider, ctx context.Context, arn string, tags map[string]string) error
+
+// regionTagApplier writes tags to a resource whose identifier does not carry
+// its region; region is the one the plan recorded.
+type regionTagApplier func(p *Provider, ctx context.Context, resourceID, region string, tags map[string]string) error
 
 // tagAppliers maps the tagging route returned by getResourceType to the
-// service-specific applier. region is the resource's region as the plan
-// recorded it, for the routes whose identifier does not carry one.
-func (p *Provider) tagAppliers(region string) map[string]tagApplier {
-	appliers := map[string]tagApplier{
-		"classic_load_balancer": p.applyClassicELBTags,
-		"target_group":          p.applyELBv2Tags,
-		"load_balancer":         p.applyELBv2Tags,
-		"tagging_api":           p.applyTagsViaTaggingAPI,
-		"dynamodb_table":        p.applyDynamoDBTags,
-		"ecs_cluster":           p.applyECSTags,
-		"ecs_service":           p.applyECSTags,
-		"eks_cluster":           p.applyEKSTags,
-		"elasticache_cluster":   p.applyElastiCacheTags,
-		"efs_file_system":       p.applyEFSTags,
-		"ecr_repository":        p.applyECRTags,
-		"kms_key":               p.applyKMSTags,
-		"kinesis_stream":        p.applyKinesisTags,
-		"cloudwatch_log_group":  p.applyLogGroupTags,
-		"s3_bucket": func(ctx context.Context, resourceID string, tags map[string]string) error {
-			return p.applyS3Tags(ctx, resourceID, region, tags)
-		},
-		"rds_instance":       p.applyRDSTags,
-		"lambda_function":    p.applyLambdaTags,
-		"sns_topic":          p.applySNSTags,
-		"sqs_queue":          p.applySQSTags,
-		"autoscaling_group":  p.applyAutoScalingTags,
-		routeLightsail:       p.applyLightsailTags,
-		"global_accelerator": p.applyGlobalAcceleratorTags,
-	}
-	for _, t := range []string{"ec2_instance", "ebs_volume", "ebs_snapshot", "security_group", "vpc", "subnet",
-		"ami", "elastic_ip", "nat_gateway", "internet_gateway", "vpc_endpoint", "launch_template"} {
-		appliers[t] = func(ctx context.Context, resourceID string, tags map[string]string) error {
-			return p.applyEC2Tags(ctx, resourceID, region, tags)
-		}
+// service-specific applier of the ARN-addressed resources.
+var tagAppliers = map[string]tagApplier{
+	"classic_load_balancer": (*Provider).applyClassicELBTags,
+	"target_group":          (*Provider).applyELBv2Tags,
+	"load_balancer":         (*Provider).applyELBv2Tags,
+	"tagging_api":           (*Provider).applyTagsViaTaggingAPI,
+	"dynamodb_table":        (*Provider).applyDynamoDBTags,
+	"ecs_cluster":           (*Provider).applyECSTags,
+	"ecs_service":           (*Provider).applyECSTags,
+	"eks_cluster":           (*Provider).applyEKSTags,
+	"elasticache_cluster":   (*Provider).applyElastiCacheTags,
+	"efs_file_system":       (*Provider).applyEFSTags,
+	"ecr_repository":        (*Provider).applyECRTags,
+	"kms_key":               (*Provider).applyKMSTags,
+	"kinesis_stream":        (*Provider).applyKinesisTags,
+	"cloudwatch_log_group":  (*Provider).applyLogGroupTags,
+	"rds_instance":          (*Provider).applyRDSTags,
+	"lambda_function":       (*Provider).applyLambdaTags,
+	"sns_topic":             (*Provider).applySNSTags,
+	"sqs_queue":             (*Provider).applySQSTags,
+	"autoscaling_group":     (*Provider).applyAutoScalingTags,
+	routeLightsail:          (*Provider).applyLightsailTags,
+	"global_accelerator":    (*Provider).applyGlobalAcceleratorTags,
+}
+
+// regionTagAppliers maps the routes that need the plan's region to their
+// applier: S3 buckets and every EC2 route of ec2IDPrefixes.
+var regionTagAppliers = func() map[string]regionTagApplier {
+	appliers := map[string]regionTagApplier{"s3_bucket": (*Provider).applyS3Tags}
+	for _, entry := range ec2IDPrefixes {
+		appliers[entry.route] = (*Provider).applyEC2Tags
 	}
 	return appliers
-}
+}()
 
 // ApplyTags applies tags to an AWS resource addressed by ARN.
 func (p *Provider) ApplyTags(ctx context.Context, resourceID string, tags map[string]string) error {
@@ -482,12 +484,15 @@ func (p *Provider) ApplyTags(ctx context.Context, resourceID string, tags map[st
 // resource lives; EC2 resources, addressed by bare ID, cannot be tagged
 // without it and S3 buckets need a GetBucketLocation call.
 func (p *Provider) ApplyTagsInRegion(ctx context.Context, resourceID, region string, tags map[string]string) error {
-	apply, ok := p.tagAppliers(region)[p.getResourceType(resourceID)]
-	if !ok {
-		return provider.NewProviderError(providerName, "apply_tags", resourceID,
-			errors.New("unknown resource type: expected an ARN or an EC2 resource ID"))
+	route := p.getResourceType(resourceID)
+	if apply, ok := tagAppliers[route]; ok {
+		return apply(p, ctx, resourceID, tags)
 	}
-	return apply(ctx, resourceID, tags)
+	if apply, ok := regionTagAppliers[route]; ok {
+		return apply(p, ctx, resourceID, region, tags)
+	}
+	return provider.NewProviderError(providerName, "apply_tags", resourceID,
+		errors.New("unknown resource type: expected an ARN or an EC2 resource ID"))
 }
 
 // ec2IDPrefixes maps the ID prefix of the EC2 resources tagged by bare ID to

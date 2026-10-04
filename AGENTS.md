@@ -432,9 +432,10 @@ Checklist:
    error type to `resourceGone`
 4. Writes: `tagging_api` (`applyTagsViaTaggingAPI`) by default;
    `apply<Service>Tags` (region from `regionForARN(arn)`, never a configured
-   region) + `tagAppliers(region)` + `arnServiceRoutes` only when the Tagging
+   region) + `tagAppliers` + `arnServiceRoutes` only when the Tagging
    API cannot tag the type; `idAddressedTypes` + `ec2IDPrefixes` only for
-   bare-ID tag APIs, which get the plan's region through `tagAppliers`
+   bare-ID tag APIs, which get the plan's region through `regionTagAppliers`
+   (built once from `ec2IDPrefixes`, plus S3)
 5. Register in `regionalListers()` (`provider.go`) or `globalListers()`
 6. Pinned tests: `TestRegionalListers`/`TestGlobalListers`,
    `TestGetResourceType_AllSupportedServices`, `TestTaggingIdentifier`
