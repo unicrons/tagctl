@@ -8,15 +8,26 @@ import (
 	"github.com/unicrons/tagctl/internal/log"
 )
 
+func captureRootOutput(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	buf := new(bytes.Buffer)
+	rootCmd.SetOut(buf)
+	rootCmd.SetErr(buf)
+	t.Cleanup(func() {
+		rootCmd.SetOut(nil)
+		rootCmd.SetErr(nil)
+		rootCmd.SetArgs(nil)
+	})
+	return buf
+}
+
 func TestExecute_Version(t *testing.T) {
 	rootCmd.SetArgs([]string{"version"})
 
 	Version, Commit, Date = "1.0.0", "abc1234", "2024-01-01"
 	t.Cleanup(func() { Version, Commit, Date = "dev", "none", "unknown" })
 
-	buf := new(bytes.Buffer)
-	rootCmd.SetOut(buf)
-	rootCmd.SetErr(buf)
+	buf := captureRootOutput(t)
 
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("Execute() error = %v", err)
@@ -30,9 +41,7 @@ func TestExecute_Version(t *testing.T) {
 }
 
 func TestRootCmd_Help(t *testing.T) {
-	buf := new(bytes.Buffer)
-	rootCmd.SetOut(buf)
-	rootCmd.SetErr(buf)
+	buf := captureRootOutput(t)
 	rootCmd.SetArgs([]string{"--help"})
 
 	err := rootCmd.Execute()
