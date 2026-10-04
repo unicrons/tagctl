@@ -137,7 +137,7 @@ func write(level Level, color, tag, format string, args ...interface{}) {
 	if UseColor(out) {
 		tag = color + tag + colorReset
 	}
-	line := fmt.Sprintf("%s %s\n", tag, printable(fmt.Sprintf(format, args...)))
+	line := fmt.Sprintf("%s %s\n", tag, Printable(fmt.Sprintf(format, args...)))
 	emit := func() { fmt.Fprint(out, line) }
 
 	if holder != nil {
@@ -147,9 +147,9 @@ func write(level Level, color, tag, format string, args ...interface{}) {
 	emit()
 }
 
-// printable replaces control characters, so a logged cloud value or error
-// cannot drive the terminal through escape sequences. Line breaks and tabs stay.
-func printable(s string) string {
+// Printable replaces control characters, so a cloud value or error written to
+// a terminal cannot drive it through escape sequences. Line breaks and tabs stay.
+func Printable(s string) string {
 	return strings.Map(func(r rune) rune {
 		if unicode.IsControl(r) && r != '\n' && r != '\t' {
 			return '?'

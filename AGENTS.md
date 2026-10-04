@@ -157,8 +157,9 @@ Colour is per stream: `log.UseColor(w)` is the single decision (a terminal and
 `NO_COLOR` empty). CLI code takes its codes from `paletteFor(w)`
 (`internal/cli/color.go`), whose fields are empty when colour is off; never
 write a raw ANSI code. Spinners animate only on a terminal. Values from cloud
-data or user files go through `printable()` before reaching a table; log lines
-are sanitised in `log.write`
+data or user files go through `printable()` before reaching a table or a
+stderr notice; log lines (`log.write`) and the `Error:` line in `main` go
+through `log.Printable`, which keeps line breaks and tabs
 
 ## Configuration File (tagctl.yaml)
 

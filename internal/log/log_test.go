@@ -90,6 +90,14 @@ func TestWrite_NeutralisesControlCharacters(t *testing.T) {
 	}
 }
 
+func TestPrintable_KeepsLineBreaksAndTabs(t *testing.T) {
+	got := Printable("list sqs: denied\x1b[2J\x07\n\tlist sns: denied\r")
+
+	if want := "list sqs: denied?[2J?\n\tlist sns: denied?"; got != want {
+		t.Errorf("Printable() = %q, want %q", got, want)
+	}
+}
+
 func stubTerminal(t *testing.T, terminal bool) {
 	t.Helper()
 	original := isTerminal
