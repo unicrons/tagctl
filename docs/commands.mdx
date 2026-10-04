@@ -872,16 +872,21 @@ aws resourcegroupstaggingapi get-resources --output json | \
   </Tab>
   <Tab title="CI/CD Pipeline">
 ```yaml
-# GitHub Actions example
+# GitHub Actions, with the tagctl action
 - name: Check tag compliance
-  run: |
-    tagctl evaluate --resources resources.json --policy .tagctl.yaml \
-      --fail-under 100 > results.json
+  uses: unicrons/tagctl@main
+  with:
+    args: |
+      evaluate
+      --resources resources.json --policy .tagctl.yaml
+      --fail-under 100 --sarif results.sarif
 ```
 
 The step fails with exit code `1` when any resource is non-compliant and `2`
-when the resources or the policy cannot be read. `results.json` is written
-before the gate runs.
+when the resources or the policy cannot be read. The findings JSON goes to the
+step log and `results.sarif` is written before the gate runs. The
+[GitHub Action](/integrations/github-action) page has the inputs and the
+pinning advice.
   </Tab>
 </Tabs>
 
@@ -1283,12 +1288,17 @@ and edit.
 ### Blocking a pull request
 
 ```yaml
+- name: Export the plan
+  run: terraform show -json tfplan > plan.json
+
 - name: Check tags on the plan
-  run: |
-    terraform show -json tfplan > plan.json
-    tagctl terraform --plan plan.json --changed-only \
-      --fail-under 100 --sarif tagctl.sarif
+  uses: unicrons/tagctl@main
+  with:
+    args: terraform --plan plan.json --changed-only --fail-under 100 --sarif tagctl.sarif
 ```
+
+The second step is the [tagctl GitHub Action](/integrations/github-action); that
+page has its inputs and the pinning advice.
 
 `--changed-only --fail-under 100` is the useful combination for a pull request:
 everything this change touches must be fully compliant, without holding the
@@ -1581,7 +1591,7 @@ Resource names and tag values come from the account, so every table cell is
 escaped (pipes, backticks, emphasis, links, HTML), line breaks become spaces
 and control characters are removed.
 
-In GitHub Actions, point it at the step summary file:
+In a GitHub Actions `run:` step, point it at the step summary file:
 
 ```bash
 tagctl scan --summary "$GITHUB_STEP_SUMMARY"
@@ -1603,7 +1613,8 @@ on:
 
 permissions:
   contents: read
-  security-events: write   # required to upload SARIF
+  id-token: write          # OIDC token for configure-aws-credentials
+  security-events: write   # upload SARIF
 
 jobs:
   tag-compliance:
@@ -1613,22 +1624,24 @@ jobs:
 
       - uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}   # the TagctlScan role
+          role-to-assume: arn:aws:iam::123456789012:role/github-tagctl
           aws-region: us-east-1
 
-      - name: Install tagctl
-        run: go install github.com/unicrons/tagctl/cmd/tagctl@latest
-
-      - name: Scan
-        run: |
-          tagctl scan \
-            --sarif tagctl.sarif \
-            --junit tagctl-junit.xml \
-            --ocsf tagctl.ocsf.json \
-            --summary "$GITHUB_STEP_SUMMARY" \
+      - uses: unicrons/tagctl@main
+        with:
+          args: |
+            scan
+            --sarif tagctl.sarif
+            --junit tagctl-junit.xml
+            --ocsf tagctl.ocsf.json
+            --summary tagctl-summary.md
             --fail-on-new --baseline .tagctl/baseline-scan.json
 
-      # Runs even when the gate failed, so findings are always visible.
+      # The steps below run even when the gate failed, so findings are always visible.
+      - name: Add the summary to the job page
+        if: always() && hashFiles('tagctl-summary.md') != ''
+        run: cat tagctl-summary.md >> "$GITHUB_STEP_SUMMARY"
+
       - name: Upload SARIF
         if: always()
         uses: github/codeql-action/upload-sarif@v3
@@ -1641,6 +1654,18 @@ jobs:
         with:
           report_paths: tagctl-junit.xml
 ```
+
+The scan step is the [tagctl GitHub Action](/integrations/github-action), which
+builds tagctl at the ref it is pinned to and fails the step when tagctl exits
+non-zero; its inputs, the `exit-code` output and the OIDC setup are on that
+page. `args` is split into words with no shell in between, so
+`$GITHUB_STEP_SUMMARY` is not expanded there: the summary goes to a file and a
+later step appends it.
+
+<Note>
+`@main` follows the default branch. For a workflow you depend on, pin the
+action to a full commit SHA, or to a release tag once one covers the action.
+</Note>
 
 Commit `.tagctl/baseline-scan.json` and refresh it whenever you deliberately
 accept the current state. Every regression after that fails the build.
@@ -1693,25 +1718,24 @@ on:
   schedule:
     - cron: '0 9 * * 1'  # Every Monday
 
+permissions:
+  contents: read
+  id-token: write   # OIDC token for configure-aws-credentials
+
 jobs:
   scan:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Go
-        uses: actions/setup-go@v5
+      - uses: aws-actions/configure-aws-credentials@v4
         with:
-          go-version: '1.26'
+          role-to-assume: arn:aws:iam::123456789012:role/github-tagctl
+          aws-region: us-east-1
 
-      - name: Install tagctl
-        run: go install github.com/unicrons/tagctl/cmd/tagctl@latest
-
-      - name: Run scan
-        run: tagctl scan --log-level info
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      - uses: unicrons/tagctl@main
+        with:
+          args: scan --log-level info
 
       - name: Upload reports
         uses: actions/upload-artifact@v4
@@ -1719,6 +1743,11 @@ jobs:
           name: compliance-reports
           path: output/
 ```
+
+`unicrons/tagctl` is the [tagctl GitHub Action](/integrations/github-action):
+inputs, the `exit-code` output and the OIDC setup are on that page. `@main`
+follows the default branch; for a workflow you depend on, pin the action to a
+full commit SHA, or to a release tag once one covers the action.
   </Tab>
   <Tab title="GitLab CI">
 ```yaml
