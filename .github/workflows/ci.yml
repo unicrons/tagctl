@@ -71,7 +71,8 @@ jobs:
           PR_TITLE: ${{ github.event.pull_request.title }}
         run: scripts/check-commits.sh "origin/$BASE_REF" "$PR_TITLE"
 
-  # Pushes to main only re-run Test: the pull request already ran every other job.
+  # Pushes to main only re-run Test and Build, which save the Go caches pull
+  # requests restore: the pull request already ran every other job.
   lint:
     name: Lint
     runs-on: ubuntu-latest
@@ -94,7 +95,15 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-          cache: true
+          cache: false
+
+      - name: Restore the Go build cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-build-${{ runner.os }}-${{ hashFiles('go.mod', 'go.sum') }}
 
       - name: Check formatting
         run: |
@@ -129,15 +138,18 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-          cache: true
+          cache: false
+
+      - name: Cache the race build
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-test-${{ runner.os }}-${{ hashFiles('go.mod', 'go.sum') }}
 
       - name: Download dependencies
         run: go mod download
-
-      - name: Cross-compile
-        run: |
-          GOOS=windows GOARCH=amd64 go build ./...
-          GOOS=darwin GOARCH=arm64 go build ./...
 
       - name: Run tests
         run: go test -v -race -shuffle=on -coverprofile=coverage.out ./...
@@ -157,6 +169,45 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
 
+  # A job of its own: the race build and three plain builds of the AWS SDK do
+  # not fit on one runner's disk. Lint and Gosec restore the cache saved here.
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.go == 'true'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Cache the builds
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-build-${{ runner.os }}-${{ hashFiles('go.mod', 'go.sum') }}
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Build
+        run: go build ./...
+
+      - name: Cross-compile
+        run: |
+          for target in windows/amd64 darwin/arm64; do
+            GOOS="${target%/*}" GOARCH="${target#*/}" go build ./...
+          done
+
   gosec:
     name: Gosec
     runs-on: ubuntu-latest
@@ -172,7 +223,15 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-          cache: true
+          cache: false
+
+      - name: Restore the Go build cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-build-${{ runner.os }}-${{ hashFiles('go.mod', 'go.sum') }}
 
       - name: Run gosec
         run: go run github.com/securego/gosec/v2/cmd/gosec@v2.29.0 -exclude=G104 ./...
