@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"text/tabwriter"
 	"unicode"
@@ -54,7 +56,8 @@ func outputScanTable(result *types.ScanResult, verbose bool) error {
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 		fmt.Fprintln(w, "  ACCOUNT\tTOTAL\tCOMPLIANT\tCOMPLIANCE")
 		fmt.Fprintln(w, "  ───────\t─────\t─────────\t──────────")
-		for _, acc := range result.ByAccount {
+		for _, key := range slices.Sorted(maps.Keys(result.ByAccount)) {
+			acc := result.ByAccount[key]
 			bar := renderProgressBar(acc.CompliancePct, 10)
 			fmt.Fprintf(w, "  %s/%s\t%d\t%d\t%.0f%% %s\n",
 				printable(acc.Provider), printable(acc.Account), acc.Total, acc.Compliant, acc.CompliancePct, bar)
@@ -69,7 +72,8 @@ func outputScanTable(result *types.ScanResult, verbose bool) error {
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 		fmt.Fprintln(w, "  TAG\tPRESENT\tMISSING\tINVALID\tCOMPLIANCE")
 		fmt.Fprintln(w, "  ───\t───────\t───────\t───────\t──────────")
-		for _, tag := range result.ByTag {
+		for _, name := range slices.Sorted(maps.Keys(result.ByTag)) {
+			tag := result.ByTag[name]
 			if tag.Required {
 				bar := renderProgressBar(tag.CompliancePct, 10)
 				fmt.Fprintf(w, "  %s\t%d\t%d\t%d\t%.0f%% %s\n",
@@ -309,14 +313,19 @@ func outputPlanTable(plan *types.Plan) {
 	fmt.Println("Planned changes:")
 	fmt.Println()
 
-	// Group changes by resource
+	// Group changes by resource, in plan order.
 	resourceChanges := make(map[string][]types.TagChange)
+	var order []string
 	for _, change := range plan.Changes {
 		key := change.Resource.Identity()
+		if _, seen := resourceChanges[key]; !seen {
+			order = append(order, key)
+		}
 		resourceChanges[key] = append(resourceChanges[key], change)
 	}
 
-	for resourceID, changes := range resourceChanges {
+	for _, key := range order {
+		changes := resourceChanges[key]
 		res := changes[0].Resource
 		fmt.Printf("%s (%s)\n", printable(res.Type), printable(res.DisplayName()))
 
@@ -345,7 +354,6 @@ func outputPlanTable(plan *types.Plan) {
 		}
 		_ = w.Flush()
 		fmt.Println()
-		_ = resourceID // used as map key
 	}
 
 	// Summary
