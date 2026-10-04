@@ -15,6 +15,8 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/unicrons/tagctl/internal/types"
 )
 
 // Config represents the complete tagctl configuration.
@@ -188,6 +190,30 @@ type PolicyConfig struct {
 
 	// Optional tags that are tracked but not required.
 	Optional []TagRequirement `yaml:"optional" mapstructure:"optional"`
+
+	// Forbidden tags that must not be present.
+	Forbidden []ForbiddenTag `yaml:"forbidden" mapstructure:"forbidden"`
+}
+
+// ForbiddenTag is a tag key no resource may carry. With Values or Pattern
+// only the matching values are forbidden.
+type ForbiddenTag struct {
+	// Name is the tag key.
+	Name string `yaml:"name" mapstructure:"name"`
+
+	// Description explains why the tag is forbidden.
+	Description string `yaml:"description" mapstructure:"description"`
+
+	// Values is a list of forbidden values.
+	Values []string `yaml:"values" mapstructure:"values"`
+
+	// Pattern is a regex matching the forbidden values.
+	Pattern string `yaml:"pattern" mapstructure:"pattern"`
+}
+
+// Unconditional reports whether the key is forbidden whatever its value.
+func (f ForbiddenTag) Unconditional() bool {
+	return len(f.Values) == 0 && f.Pattern == ""
 }
 
 // TagRequirement defines a tag policy.
@@ -216,6 +242,21 @@ type RulesConfig struct {
 
 	// Defaults rules set default values.
 	Defaults []DefaultRule `yaml:"defaults" mapstructure:"defaults"`
+
+	// Rename rules move a tag value to another key.
+	Rename []RenameRule `yaml:"rename" mapstructure:"rename"`
+}
+
+// RenameRule renames a tag key, keeping its value.
+type RenameRule struct {
+	// Resource is a glob pattern for resource types. Empty matches all.
+	Resource string `yaml:"resource" mapstructure:"resource"`
+
+	// From is the tag key to remove.
+	From string `yaml:"from" mapstructure:"from"`
+
+	// To is the tag key that receives the value.
+	To string `yaml:"to" mapstructure:"to"`
 }
 
 // InferRule infers tag values from resource naming conventions.
@@ -225,6 +266,20 @@ type InferRule struct {
 
 	// FromName contains patterns to match against resource names.
 	FromName []NamePattern `yaml:"from_name" mapstructure:"from_name"`
+
+	// FromTag lists other tags on the same resource to take the value from,
+	// tried in order before FromName.
+	FromTag []TagSource `yaml:"from_tag" mapstructure:"from_tag"`
+}
+
+// TagSource takes a tag value from another tag on the same resource.
+type TagSource struct {
+	// Tag is the tag key to read.
+	Tag string `yaml:"tag" mapstructure:"tag"`
+
+	// Values maps the source value to the value to set. Empty copies the
+	// value as is; otherwise a value outside the map infers nothing.
+	Values map[string]string `yaml:"values" mapstructure:"values"`
 }
 
 // NamePattern matches resource names and maps to values.
@@ -238,10 +293,11 @@ type NamePattern struct {
 
 // InheritRule copies tags from parent resources.
 type InheritRule struct {
-	// Resource is the resource type to apply this rule to.
+	// Resource is a glob pattern for the resource types the rule applies to.
 	Resource string `yaml:"resource" mapstructure:"resource"`
 
-	// From is the parent resource relationship.
+	// From is the relation to the parent, one of types.ParentRelations. Empty
+	// accepts any parent the scan recorded.
 	From string `yaml:"from" mapstructure:"from"`
 
 	// Tags to inherit from the parent.
@@ -387,7 +443,19 @@ func (c *Config) Validate() error {
 	if err := c.Rules.validate(); err != nil {
 		return err
 	}
+	for i, rule := range c.Rules.Rename {
+		if c.Policy.forbids(rule.To) {
+			return fmt.Errorf("rules.rename[%d]: to: tag %q is forbidden by policy.forbidden", i, rule.To)
+		}
+	}
 	return c.Ignore.validate()
+}
+
+// forbids reports whether the policy forbids a tag key whatever its value.
+func (p PolicyConfig) forbids(tag string) bool {
+	return slices.ContainsFunc(p.Forbidden, func(f ForbiddenTag) bool {
+		return f.Name == tag && f.Unconditional()
+	})
 }
 
 // validate checks every tag requirement and rejects a tag defined twice.
@@ -417,6 +485,34 @@ func (p PolicyConfig) validate() error {
 			}
 		}
 	}
+	return p.validateForbidden(definedAt)
+}
+
+// validateForbidden checks policy.forbidden against the tags defined at
+// definedAt: a key cannot be required or tracked and forbidden outright.
+func (p PolicyConfig) validateForbidden(definedAt map[string]string) error {
+	forbiddenAt := make(map[string]string, len(p.Forbidden))
+	for i, tag := range p.Forbidden {
+		at := fmt.Sprintf("policy.forbidden[%d]", i)
+		if tag.Name == "" {
+			return fmt.Errorf("%s: name is required", at)
+		}
+		if first, ok := forbiddenAt[tag.Name]; ok {
+			return fmt.Errorf("%s: tag %q is already defined at %s", at, tag.Name, first)
+		}
+		forbiddenAt[tag.Name] = at
+		if slices.Contains(tag.Values, "") {
+			return fmt.Errorf("%s: values: empty value", at)
+		}
+		if tag.Pattern != "" {
+			if _, err := regexp.Compile(tag.Pattern); err != nil {
+				return fmt.Errorf("%s: invalid pattern %q: %w", at, tag.Pattern, err)
+			}
+		}
+		if first, ok := definedAt[tag.Name]; ok && tag.Unconditional() {
+			return fmt.Errorf("%s: tag %q is defined at %s; forbid specific values or a pattern instead", at, tag.Name, first)
+		}
+	}
 	return nil
 }
 
@@ -427,10 +523,84 @@ func (r RulesConfig) validate() error {
 				return fmt.Errorf("rules.infer[%d].from_name[%d]: invalid pattern %q: %w", i, j, pattern.Pattern, err)
 			}
 		}
+		for j, source := range rule.FromTag {
+			if err := source.validate(rule.Tag); err != nil {
+				return fmt.Errorf("rules.infer[%d].from_tag[%d]: %w", i, j, err)
+			}
+		}
+	}
+	for i, rule := range r.Inherit {
+		if err := rule.validate(); err != nil {
+			return fmt.Errorf("rules.inherit[%d]: %w", i, err)
+		}
 	}
 	for i, rule := range r.Defaults {
 		if err := rule.validate(); err != nil {
 			return fmt.Errorf("rules.defaults[%d]: %w", i, err)
+		}
+	}
+	return r.validateRename()
+}
+
+func (r RulesConfig) validateRename() error {
+	sources := make(map[string]int, len(r.Rename))
+	for i, rule := range r.Rename {
+		at := fmt.Sprintf("rules.rename[%d]", i)
+		switch {
+		case rule.From == "":
+			return fmt.Errorf("%s: from is required", at)
+		case rule.To == "":
+			return fmt.Errorf("%s: to is required", at)
+		case rule.From == rule.To:
+			return fmt.Errorf("%s: from and to are both %q", at, rule.From)
+		}
+		if err := validateGlob(rule.Resource); err != nil {
+			return fmt.Errorf("%s: resource: %w", at, err)
+		}
+		if _, seen := sources[rule.From]; !seen {
+			sources[rule.From] = i
+		}
+	}
+	for i, rule := range r.Rename {
+		if j, chained := sources[rule.To]; chained {
+			return fmt.Errorf("rules.rename[%d]: to: tag %q is renamed again by rules.rename[%d]; rename straight to the final key", i, rule.To, j)
+		}
+	}
+	return nil
+}
+
+func (r InheritRule) validate() error {
+	if r.Resource == "" {
+		return errors.New("resource is required")
+	}
+	if err := validateGlob(r.Resource); err != nil {
+		return fmt.Errorf("resource: %w", err)
+	}
+	if r.From != "" && !slices.Contains(types.ParentRelations, r.From) {
+		return fmt.Errorf("from: unknown relation %q (supported: %s)", r.From, strings.Join(types.ParentRelations, ", "))
+	}
+	if len(r.Tags) == 0 {
+		return errors.New("tags must name at least one tag")
+	}
+	if slices.Contains(r.Tags, "") {
+		return errors.New("tags: empty tag name")
+	}
+	return nil
+}
+
+func (s TagSource) validate(target string) error {
+	if target == "" {
+		return errors.New("the rule needs a tag to infer")
+	}
+	if s.Tag == "" {
+		return errors.New("tag is required")
+	}
+	if s.Tag == target {
+		return fmt.Errorf("tag %q is the tag being inferred", s.Tag)
+	}
+	for _, from := range slices.Sorted(maps.Keys(s.Values)) {
+		if from == "" || s.Values[from] == "" {
+			return fmt.Errorf("values: %q maps to %q, both sides must be non-empty", from, s.Values[from])
 		}
 	}
 	return nil

@@ -238,7 +238,7 @@ func TestRealApplier_StopsDispatchingWhenCancelled(t *testing.T) {
 }
 
 func TestRealApplier_RejectsUnsupportedActionsBeforeAnyCall(t *testing.T) {
-	for _, action := range []types.ChangeAction{types.ActionRemove, "", "rename"} {
+	for _, action := range []types.ChangeAction{"", "rename"} {
 		t.Run(string(action), func(t *testing.T) {
 			var calls atomic.Int32
 			p := funcProvider(func(string) error { calls.Add(1); return nil })

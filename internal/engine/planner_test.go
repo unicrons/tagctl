@@ -44,6 +44,53 @@ func TestRealPlanner_TryInfer(t *testing.T) {
 	}
 }
 
+func TestRealPlanner_TryInferFromTag(t *testing.T) {
+	planner, err := NewPlanner(config.RulesConfig{Infer: []config.InferRule{{
+		Tag: "environment",
+		FromTag: []config.TagSource{
+			{Tag: "env", Values: map[string]string{"production": "prod", "development": "dev"}},
+			{Tag: "Environment"},
+		},
+		FromName: []config.NamePattern{{Pattern: "-stg-", Value: "staging"}},
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tagged := func(name string, tags map[string]string) types.Finding {
+		return missing("environment", types.Resource{Name: name, Tags: tags})
+	}
+
+	cases := []struct {
+		name       string
+		finding    types.Finding
+		want       string
+		wantSource string
+	}{
+		{"mapped value", tagged("db", map[string]string{"env": "production"}), "prod", "from tag 'env'"},
+		{"value copied when there is no mapping", tagged("db", map[string]string{"Environment": "qa"}), "qa", "from tag 'Environment'"},
+		{"unmapped value falls through to the next source", tagged("db", map[string]string{"env": "sandbox", "Environment": "dev"}), "dev", "from tag 'Environment'"},
+		{"source tag wins over the name", tagged("db-stg-1", map[string]string{"env": "production"}), "prod", "from tag 'env'"},
+		{"name is used when no source tag is usable", tagged("db-stg-1", map[string]string{"env": "sandbox"}), "staging", "name matches '-stg-'"},
+		{"empty source value infers nothing", tagged("db", map[string]string{"Environment": ""}), "", ""},
+		{"source tag key is case sensitive", tagged("db", map[string]string{"ENV": "production"}), "", ""},
+		{"no rule for the tag", missing("owner", types.Resource{Tags: map[string]string{"env": "production"}}), "", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			change := planner.tryInfer(tc.finding)
+			if got := newValue(change); got != tc.want {
+				t.Fatalf("tryInfer() value = %q, want %q", got, tc.want)
+			}
+			if change == nil {
+				return
+			}
+			if change.Source != tc.wantSource || change.Reason != types.ReasonInferred || change.Action != types.ActionAdd {
+				t.Errorf("tryInfer() = %+v, want an inferred add with source %q", change, tc.wantSource)
+			}
+		})
+	}
+}
+
 func TestRealPlanner_TryDefault(t *testing.T) {
 	planner, err := NewPlanner(config.RulesConfig{Defaults: []config.DefaultRule{
 		{Resource: "aws_*_bucket", When: map[string]string{"tag:Environment": "prod"}, Set: map[string]string{"CostCenter": "CC-PROD"}},

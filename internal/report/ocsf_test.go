@@ -149,8 +149,8 @@ func TestWriteOCSF_UIDMatchesSARIFFingerprint(t *testing.T) {
 	if e.FindingInfo.UID != want {
 		t.Errorf("finding_info.uid = %q, want %q", e.FindingInfo.UID, want)
 	}
-	if e.FindingInfo.Analytic.Name != ruleID(tagOwner) {
-		t.Errorf("analytic.name = %q, want the SARIF rule id %q", e.FindingInfo.Analytic.Name, ruleID(tagOwner))
+	if e.FindingInfo.Analytic.Name != ruleID(f) {
+		t.Errorf("analytic.name = %q, want the SARIF rule id %q", e.FindingInfo.Analytic.Name, ruleID(f))
 	}
 	if len(e.Observables) != 1 || e.Observables[0].TypeID != 10 || e.Observables[0].Value != f.Resource.ARN {
 		t.Errorf("observables = %+v, want one Resource UID observable with the ARN", e.Observables)

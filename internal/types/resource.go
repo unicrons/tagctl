@@ -38,7 +38,21 @@ type Resource struct {
 
 	// CreatedAt is when the resource was created (if available).
 	CreatedAt *time.Time `json:"created_at,omitempty"`
+
+	// Parents maps a relation (see ParentRelations) to the Identity of the
+	// resource this one hangs from, as recorded by the provider.
+	Parents map[string]string `json:"parents,omitempty"`
 }
+
+// Relations a provider can record in Resource.Parents.
+const (
+	RelationAttachedInstance = "attached_instance"
+	RelationSourceVolume     = "source_volume"
+	RelationVPC              = "vpc"
+)
+
+// ParentRelations are every relation rules.inherit accepts in from.
+var ParentRelations = []string{RelationAttachedInstance, RelationSourceVolume, RelationVPC}
 
 // HasTag checks if the resource has a specific tag.
 func (r *Resource) HasTag(key string) bool {

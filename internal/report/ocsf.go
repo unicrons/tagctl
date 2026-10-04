@@ -257,8 +257,8 @@ func ocsfEvent(f *types.Finding, scannedAt time.Time, opts OCSFOptions) OCSFComp
 			Analytic: OCSFAnalytic{
 				TypeID: ocsfAnalyticRule,
 				Type:   "Rule",
-				Name:   ruleID(f.Tag),
-				UID:    ruleID(f.Tag),
+				Name:   ruleID(*f),
+				UID:    ruleID(*f),
 			},
 		},
 		Metadata: OCSFMetadata{
@@ -375,6 +375,10 @@ func ocsfTags(tags map[string]string) []OCSFKeyValue {
 }
 
 func ocsfRemediation(f *types.Finding) string {
+	if f.Reason == types.ReasonForbidden {
+		return fmt.Sprintf("Remove tag '%s' from %s. Run 'tagctl plan' to propose the removal and 'tagctl apply' to perform it.",
+			f.Tag, describeResource(f.Resource))
+	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "Set tag '%s' on %s", f.Tag, describeResource(f.Resource))
 	if f.Expected != "" {

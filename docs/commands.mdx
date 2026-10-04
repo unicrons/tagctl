@@ -491,15 +491,22 @@ never pick up example data as a real plan.
 |--------|---------|
 | `+` | Tag will be added |
 | `~` | Tag will be updated |
-| `-` | Tag will be removed (`apply` rejects plans with removals) |
+| `-` | Tag will be removed; the value shown is the one it holds today |
+| `!` | Rename skipped as a conflict: the target key already holds another value. Listed under `Conflicts`, after the summary |
 
 ### Change Reasons
 
 | Reason | Description |
 |--------|-------------|
-| `inferred` | Value derived from resource name |
-| `inherited` | Reserved for inheritance rules, which `plan` does not apply yet (only the `--mock` planner emits it) |
+| `inferred` | Value derived from the resource name or from another tag on it |
+| `inherited` | Value copied from the parent resource by `rules.inherit` |
 | `default` | Default value applied |
+| `renamed` | Key renamed by `rules.rename`: an `add` of the new key and a `remove` of the old one |
+| `forbidden` | Tag removed because `policy.forbidden` forbids it |
+
+The plan JSON carries the skipped renames under `conflicts` (resource, `from`,
+`value`, `to`, `existing_value`), their count in `summary.conflicts`, and the
+rules that could not be applied under `warnings`.
 
 ## tagctl apply
 
@@ -513,10 +520,53 @@ This is the only command that writes to the cloud. The shipped `TagctlScan`
 role cannot run it; assume `TagctlApply` for this run with `--role` (see
 [Scan role vs apply role](/credentials#scan-role-vs-apply-role)).
 
-`apply` only adds and updates tags. A plan with any other action (for example
-a hand-edited `remove`) is rejected when it is loaded, before the confirmation
-prompt, and nothing is written. Interrupting a run (Ctrl-C) stops sending
-changes: the ones not sent yet are reported as failed with `context canceled`.
+`apply` adds, updates and removes tags. A plan with any other action, a change
+without a tag name or a tag that one resource both sets and removes is
+rejected when it is loaded, before the confirmation prompt, and nothing is
+written. Interrupting a run (Ctrl-C) stops sending changes: the ones not sent
+yet are reported as failed with `context canceled`.
+
+Removals are opt-in. Without `--allow-removals`, `apply` writes the additions
+and updates and skips every removal in the plan: a rename adds the new key
+and keeps the old one, a forbidden tag stays. Skipped removals are not
+failures and do not change the exit code. The summary before the prompt says
+how many will be skipped, and the result names the flag:
+
+```
+Changes to apply:
+  • 1 resources will be modified
+  • 1 tags will be added
+  • 0 tags will be updated
+  • 2 removals will be SKIPPED (pass --allow-removals to perform them)
+
+...
+Applied successfully: 1 changes
+Errors: 0
+Skipped: 2 removal(s), no tag was removed. Run again with --allow-removals to perform them.
+```
+
+A plan with nothing but removals does nothing without the flag, and does not
+prompt.
+
+With `--allow-removals` the removals are performed. They cannot be undone
+from the plan, so the summary counts them apart and lists the first 20 with
+the value each tag holds:
+
+```
+Changes to apply:
+  • 2 resources will be modified
+  • 1 tags will be added
+  • 0 tags will be updated
+  • 2 tags will be REMOVED:
+      - Env="prod" on aws_instance i-0abc123 (renamed)
+      - temp="1" on aws_s3_bucket legacy-data-2019 (forbidden)
+```
+
+On each resource the tags to set are written first; if that fails nothing is
+removed from it, so a rename never drops the old key without the new one in
+place. Removing also needs the untag permissions, which the `TagctlApply` role
+only has with [`AllowTagRemoval=true`](/providers/aws#tag-removal-opt-in);
+without them the removals fail and the additions are still applied.
 
 <ParamField path="--plan" type="string" default="latest in --output-dir">
   Plan file to apply. If not specified, uses the most recent plan.
@@ -546,6 +596,10 @@ changes: the ones not sent yet are reported as failed with `context canceled`.
   Simulate the apply without calling any cloud API. Also used automatically when the config has no cloud provider
 </ParamField>
 
+<ParamField path="--allow-removals" type="boolean" default="false">
+  Perform the removals in the plan (old keys of `rules.rename`, tags `policy.forbidden` forbids). Without it they are skipped and reported
+</ParamField>
+
 <CodeGroup>
 ```bash Interactive apply (uses latest plan)
 tagctl apply
@@ -567,6 +621,10 @@ tagctl apply --interactive
 tagctl scan
 tagctl plan
 tagctl apply
+```
+
+```bash Also remove the tags the plan removes
+tagctl apply --allow-removals
 ```
 </CodeGroup>
 
@@ -619,6 +677,10 @@ Apply these changes? [y]es / [n]o / [a]ll remaining / [q]uit:
 | `n`, `no` | Skip this resource |
 | `a`, `all` | Approve this resource and every remaining one without asking again |
 | `q`, `quit` | Skip this resource and every remaining one; resources already approved are still applied |
+
+With `--allow-removals`, a tag the plan removes is listed with the value it
+holds, as `- Env: "prod"`. Without the flag the removals are left out of the
+review and reported as skipped after the result.
 
 Any other answer repeats the question. Nothing is written until the review
 ends: the approved changes are then applied together and the rest are reported
@@ -782,6 +844,7 @@ format it accepts. A report sent to stdout with `--sarif -`, `--junit -`,
 | `missing` | Required tag not present |
 | `invalid_value` | Tag value not in allowed list |
 | `invalid_format` | Tag value doesn't match pattern |
+| `forbidden` | Tag, or the value it carries, is listed in `policy.forbidden` |
 
 ### Integration Examples
 

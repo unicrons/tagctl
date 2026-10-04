@@ -121,6 +121,10 @@ check-secrets:
 iam-templates:
 	@python3 scripts/render-iam-templates.py
 
+## iam-check: Check the policy actions and ARNs against the AWS service reference (needs network)
+iam-check:
+	@python3 scripts/check-iam-actions.py
+
 ## check-fmt: Check if code is formatted
 check-fmt:
 	@echo "Checking Go formatting..."

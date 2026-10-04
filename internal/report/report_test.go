@@ -97,7 +97,7 @@ func TestWriteSARIF_Structure(t *testing.T) {
 	if len(run.Tool.Driver.Rules) != 2 {
 		t.Fatalf("got %d rules, want 2", len(run.Tool.Driver.Rules))
 	}
-	if run.Tool.Driver.Rules[0].ID != ruleID(tagEnv) {
+	if run.Tool.Driver.Rules[0].ID != "tagctl/missing-or-invalid-tag/"+tagEnv {
 		t.Errorf("rules are not sorted: first = %q", run.Tool.Driver.Rules[0].ID)
 	}
 }

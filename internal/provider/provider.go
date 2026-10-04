@@ -19,6 +19,13 @@ type Provider interface {
 	ApplyTags(ctx context.Context, resourceID string, tags map[string]string) error
 }
 
+// TagRemover is implemented by providers that can delete tags from a resource.
+type TagRemover interface {
+	// RemoveTags deletes the given tag keys from a resource. A key the
+	// resource does not carry is not an error.
+	RemoveTags(ctx context.Context, resource types.Resource, keys []string) error
+}
+
 // Error types for provider operations.
 type ProviderError struct {
 	Provider   string

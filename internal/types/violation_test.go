@@ -169,6 +169,21 @@ func TestFinding_Message(t *testing.T) {
 			},
 			want: "tag 'owner' value 'john' doesn't match pattern",
 		},
+		{
+			name:    "failed forbidden key",
+			finding: Finding{Tag: "Env", Status: StatusFailed, Reason: ReasonForbidden, Actual: "prod"},
+			want:    "tag 'Env' is forbidden",
+		},
+		{
+			name:    "failed forbidden value",
+			finding: Finding{Tag: "environment", Status: StatusFailed, Reason: ReasonForbidden, Actual: "test", Expected: "not one of: test"},
+			want:    "tag 'environment' has forbidden value 'test'",
+		},
+		{
+			name:    "failed with a reason this version does not know",
+			finding: Finding{Tag: "owner", Status: StatusFailed, Reason: "future_reason"},
+			want:    "tag 'owner' is non-compliant",
+		},
 	}
 
 	for _, tt := range tests {

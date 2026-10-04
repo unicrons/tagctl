@@ -251,7 +251,7 @@ tagctl/
 │   ├── engine/           # Core logic
 │   │   ├── scanner.go    # Resource discovery
 │   │   ├── evaluator.go  # Policy evaluation → Findings (PASS/FAILED)
-│   │   ├── planner.go    # Change planning (inference, defaults)
+│   │   ├── planner.go    # Change planning (inference, inheritance, defaults)
 │   │   ├── applier.go    # Tag application
 │   │   ├── differ.go     # Drift between two scans
 │   │   └── normalizer.go # Tag value clustering
@@ -305,6 +305,7 @@ type Finding struct {
 | FAILED | missing | Required tag not present |
 | FAILED | invalid_value | Value not in allowed list |
 | FAILED | invalid_format | Value doesn't match pattern |
+| FAILED | forbidden | Tag or value listed in `policy.forbidden` |
 
 ### Resource
 
@@ -320,6 +321,7 @@ type Resource struct {
     Tags        map[string]string `json:"tags"`
     UnknownTags []string          `json:"unknown_tags,omitempty"` // Terraform: values known only after apply
     CreatedAt   *time.Time        `json:"created_at,omitempty"`
+    Parents     map[string]string `json:"parents,omitempty"` // relation -> parent Identity()
 }
 ```
 

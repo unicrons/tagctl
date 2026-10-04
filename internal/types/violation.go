@@ -24,6 +24,9 @@ const (
 	// ReasonInvalidFormat indicates the tag value doesn't match the pattern.
 	ReasonInvalidFormat ViolationReason = "invalid_format"
 
+	// ReasonForbidden indicates the resource carries a tag the policy forbids.
+	ReasonForbidden ViolationReason = "forbidden"
+
 	// ReasonCompliant indicates the tag is present and valid.
 	ReasonCompliant ViolationReason = "compliant"
 )
@@ -74,6 +77,11 @@ func (f *Finding) Message() string {
 		return "tag '" + f.Tag + "' has invalid value '" + f.Actual + "'"
 	case ReasonInvalidFormat:
 		return "tag '" + f.Tag + "' value '" + f.Actual + "' doesn't match pattern"
+	case ReasonForbidden:
+		if f.Expected != "" {
+			return "tag '" + f.Tag + "' has forbidden value '" + f.Actual + "'"
+		}
+		return "tag '" + f.Tag + "' is forbidden"
 	default:
 		return "tag '" + f.Tag + "' is non-compliant"
 	}

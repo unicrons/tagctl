@@ -146,6 +146,9 @@ type TagStats struct {
 	// Required indicates if this is a required tag.
 	Required bool `json:"required"`
 
+	// Forbidden indicates the policy forbids this tag or some of its values.
+	Forbidden bool `json:"forbidden,omitempty"`
+
 	// Present is the count of resources with this tag.
 	Present int `json:"present"`
 

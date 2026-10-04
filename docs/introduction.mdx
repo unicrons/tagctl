@@ -103,8 +103,9 @@ tagctl follows a three-step workflow inspired by infrastructure-as-code tools li
     - List of specific violations
   </Step>
   <Step title="Plan">
-    Analyze violations from the scan results and generate a plan of tag changes. tagctl uses two types of rules to infer correct tag values:
-    - **Inference**: Extract tags from resource naming conventions
+    Analyze violations from the scan results and generate a plan of tag changes. tagctl uses three types of rules to infer correct tag values:
+    - **Inference**: Extract tags from resource naming conventions or from another tag
+    - **Inheritance**: Copy tags from the parent resource (a volume from its instance)
     - **Defaults**: Apply fallback values for untagged resources
     ```bash
     tagctl plan                              # Uses latest scan
@@ -146,6 +147,7 @@ GCP and Azure are not started. See
   <Accordion title="Intelligent auto-fix">
     Don't just report problems—fix them. tagctl can automatically infer tag values from:
     - **Resource names**: Extract environment from naming conventions like `web-prod-api-1`
+    - **Parent resources**: Copy tags from the instance a volume is attached to
     - **Defaults**: Apply fallback values for resources that can't be classified
   </Accordion>
   <Accordion title="Safe operations">

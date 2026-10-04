@@ -123,6 +123,10 @@ func (r *validationReport) checkPolicy() {
 	if n := countConfigList("policy.optional"); n > 0 {
 		fmt.Printf("✓ Optional tags defined: %d\n", n)
 	}
+
+	if n := countConfigList("policy.forbidden"); n > 0 {
+		fmt.Printf("✓ Forbidden tags defined: %d\n", n)
+	}
 }
 
 // checkRules reports how many auto-fix rules are configured.
@@ -133,7 +137,8 @@ func (r *validationReport) checkRules() {
 
 	ruleCount := countConfigList("rules.infer") +
 		countConfigList("rules.inherit") +
-		countConfigList("rules.defaults")
+		countConfigList("rules.defaults") +
+		countConfigList("rules.rename")
 
 	if ruleCount > 0 {
 		fmt.Printf("✓ Auto-fix rules defined: %d\n", ruleCount)

@@ -171,13 +171,14 @@ Resources:
       Tags:
         - Key: managed-by
           Value: tagctl
-      Policies:
+{extra_role_properties}      Policies:
 """
 
 APPLY_GROUPS = """      - Label:
           default: What the role may tag
         Parameters:
           - AllowCodeBuildTagging
+          - AllowTagRemoval
           - ProtectedTagKeys
 """
 
@@ -187,6 +188,14 @@ APPLY_PARAMETERS = """  AllowCodeBuildTagging:
       Grant codebuild:UpdateProject. CodeBuild has no tag-only action, and this
       one can also replace a project's buildspec and service role, so it is off
       by default and tagctl apply reports CodeBuild changes as failed.
+    Default: "false"
+    AllowedValues: ["true", "false"]
+  AllowTagRemoval:
+    Type: String
+    Description: >-
+      Grant the untag actions, so tagctl apply can perform the removals of
+      rules.rename and policy.forbidden. Off by default: without it apply
+      still adds and updates tags and reports every removal as failed.
     Default: "false"
     AllowedValues: ["true", "false"]
   ProtectedTagKeys:
@@ -200,6 +209,8 @@ APPLY_PARAMETERS = """  AllowCodeBuildTagging:
 
 APPLY_CONDITIONS = """  CodeBuildTagging:
     Fn::Equals: [{Ref: AllowCodeBuildTagging}, "true"]
+  TagRemoval:
+    Fn::Equals: [{Ref: AllowTagRemoval}, "true"]
   HasProtectedTagKeys:
     Fn::Not:
       - Fn::Equals: [{Ref: ProtectedTagKeys}, ""]
@@ -222,6 +233,29 @@ PROTECTED_TAG_KEYS_POLICY = """        - Fn::If:
                           Fn::Split: [",", {Ref: ProtectedTagKeys}]
             - {Ref: AWS::NoValue}
 """
+
+# A managed policy: the role's inline policies have no room left for it.
+APPLY_ROLE_PROPERTIES = """      ManagedPolicyArns:
+        Fn::If:
+          - TagRemoval
+          - [{Ref: UntagPolicy}]
+          - {Ref: AWS::NoValue}
+"""
+
+UNTAG_POLICY_FILE = "tagctl-apply-untag-policy.json"
+
+UNTAG_POLICY_RESOURCE = """  UntagPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Condition: TagRemoval
+    Properties:
+      Description: Tag removal for tagctl apply (rules.rename and policy.forbidden)
+      PolicyDocument:
+"""
+
+
+def untag_policy_resource():
+    return UNTAG_POLICY_RESOURCE + policy_yaml(load(UNTAG_POLICY_FILE), 8) + "\n"
+
 
 FOOTER = """
 Outputs:
@@ -250,8 +284,10 @@ TEMPLATES = [
         "extra_groups": "",
         "extra_parameters": "",
         "extra_conditions": "",
+        "extra_role_properties": "",
         "policies": [("TagctlScan", "tagctl-scan-policy.json", None)],
         "extra_policies": "",
+        "extra_resources": lambda: "",
     },
     {
         "file": "tagctl-apply-role.yaml",
@@ -267,18 +303,20 @@ TEMPLATES = [
         "extra_groups": APPLY_GROUPS,
         "extra_parameters": APPLY_PARAMETERS,
         "extra_conditions": APPLY_CONDITIONS,
+        "extra_role_properties": APPLY_ROLE_PROPERTIES,
         "policies": [
             ("TagctlScan", "tagctl-scan-policy.json", None),
             ("TagctlApply", "tagctl-apply-policy.json", None),
             ("TagctlApplyCodeBuild", "tagctl-apply-codebuild-policy.json", "CodeBuildTagging"),
         ],
         "extra_policies": PROTECTED_TAG_KEYS_POLICY,
+        "extra_resources": untag_policy_resource,
     },
 ]
 
 HEADER_FIELDS = (
     "description", "role_name", "role_description", "mfa_default", "session_default",
-    "extra_groups", "extra_parameters", "extra_conditions",
+    "extra_groups", "extra_parameters", "extra_conditions", "extra_role_properties",
 )
 
 
@@ -288,6 +326,7 @@ def main():
         for name, source, condition in spec["policies"]:
             body += policy_entry(name, source, condition)
         body += spec["extra_policies"]
+        body += spec["extra_resources"]()
         body += FOOTER
         (ROOT / spec["file"]).write_text(body)
         print(f"wrote permissions/aws/{spec['file']}")

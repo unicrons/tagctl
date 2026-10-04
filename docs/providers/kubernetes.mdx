@@ -52,6 +52,12 @@ is the namespace (empty for namespaces themselves). Its ID is `<type>/<namespace
 - **`apply` patches live objects.** A GitOps controller or the next `helm upgrade` can revert a
   label that is not in the source manifest. Treat `apply` as a stopgap and the plan as the list of
   changes to make at the source.
+- **Labels are removed only with `apply --allow-removals`.** `policy.forbidden` and `rules.rename`
+  work on labels like on tags. The removal is a merge patch that sets the label to `null`, so it needs
+  the same `patch` verb as adding one. Without the flag a rename adds the new label and keeps the old
+  one. See [Removing Tags](/rules#removing-tags).
+- **`rules.inherit` has no Kubernetes relation.** A pod does not inherit from its Deployment or
+  namespace; the [relations](/rules#inheritance-rules) are all AWS ones.
 - **`--region` is AWS-only.** Filter a cluster with `namespaces` and `resource_types`.
 - **`tagctl cost` is AWS-only.**
 

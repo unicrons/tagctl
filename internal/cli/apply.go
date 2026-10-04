@@ -23,8 +23,12 @@ var applyCmd = &cobra.Command{
 	Short: "Apply planned tag changes",
 	Long: `Apply executes the changes from a previously generated plan.
 
+Tags are only removed with --allow-removals. Without it the additions and
+updates are applied and every removal in the plan is skipped: a rename then
+adds the new key and keeps the old one.
+
 Before applying, it will:
-  • Load the plan file and reject any change other than add or update
+  • Load the plan file and reject any change it cannot perform
   • Show a summary of changes
   • Ask for confirmation (unless --auto-approve is set), or about each
     resource with --interactive
@@ -38,6 +42,9 @@ Examples:
 
   # Apply the latest plan of another directory
   tagctl apply --output-dir reports
+
+  # Also perform the removals of the plan (renamed and forbidden tags)
+  tagctl apply --allow-removals
 
   # Apply without confirmation
   tagctl apply --auto-approve
@@ -57,6 +64,7 @@ func init() {
 	applyCmd.Flags().Bool("auto-approve", false, "skip confirmation prompt")
 	applyCmd.Flags().BoolP("interactive", "i", false, "review the plan resource by resource and apply only the approved changes")
 	applyCmd.Flags().Bool("mock", false, "use mock applier for demonstration")
+	applyCmd.Flags().Bool(allowRemovalsFlag, false, "remove the tags the plan removes (skipped by default)")
 	addAWSAuthFlags(applyCmd)
 }
 
@@ -107,7 +115,15 @@ func runApply(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	allowRemovals, _ := cmd.Flags().GetBool(allowRemovalsFlag)
+	plan, skippedRemovals := withoutRemovals(plan, allowRemovals)
+
 	printPlanSummary(planFile, plan)
+	printRemovalSummary(os.Stderr, planFile, plan, skippedRemovals)
+	if plan.IsEmpty() {
+		printSkippedRemovals(os.Stdout, skippedRemovals)
+		return nil
+	}
 
 	skipped := 0
 	switch {
@@ -146,21 +162,27 @@ func runApply(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("apply failed: %w", err)
 	}
 
-	// The mock applier has no callback, so its progress is printed afterwards.
 	if simulated {
-		for i, change := range plan.Changes {
-			fmt.Printf("  [%d/%d] %s.%s (%s: %s) ✓\n",
-				i+1, len(plan.Changes),
-				change.Resource.Type, change.Resource.ID,
-				change.Tag, change.NewValue)
-		}
+		printSimulatedProgress(plan)
 	}
 
 	printApplyResult(result, skipped)
 	if result.ErrorCount > 0 {
-		return fmt.Errorf("%d of %d changes failed", result.ErrorCount, result.TotalChanges)
+		err = fmt.Errorf("%d of %d changes failed", result.ErrorCount, result.TotalChanges)
 	}
-	return nil
+	printSkippedRemovals(os.Stdout, skippedRemovals)
+	return err
+}
+
+// printSimulatedProgress prints every change as applied: the mock applier has
+// no callback to report them one by one.
+func printSimulatedProgress(plan *types.Plan) {
+	for i, change := range plan.Changes {
+		fmt.Printf("  [%d/%d] %s.%s (%s) ✓\n",
+			i+1, len(plan.Changes),
+			change.Resource.Type, change.Resource.ID,
+			describeChange(change))
+	}
 }
 
 func checkInteractive(interactive, autoApprove bool) error {
@@ -217,7 +239,7 @@ func printPlanSummary(planFile string, plan *types.Plan) {
 	fmt.Fprintf(os.Stderr, "Changes to apply:\n")
 	fmt.Fprintf(os.Stderr, "  • %d resources will be modified\n", summary.TotalResources)
 	fmt.Fprintf(os.Stderr, "  • %d tags will be added\n", summary.TagsAdded)
-	fmt.Fprintf(os.Stderr, "  • %d tags will be updated\n\n", summary.TagsUpdated)
+	fmt.Fprintf(os.Stderr, "  • %d tags will be updated\n", summary.TagsUpdated)
 }
 
 // confirmApply asks the operator to confirm before any tag is written. Ctrl-C
@@ -274,10 +296,10 @@ func buildApplier(ctx context.Context, cfg *config.Config, plan *types.Plan, sim
 		if !success {
 			status = "✗"
 		}
-		fmt.Printf("  [%d/%d] %s.%s (%s: %s) %s\n",
+		fmt.Printf("  [%d/%d] %s.%s (%s) %s\n",
 			changeIndex, len(plan.Changes),
 			change.Resource.Type, change.Resource.ID,
-			change.Tag, change.NewValue, status)
+			describeChange(change), status)
 		if err != nil {
 			fmt.Printf("         Error: %v\n", err)
 		}

@@ -22,6 +22,7 @@ Metadata:
           default: What the role may tag
         Parameters:
           - AllowCodeBuildTagging
+          - AllowTagRemoval
           - ProtectedTagKeys
 
 Parameters:
@@ -83,6 +84,14 @@ Parameters:
       by default and tagctl apply reports CodeBuild changes as failed.
     Default: "false"
     AllowedValues: ["true", "false"]
+  AllowTagRemoval:
+    Type: String
+    Description: >-
+      Grant the untag actions, so tagctl apply can perform the removals of
+      rules.rename and policy.forbidden. Off by default: without it apply
+      still adds and updates tags and reports every removal as failed.
+    Default: "false"
+    AllowedValues: ["true", "false"]
   ProtectedTagKeys:
     Type: String
     Description: >-
@@ -107,6 +116,8 @@ Conditions:
       - Fn::Equals: [{Ref: PermissionsBoundaryArn}, ""]
   CodeBuildTagging:
     Fn::Equals: [{Ref: AllowCodeBuildTagging}, "true"]
+  TagRemoval:
+    Fn::Equals: [{Ref: AllowTagRemoval}, "true"]
   HasProtectedTagKeys:
     Fn::Not:
       - Fn::Equals: [{Ref: ProtectedTagKeys}, ""]
@@ -155,6 +166,11 @@ Resources:
       Tags:
         - Key: managed-by
           Value: tagctl
+      ManagedPolicyArns:
+        Fn::If:
+          - TagRemoval
+          - [{Ref: UntagPolicy}]
+          - {Ref: AWS::NoValue}
       Policies:
         - PolicyName: TagctlScan
           PolicyDocument:
@@ -523,6 +539,199 @@ Resources:
                         aws:TagKeys:
                           Fn::Split: [",", {Ref: ProtectedTagKeys}]
             - {Ref: AWS::NoValue}
+  UntagPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Condition: TagRemoval
+    Properties:
+      Description: Tag removal for tagctl apply (rules.rename and policy.forbidden)
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: ServiceUntagAPIs
+            Effect: Allow
+            Action:
+              - ec2:DeleteTags
+              - rds:RemoveTagsFromResource
+              - lambda:UntagResource
+              - sns:UntagResource
+              - sqs:UntagQueue
+              - elasticloadbalancing:RemoveTags
+              - autoscaling:DeleteTags
+              - dynamodb:UntagResource
+              - ecs:UntagResource
+              - eks:UntagResource
+              - elasticache:RemoveTagsFromResource
+              - elasticfilesystem:UntagResource
+              - ecr:UntagResource
+              - kms:UntagResource
+              - kinesis:RemoveTagsFromStream
+              - logs:UntagResource
+              - lightsail:UntagResource
+              - globalaccelerator:UntagResource
+            Resource:
+              - "arn:aws:ec2:*:*:instance/*"
+              - "arn:aws:ec2:*::image/*"
+              - "arn:aws:ec2:*:*:volume/*"
+              - "arn:aws:ec2:*::snapshot/*"
+              - "arn:aws:ec2:*:*:launch-template/*"
+              - "arn:aws:ec2:*:*:security-group/*"
+              - "arn:aws:ec2:*:*:vpc/*"
+              - "arn:aws:ec2:*:*:subnet/*"
+              - "arn:aws:ec2:*:*:internet-gateway/*"
+              - "arn:aws:ec2:*:*:natgateway/*"
+              - "arn:aws:ec2:*:*:vpc-endpoint/*"
+              - "arn:aws:ec2:*:*:elastic-ip/*"
+              - "arn:aws:rds:*:*:db:*"
+              - "arn:aws:rds:*:*:cluster:*"
+              - "arn:aws:rds:*:*:snapshot:*"
+              - "arn:aws:lambda:*:*:function:*"
+              - "arn:aws:sns:*:*:*"
+              - "arn:aws:sqs:*:*:*"
+              - "arn:aws:elasticloadbalancing:*:*:loadbalancer/*"
+              - "arn:aws:elasticloadbalancing:*:*:targetgroup/*"
+              - "arn:aws:autoscaling:*:*:autoScalingGroup:*:autoScalingGroupName/*"
+              - "arn:aws:dynamodb:*:*:table/*"
+              - "arn:aws:ecs:*:*:cluster/*"
+              - "arn:aws:ecs:*:*:service/*"
+              - "arn:aws:eks:*:*:cluster/*"
+              - "arn:aws:elasticache:*:*:cluster:*"
+              - "arn:aws:elasticfilesystem:*:*:file-system/*"
+              - "arn:aws:ecr:*:*:repository/*"
+              - "arn:aws:kms:*:*:key/*"
+              - "arn:aws:kinesis:*:*:stream/*"
+              - "arn:aws:logs:*:*:log-group:*"
+              - "arn:aws:lightsail:*:*:Instance/*"
+              - "arn:aws:globalaccelerator::*:accelerator/*"
+          - Sid: UntaggingAPI
+            Effect: Allow
+            Action:
+              - tag:UntagResources
+              - workspaces:DeleteTags
+            Resource: "*"
+          - Sid: UntaggingAPIServices
+            Effect: Allow
+            Action:
+              - elasticbeanstalk:RemoveTags
+              - apigateway:DELETE
+              - cloudfront:UntagResource
+              - fsx:UntagResource
+              - backup:UntagResource
+              - redshift:DeleteTags
+              - es:RemoveTags
+              - firehose:UntagDeliveryStream
+              - kafka:UntagResource
+              - glue:UntagResource
+              - sagemaker:DeleteTags
+              - events:UntagResource
+              - states:UntagResource
+              - cognito-idp:UntagResource
+              - cloudwatch:UntagResource
+              - cloudformation:UntagResource
+              - secretsmanager:UntagResource
+              - acm:RemoveTagsFromCertificate
+              - iam:UntagRole
+              - access-analyzer:UntagResource
+              - acm-pca:UntagCertificateAuthority
+              - cloudtrail:RemoveTags
+              - config:UntagResource
+              - ds:RemoveTagsFromResource
+              - fms:UntagResource
+              - guardduty:UntagResource
+              - network-firewall:UntagResource
+              - rolesanywhere:UntagResource
+              - waf-regional:UntagResource
+              - waf:UntagResource
+              - wafv2:UntagResource
+              - shield:UntagResource
+              - amplify:UntagResource
+              - appsync:UntagResource
+              - bedrock:UntagResource
+              - codeartifact:UntagResource
+              - codecommit:UntagResource
+              - codepipeline:UntagResource
+              - wellarchitected:UntagResource
+              - athena:UntagResource
+              - dms:RemoveTagsFromResource
+              - datapipeline:RemoveTags
+              - datasync:UntagResource
+              - elasticmapreduce:RemoveTags
+              - glacier:RemoveTagsFromVault
+              - memorydb:UntagResource
+              - mq:DeleteTags
+              - ses:UntagResource
+              - storagegateway:RemoveTagsFromResource
+              - transfer:UntagResource
+              - appstream:UntagResource
+              - batch:UntagResource
+              - directconnect:UntagResource
+              - dlm:UntagResource
+              - drs:UntagResource
+              - ssm:RemoveTagsFromResource
+              - ssm-incidents:UntagResource
+            Resource:
+              - "arn:aws:elasticbeanstalk:*:*:environment/*"
+              - "arn:aws:apigateway:*::/tags/*"
+              - "arn:aws:cloudfront::*:distribution/*"
+              - "arn:aws:fsx:*:*:file-system/*"
+              - "arn:aws:backup:*:*:backup-vault:*"
+              - "arn:aws:redshift:*:*:cluster:*"
+              - "arn:aws:es:*:*:domain/*"
+              - "arn:aws:firehose:*:*:deliverystream/*"
+              - "arn:aws:kafka:*:*:cluster/*"
+              - "arn:aws:glue:*:*:job/*"
+              - "arn:aws:sagemaker:*:*:endpoint/*"
+              - "arn:aws:sagemaker:*:*:notebook-instance/*"
+              - "arn:aws:events:*:*:rule/*"
+              - "arn:aws:states:*:*:stateMachine:*"
+              - "arn:aws:cognito-idp:*:*:userpool/*"
+              - "arn:aws:cloudwatch:*:*:alarm:*"
+              - "arn:aws:cloudformation:*:*:stack/*"
+              - "arn:aws:secretsmanager:*:*:secret:*"
+              - "arn:aws:acm:*:*:certificate/*"
+              - "arn:aws:iam::*:role/*"
+              - "arn:aws:access-analyzer:*:*:analyzer/*"
+              - "arn:aws:acm-pca:*:*:certificate-authority/*"
+              - "arn:aws:cloudtrail:*:*:trail/*"
+              - "arn:aws:config:*:*:config-rule/*"
+              - "arn:aws:ds:*:*:directory/*"
+              - "arn:aws:fms:*:*:policy/*"
+              - "arn:aws:guardduty:*:*:detector/*"
+              - "arn:aws:network-firewall:*:*:firewall/*"
+              - "arn:aws:rolesanywhere:*:*:trust-anchor/*"
+              - "arn:aws:waf-regional:*:*:webacl/*"
+              - "arn:aws:waf::*:webacl/*"
+              - "arn:aws:wafv2:*:*:*/webacl/*"
+              - "arn:aws:shield::*:protection/*"
+              - "arn:aws:amplify:*:*:apps/*"
+              - "arn:aws:appsync:*:*:apis/*"
+              - "arn:aws:bedrock:*:*:guardrail/*"
+              - "arn:aws:codeartifact:*:*:domain/*"
+              - "arn:aws:codeartifact:*:*:repository/*"
+              - "arn:aws:codecommit:*:*:*"
+              - "arn:aws:codepipeline:*:*:*"
+              - "arn:aws:wellarchitected:*:*:workload/*"
+              - "arn:aws:athena:*:*:workgroup/*"
+              - "arn:aws:dms:*:*:rep:*"
+              - "arn:aws:datapipeline:*:*:pipeline/*"
+              - "arn:aws:datasync:*:*:task/*"
+              - "arn:aws:elasticmapreduce:*:*:cluster/*"
+              - "arn:aws:glacier:*:*:vaults/*"
+              - "arn:aws:memorydb:*:*:cluster/*"
+              - "arn:aws:mq:*:*:broker:*"
+              - "arn:aws:ses:*:*:identity/*"
+              - "arn:aws:ses:*:*:configuration-set/*"
+              - "arn:aws:storagegateway:*:*:gateway/*"
+              - "arn:aws:transfer:*:*:server/*"
+              - "arn:aws:appstream:*:*:fleet/*"
+              - "arn:aws:appstream:*:*:stack/*"
+              - "arn:aws:batch:*:*:compute-environment/*"
+              - "arn:aws:batch:*:*:job-queue/*"
+              - "arn:aws:directconnect:*:*:dxcon/*"
+              - "arn:aws:dlm:*:*:policy/*"
+              - "arn:aws:drs:*:*:source-server/*"
+              - "arn:aws:ssm:*:*:parameter/*"
+              - "arn:aws:ssm:*:*:document/*"
+              - "arn:aws:ssm-incidents::*:response-plan/*"
 
 Outputs:
   RoleArn:

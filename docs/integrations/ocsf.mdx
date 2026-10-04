@@ -87,13 +87,13 @@ class, or carries information a consumer would otherwise have to reconstruct.
 |-----------|-------|-----|
 | `compliance.standards` | `["tagctl tag policy"]` | Required. The standard being evaluated is your policy file |
 | `compliance.control` | The tag name | A required tag is one control of the policy |
-| `compliance.requirements` | The rule, when the tag has one (`one of: dev, staging, prod`, or the regex) | What a compliant value looks like; absent for tags that only need to be present |
+| `compliance.requirements` | The rule, when the tag has one (`one of: dev, staging, prod`, or the regex; `not one of: ...` or `not matching: <regex>` for a forbidden value) | What a compliant value looks like; absent for tags that only need to be present |
 | `compliance.status_id` / `status` | `1` / `Pass` or `3` / `Fail` | The evaluation outcome |
 | `compliance.status_details` | The finding message | Human-readable reason, e.g. `required tag 'owner' is missing` |
-| `severity_id` / `severity` | Pass → `1` Informational; missing tag → `3` Medium; invalid value → `2` Low | Same reasoning as the SARIF levels: a resource with no owner tag cannot be attributed at all, while one with a misspelt value is at least identifiable |
+| `severity_id` / `severity` | Pass → `1` Informational; missing tag → `3` Medium; invalid value or forbidden tag → `2` Low | Same reasoning as the SARIF levels: a resource with no owner tag cannot be attributed at all, while one with a misspelt value is at least identifiable |
 | `status_id` / `status` | `1` / `New` | The finding's lifecycle state. tagctl produces findings; it does not manage them, so every event is new. Do not confuse with `compliance.status`, which is the Pass/Fail outcome |
 | `message` | `<type> <resource>: <finding message>` | One line that reads on its own in a log viewer |
-| `remediation.desc` | Fail only: what tag to set on which resource, satisfying which rule, and that `tagctl plan` / `tagctl apply` do it | The consumer can act without opening tagctl |
+| `remediation.desc` | Fail only: what tag to set on which resource, satisfying which rule (for a `forbidden` finding, what tag to remove), and that `tagctl plan` / `tagctl apply` do it | The consumer can act without opening tagctl |
 
 ### Finding identity
 
@@ -103,7 +103,7 @@ class, or carries information a consumer would otherwise have to reconstruct.
 | `finding_info.title` / `desc` | The finding message, and the message prefixed with the resource | Short and long forms |
 | `finding_info.created_time` | Scan time | When this finding first existed, as far as tagctl knows |
 | `finding_info.types` | `["Tag Compliance"]` | Lets a consumer with many finding sources filter tagctl's out |
-| `finding_info.analytic` | `type_id` `1` (Rule), `name` and `uid` `tagctl/missing-or-invalid-tag/<tag>` | The rule that produced the finding, with the same id SARIF declares as its rule, one per tag |
+| `finding_info.analytic` | `type_id` `1` (Rule), `name` and `uid` `tagctl/missing-or-invalid-tag/<tag>`, or `tagctl/forbidden-tag/<tag>` for a `forbidden` finding | The rule that produced the finding, with the same id SARIF declares as its rule, one per tag and kind |
 
 ### Where
 
@@ -134,7 +134,7 @@ information is lost in the conversion:
 
 | Field | Value |
 |-------|-------|
-| `unmapped.reason` | `missing`, `invalid_value`, `invalid_format` or `compliant` |
+| `unmapped.reason` | `missing`, `invalid_value`, `invalid_format`, `forbidden` or `compliant` |
 | `unmapped.expected` | The rule text, same as `compliance.requirements[0]` |
 | `unmapped.actual` | The value found, when there was one |
 

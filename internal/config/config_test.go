@@ -375,11 +375,42 @@ func TestValidate_PolicyRulesAndIgnore(t *testing.T) {
 	awsDefault := func(set, when map[string]string) RulesConfig {
 		return RulesConfig{Defaults: []DefaultRule{{Resource: "aws_*", When: when, Set: set}}}
 	}
+	inferFrom := func(tag string, source TagSource) RulesConfig {
+		return RulesConfig{Infer: []InferRule{{Tag: tag, FromTag: []TagSource{source}}}}
+	}
 	cases := []struct {
 		name    string
 		cfg     Config
 		wantErr string
 	}{
+		{"infer from another tag", Config{Rules: inferFrom("environment", TagSource{Tag: "env", Values: map[string]string{"production": "prod"}})}, ""},
+		{"infer from tag without source tag", Config{Rules: inferFrom("environment", TagSource{})}, "rules.infer[0].from_tag[0]: tag is required"},
+		{"infer from tag without target tag", Config{Rules: inferFrom("", TagSource{Tag: "env"})}, "rules.infer[0].from_tag[0]: the rule needs a tag to infer"},
+		{"infer from the tag being inferred", Config{Rules: inferFrom("env", TagSource{Tag: "env"})}, `rules.infer[0].from_tag[0]: tag "env" is the tag being inferred`},
+		{"infer from tag mapping to an empty value", Config{Rules: inferFrom("environment", TagSource{Tag: "env", Values: map[string]string{"production": ""}})}, `rules.infer[0].from_tag[0]: values: "production" maps to ""`},
+		{"inherit from a relation", Config{Rules: RulesConfig{Inherit: []InheritRule{{Resource: "aws_ebs_volume", From: "attached_instance", Tags: []string{"owner"}}}}}, ""},
+		{"inherit from any relation", Config{Rules: RulesConfig{Inherit: []InheritRule{{Resource: "aws_ebs_*", Tags: []string{"owner"}}}}}, ""},
+		{"inherit without resource", Config{Rules: RulesConfig{Inherit: []InheritRule{{Tags: []string{"owner"}}}}}, "rules.inherit[0]: resource is required"},
+		{"inherit with malformed glob", Config{Rules: RulesConfig{Inherit: []InheritRule{{Resource: "aws_[", Tags: []string{"owner"}}}}}, `rules.inherit[0]: resource: invalid glob "aws_["`},
+		{"inherit from unknown relation", Config{Rules: RulesConfig{Inherit: []InheritRule{{Resource: "aws_instance", From: "asg", Tags: []string{"owner"}}}}}, `rules.inherit[0]: from: unknown relation "asg" (supported: attached_instance, source_volume, vpc)`},
+		{"inherit without tags", Config{Rules: RulesConfig{Inherit: []InheritRule{{Resource: "aws_ebs_volume"}}}}, "rules.inherit[0]: tags must name at least one tag"},
+		{"inherit with empty tag name", Config{Rules: RulesConfig{Inherit: []InheritRule{{Resource: "aws_ebs_volume", Tags: []string{""}}}}}, "rules.inherit[0]: tags: empty tag name"},
+		{"forbidden key", Config{Policy: PolicyConfig{Forbidden: []ForbiddenTag{{Name: "Env"}}}}, ""},
+		{"forbidden values of a required tag", Config{Policy: PolicyConfig{Required: []TagRequirement{{Name: "environment"}}, Forbidden: []ForbiddenTag{{Name: "environment", Values: []string{"test"}}}}}, ""},
+		{"forbidden tag without name", Config{Policy: PolicyConfig{Forbidden: []ForbiddenTag{{Pattern: "^tmp"}}}}, "policy.forbidden[0]: name is required"},
+		{"forbidden tag listed twice", Config{Policy: PolicyConfig{Forbidden: []ForbiddenTag{{Name: "Env"}, {Name: "Env", Values: []string{"x"}}}}}, `policy.forbidden[1]: tag "Env" is already defined at policy.forbidden[0]`},
+		{"forbidden tag with bad pattern", Config{Policy: PolicyConfig{Forbidden: []ForbiddenTag{{Name: "Env", Pattern: "[a-"}}}}, `policy.forbidden[0]: invalid pattern "[a-"`},
+		{"forbidden tag with empty value", Config{Policy: PolicyConfig{Forbidden: []ForbiddenTag{{Name: "Env", Values: []string{""}}}}}, "policy.forbidden[0]: values: empty value"},
+		{"required tag forbidden outright", Config{Policy: PolicyConfig{Required: []TagRequirement{{Name: "owner"}}, Forbidden: []ForbiddenTag{{Name: "owner"}}}}, `policy.forbidden[0]: tag "owner" is defined at policy.required[0]; forbid specific values or a pattern instead`},
+		{"optional tag forbidden outright", Config{Policy: PolicyConfig{Optional: []TagRequirement{{Name: "team"}}, Forbidden: []ForbiddenTag{{Name: "team"}}}}, `policy.forbidden[0]: tag "team" is defined at policy.optional[0]`},
+		{"rename", Config{Rules: RulesConfig{Rename: []RenameRule{{From: "Env", To: "environment"}, {Resource: "aws_s3_*", From: "env", To: "environment"}}}}, ""},
+		{"rename without from", Config{Rules: RulesConfig{Rename: []RenameRule{{To: "environment"}}}}, "rules.rename[0]: from is required"},
+		{"rename without to", Config{Rules: RulesConfig{Rename: []RenameRule{{From: "Env"}}}}, "rules.rename[0]: to is required"},
+		{"rename to the same key", Config{Rules: RulesConfig{Rename: []RenameRule{{From: "Env", To: "Env"}}}}, `rules.rename[0]: from and to are both "Env"`},
+		{"rename with malformed glob", Config{Rules: RulesConfig{Rename: []RenameRule{{Resource: "aws_[", From: "Env", To: "environment"}}}}, `rules.rename[0]: resource: invalid glob "aws_["`},
+		{"rename chain", Config{Rules: RulesConfig{Rename: []RenameRule{{From: "Env", To: "env"}, {From: "env", To: "environment"}}}}, `rules.rename[0]: to: tag "env" is renamed again by rules.rename[1]`},
+		{"rename to a forbidden key", Config{Policy: PolicyConfig{Forbidden: []ForbiddenTag{{Name: "Env"}}}, Rules: RulesConfig{Rename: []RenameRule{{From: "environment", To: "Env"}}}}, `rules.rename[0]: to: tag "Env" is forbidden by policy.forbidden`},
+		{"rename from a forbidden key", Config{Policy: PolicyConfig{Forbidden: []ForbiddenTag{{Name: "Env"}}}, Rules: RulesConfig{Rename: []RenameRule{{From: "Env", To: "environment"}}}}, ""},
 		{"tag keys differing only in case", Config{Policy: PolicyConfig{Required: []TagRequirement{{Name: "Owner"}, {Name: "owner"}}}}, ""},
 		{"tag required twice", Config{Policy: PolicyConfig{Required: []TagRequirement{{Name: "owner"}, {Name: "owner"}}}}, `policy.required[1]: tag "owner" is already defined at policy.required[0]`},
 		{"tag both required and optional", Config{Policy: PolicyConfig{Required: []TagRequirement{{Name: "owner"}}, Optional: []TagRequirement{{Name: "owner"}}}}, `policy.optional[0]: tag "owner" is already defined at policy.required[0]`},

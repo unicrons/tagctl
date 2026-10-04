@@ -207,36 +207,66 @@ func invocationOf(scan *types.ScanResult) SARIFInvocation {
 	return invocation
 }
 
-// ruleID is the stable SARIF rule identifier for a tag.
-func ruleID(tag string) string {
-	return "tagctl/missing-or-invalid-tag/" + tag
+const levelWarning = "warning"
+
+// ruleID is the stable SARIF rule identifier of a finding: one rule per
+// required or tracked tag and another per forbidden tag.
+func ruleID(finding types.Finding) string {
+	if finding.Reason == types.ReasonForbidden {
+		return "tagctl/forbidden-tag/" + finding.Tag
+	}
+	return "tagctl/missing-or-invalid-tag/" + finding.Tag
 }
 
-// rulesFor declares one rule per tag that has at least one failure.
+// forbiddenRule declares the rule of a tag the policy forbids.
+func forbiddenRule(id, tag string) SARIFRule {
+	return SARIFRule{
+		ID:               id,
+		Name:             "ForbiddenTag",
+		ShortDescription: SARIFText{Text: fmt.Sprintf("Tag '%s' is forbidden", tag)},
+		FullDescription: SARIFText{
+			Text: fmt.Sprintf("The tag policy forbids '%s', or the value it carries, on this resource.", tag),
+		},
+		DefaultConfig: SARIFRuleConfig{Level: levelWarning},
+		Help: &SARIFMultiFormat{
+			Text:     fmt.Sprintf("Remove the '%s' tag, or run 'tagctl plan' and 'tagctl apply' to remove it.", tag),
+			Markdown: fmt.Sprintf("Remove the `%s` tag, or run `tagctl plan` followed by `tagctl apply` to remove it.", tag),
+		},
+		Properties: map[string]any{"tags": []string{"tagging", "governance", "finops"}},
+	}
+}
+
+// rulesFor declares one rule per rule id that has at least one failure.
 func rulesFor(failures []types.Finding) []SARIFRule {
-	seen := make(map[string]bool, len(failures))
-	tags := make([]string, 0, len(failures))
+	byID := make(map[string]types.Finding, len(failures))
+	ids := make([]string, 0, len(failures))
 
 	for _, finding := range failures {
-		if seen[finding.Tag] {
+		id := ruleID(finding)
+		if _, seen := byID[id]; seen {
 			continue
 		}
-		seen[finding.Tag] = true
-		tags = append(tags, finding.Tag)
+		byID[id] = finding
+		ids = append(ids, id)
 	}
 
-	sort.Strings(tags)
+	sort.Strings(ids)
 
-	rules := make([]SARIFRule, 0, len(tags))
-	for _, tag := range tags {
+	rules := make([]SARIFRule, 0, len(ids))
+	for _, id := range ids {
+		tag := byID[id].Tag
+		if byID[id].Reason == types.ReasonForbidden {
+			rules = append(rules, forbiddenRule(id, tag))
+			continue
+		}
 		rules = append(rules, SARIFRule{
-			ID:               ruleID(tag),
+			ID:               id,
 			Name:             "MissingOrInvalidTag",
 			ShortDescription: SARIFText{Text: fmt.Sprintf("Tag '%s' is missing or invalid", tag)},
 			FullDescription: SARIFText{
 				Text: fmt.Sprintf("The tag policy requires '%s' on this resource. A resource without it cannot be attributed to an owner, an environment or a cost centre.", tag),
 			},
-			DefaultConfig: SARIFRuleConfig{Level: "warning"},
+			DefaultConfig: SARIFRuleConfig{Level: levelWarning},
 			Help: &SARIFMultiFormat{
 				Text:     fmt.Sprintf("Add the '%s' tag, or run 'tagctl plan' and 'tagctl apply' to set it from your rules.", tag),
 				Markdown: fmt.Sprintf("Add the `%s` tag, or run `tagctl plan` followed by `tagctl apply` to set it from your rules.", tag),
@@ -257,7 +287,7 @@ func resultsFor(failures []types.Finding, policyFile string) []SARIFResult {
 		qualified := resource.Identity()
 
 		results = append(results, SARIFResult{
-			RuleID:  ruleID(finding.Tag),
+			RuleID:  ruleID(finding),
 			Level:   sarifLevel(finding.Reason),
 			Message: SARIFText{Text: fmt.Sprintf("%s: %s", describeResource(resource), findingMessage(finding))},
 			Locations: []SARIFLocation{
@@ -312,5 +342,5 @@ func sarifLevel(reason types.ViolationReason) string {
 	if reason == types.ReasonMissing {
 		return "error"
 	}
-	return "warning"
+	return levelWarning
 }

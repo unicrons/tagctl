@@ -69,7 +69,7 @@ tagctl/
 │   ├── engine/           # Core business logic
 │   │   ├── scanner.go    # Resource discovery
 │   │   ├── evaluator.go  # Policy evaluation → Findings
-│   │   ├── planner.go    # Change planning (inference, defaults)
+│   │   ├── planner.go    # Change planning (inference, inheritance, defaults)
 │   │   ├── applier.go    # Tag application
 │   │   ├── differ.go     # Drift between two scans
 │   │   └── normalizer.go # Tag value clustering
@@ -168,17 +168,20 @@ tagctl apply ◀────────────┘
 
   <Step title="Plan → output/plan-*.json">
     1. Load scan results (latest or specified with `--scan`)
-    2. Apply inference rules (extract tags from resource names)
-    3. Apply default rules (fallback values)
-    4. Generate `Plan` with proposed changes
-    5. Write plan to `output/plan-TIMESTAMP.json`
+    2. Apply rename rules (new key added, old key removed, conflicts skipped)
+    3. Apply inference rules (extract tags from other tags and resource names)
+    4. Apply inheritance rules (copy tags from the parent the scan recorded)
+    5. Apply default rules (fallback values)
+    6. Plan the removal of forbidden tags
+    7. Generate `Plan` with proposed changes
+    8. Write plan to `output/plan-TIMESTAMP.json`
   </Step>
 
   <Step title="Apply">
     1. Load plan file (latest or specified with `--plan`)
     2. Show summary and ask for confirmation
     3. Group changes by resource and region
-    4. Call `ApplyTags()` on AWS provider
+    4. Call `ApplyTags()` on AWS provider, then, with `--allow-removals`, `RemoveTags()` for the keys to remove
     5. Report success/failure for each change
   </Step>
 </Steps>
@@ -199,6 +202,7 @@ type Resource struct {
     Tags        map[string]string `json:"tags"`
     UnknownTags []string          `json:"unknown_tags,omitempty"`
     CreatedAt   *time.Time        `json:"created_at,omitempty"`
+    Parents     map[string]string `json:"parents,omitempty"` // relation -> parent Identity()
 }
 ```
 
