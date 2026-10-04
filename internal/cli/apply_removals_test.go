@@ -1,9 +1,14 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
+	"maps"
 	"strings"
 	"testing"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes/fake"
 
 	"github.com/unicrons/tagctl/internal/types"
 )
@@ -92,5 +97,62 @@ func TestApply_PlanWithOnlyRemovalsDoesNothingWithoutAllowRemovals(t *testing.T)
 	}
 	if !strings.Contains(run.stdout, "Skipped: 2 removal(s)") {
 		t.Errorf("stdout does not report the skipped removals:\n%s", run.stdout)
+	}
+}
+
+const kubernetesRenameConfig = `clouds:
+  kubernetes:
+    - name: prod
+      context: prod
+      namespaces: [app]
+      resource_types: [k8s_deployment]
+policy:
+  required:
+    - name: environment
+  forbidden:
+    - name: temp
+rules:
+  rename:
+    - from: Env
+      to: environment
+`
+
+func labelsAfterKubernetesApply(t *testing.T, flags map[string]string) map[string]string {
+	t.Helper()
+	prod := fake.NewSimpleClientset(appDeployment("api", map[string]string{"Env": "prod", "temp": "1"}))
+	useFakeClusters(t, map[string]*fake.Clientset{"prod": prod})
+	useKubernetesConfig(t, kubernetesRenameConfig)
+
+	if err := runScan(scanCmd, nil); err != nil {
+		t.Fatalf("runScan() error = %v", err)
+	}
+	if err := runPlan(planCmd, nil); err != nil {
+		t.Fatalf("runPlan() error = %v", err)
+	}
+	setFlags(t, applyCmd, flags)
+	if err := runApply(applyCmd, nil); err != nil {
+		t.Fatalf("runApply() error = %v", err)
+	}
+
+	deployment, err := prod.AppsV1().Deployments("app").Get(context.Background(), "api", metav1.GetOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return deployment.Labels
+}
+
+func TestScanPlanApply_KubernetesKeepsRemovedLabelsWithoutAllowRemovals(t *testing.T) {
+	got := labelsAfterKubernetesApply(t, map[string]string{"auto-approve": "true"})
+
+	if want := map[string]string{"Env": "prod", "temp": "1", "environment": "prod"}; !maps.Equal(got, want) {
+		t.Errorf("labels = %v, want %v", got, want)
+	}
+}
+
+func TestScanPlanApply_KubernetesRemovesLabelsWithAllowRemovals(t *testing.T) {
+	got := labelsAfterKubernetesApply(t, map[string]string{"auto-approve": "true", "allow-removals": "true"})
+
+	if want := map[string]string{"environment": "prod"}; !maps.Equal(got, want) {
+		t.Errorf("labels = %v, want %v", got, want)
 	}
 }
