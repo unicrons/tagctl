@@ -170,11 +170,6 @@ func loadScanResults(dir, scanFile string) (*types.ScanResult, string, error) {
 	return &result, scanPath, nil
 }
 
-// findLatestScan finds the most recent scan JSON file in the default output directory.
-func findLatestScan() (string, error) {
-	return findLatestScanIn(OutputDir)
-}
-
 // findLatestScanIn finds the most recent scan JSON file in dir.
 func findLatestScanIn(dir string) (string, error) {
 	entries, err := os.ReadDir(dir)
