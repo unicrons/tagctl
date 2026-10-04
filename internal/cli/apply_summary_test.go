@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/unicrons/tagctl/internal/types"
 )
@@ -17,9 +16,8 @@ func removal(id, tag, value string, reason types.ChangeReason) types.TagChange {
 	}
 }
 
-func TestPrintPlanSummary_ListsRemovalsApart(t *testing.T) {
+func TestPrintRemovalSummary_ListsRemovals(t *testing.T) {
 	plan := &types.Plan{
-		CreatedAt: time.Date(2026, 2, 3, 10, 0, 0, 0, time.UTC),
 		Changes: []types.TagChange{
 			{Resource: types.Resource{ID: "i-1", Provider: "aws", Type: "aws_instance", Region: "us-east-1"}, Tag: "environment", Action: types.ActionAdd, NewValue: "prod"},
 			removal("i-1", "Env", "prod", types.ReasonRenamed),
@@ -28,42 +26,37 @@ func TestPrintPlanSummary_ListsRemovalsApart(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	printPlanSummary(&buf, "plan.json", plan, true)
+	printRemovalSummary(&buf, "plan.json", plan, 0)
 
-	for _, want := range []string{
-		"  • 2 resources will be modified\n",
-		"  • 1 tags will be added\n",
-		"  • 2 tags will be REMOVED:\n",
-		`      - Env="prod" on aws_instance i-1 (renamed)` + "\n",
-		`      - temp="1" on aws_instance i-2 (forbidden)` + "\n",
-	} {
-		if !strings.Contains(buf.String(), want) {
-			t.Errorf("summary lacks %q:\n%s", want, buf.String())
-		}
+	want := "  • 2 tags will be REMOVED:\n" +
+		`      - Env="prod" on aws_instance i-1 (renamed)` + "\n" +
+		`      - temp="1" on aws_instance i-2 (forbidden)` + "\n\n"
+	if got := buf.String(); got != want {
+		t.Errorf("printRemovalSummary() wrote\n%s\nwant\n%s", got, want)
 	}
 }
 
-func TestPrintPlanSummary_WithoutRemovalsSaysNothingAboutThem(t *testing.T) {
+func TestPrintRemovalSummary_WithoutRemovalsOnlyEndsTheSummary(t *testing.T) {
 	plan := &types.Plan{Changes: []types.TagChange{
 		{Resource: types.Resource{ID: "i-1"}, Tag: "environment", Action: types.ActionAdd, NewValue: "prod"},
 	}}
 
 	var buf bytes.Buffer
-	printPlanSummary(&buf, "plan.json", plan, true)
+	printRemovalSummary(&buf, "plan.json", plan, 0)
 
-	if strings.Contains(buf.String(), "REMOVED") {
-		t.Errorf("summary mentions removals:\n%s", buf.String())
+	if got := buf.String(); got != "\n" {
+		t.Errorf("printRemovalSummary() wrote %q, want a blank line", got)
 	}
 }
 
-func TestPrintPlanSummary_CapsTheListedRemovals(t *testing.T) {
+func TestPrintRemovalSummary_CapsTheListedRemovals(t *testing.T) {
 	plan := &types.Plan{}
 	for i := range maxListedRemovals + 5 {
 		plan.Changes = append(plan.Changes, removal(fmt.Sprintf("i-%d", i), "temp", "1", types.ReasonForbiddenTag))
 	}
 
 	var buf bytes.Buffer
-	printPlanSummary(&buf, "plan.json", plan, true)
+	printRemovalSummary(&buf, "plan.json", plan, 0)
 
 	if got := strings.Count(buf.String(), "      - temp="); got != maxListedRemovals {
 		t.Errorf("listed %d removals, want %d", got, maxListedRemovals)
@@ -73,27 +66,19 @@ func TestPrintPlanSummary_CapsTheListedRemovals(t *testing.T) {
 	}
 }
 
-func TestPrintPlanSummary_SaysRemovalsAreSkippedWithoutTheFlag(t *testing.T) {
+func TestPrintRemovalSummary_SaysRemovalsAreSkippedWithoutTheFlag(t *testing.T) {
 	plan := &types.Plan{Changes: []types.TagChange{
 		{Resource: types.Resource{ID: "i-1"}, Tag: "environment", Action: types.ActionAdd, NewValue: "prod"},
 		removal("i-1", "Env", "prod", types.ReasonRenamed),
 		removal("i-2", "temp", "1", types.ReasonForbiddenTag),
 	}}
+	applied, skipped := withoutRemovals(plan, false)
 
 	var buf bytes.Buffer
-	printPlanSummary(&buf, "plan.json", plan, false)
+	printRemovalSummary(&buf, "plan.json", applied, skipped)
 
-	for _, want := range []string{
-		"  • 1 resources will be modified\n",
-		"  • 1 tags will be added\n",
-		"  • 2 removals will be SKIPPED (pass --allow-removals to perform them)\n",
-	} {
-		if !strings.Contains(buf.String(), want) {
-			t.Errorf("summary lacks %q:\n%s", want, buf.String())
-		}
-	}
-	if strings.Contains(buf.String(), "REMOVED") {
-		t.Errorf("summary announces a removal that will not happen:\n%s", buf.String())
+	if got, want := buf.String(), "  • 2 removals will be SKIPPED (pass --allow-removals to perform them)\n\n"; got != want {
+		t.Errorf("printRemovalSummary() wrote %q, want %q", got, want)
 	}
 }
 

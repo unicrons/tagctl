@@ -208,18 +208,18 @@ func (a *RealApplier) applyResourceChanges(ctx context.Context, changes []types.
 		return err, err
 	}
 
-	tags := make(map[string]string, len(changes))
+	var set []types.TagChange
 	var remove []string
 	for _, change := range changes {
 		if change.Action == types.ActionRemove {
 			remove = append(remove, change.Tag)
 		} else {
-			tags[change.Tag] = change.NewValue
+			set = append(set, change)
 		}
 	}
 
-	if len(tags) > 0 {
-		if setErr = setTags(ctx, p, resource, tags); setErr != nil {
+	if len(set) > 0 {
+		if setErr = setTags(ctx, p, resource, set); setErr != nil {
 			return setErr, fmt.Errorf("not removed: setting the other tags of the resource failed: %w", setErr)
 		}
 	}
@@ -234,8 +234,12 @@ func (a *RealApplier) applyResourceChanges(ctx context.Context, changes []types.
 	return nil, remover.RemoveTags(ctx, resource, remove)
 }
 
-// setTags hands the plan's region to the providers that need one.
-func setTags(ctx context.Context, p provider.Provider, resource types.Resource, tags map[string]string) error {
+// setTags writes the tags of changes on a resource with one provider call.
+func setTags(ctx context.Context, p provider.Provider, resource types.Resource, changes []types.TagChange) error {
+	tags := make(map[string]string, len(changes))
+	for _, change := range changes {
+		tags[change.Tag] = change.NewValue
+	}
 	if regional, ok := p.(regionalTagger); ok {
 		return regional.ApplyTagsInRegion(ctx, taggingIdentifier(resource), resource.Region, tags)
 	}

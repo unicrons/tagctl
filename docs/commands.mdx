@@ -592,12 +592,12 @@ without them the removals fail and the additions are still applied.
   Review the plan resource by resource and apply only the approved changes (see [Interactive review](#interactive-review)). Cannot be combined with `--auto-approve` and needs a terminal on stdin
 </ParamField>
 
-<ParamField path="--allow-removals" type="boolean" default="false">
-  Perform the removals in the plan (old keys of `rules.rename`, tags `policy.forbidden` forbids). Without it they are skipped and reported
-</ParamField>
-
 <ParamField path="--mock" type="boolean" default="false">
   Simulate the apply without calling any cloud API. Also used automatically when the config has no cloud provider
+</ParamField>
+
+<ParamField path="--allow-removals" type="boolean" default="false">
+  Perform the removals in the plan (old keys of `rules.rename`, tags `policy.forbidden` forbids). Without it they are skipped and reported
 </ParamField>
 
 <CodeGroup>
@@ -617,14 +617,14 @@ tagctl apply --auto-approve
 tagctl apply --interactive
 ```
 
-```bash Also remove the tags the plan removes
-tagctl apply --allow-removals
-```
-
 ```bash Full workflow
 tagctl scan
 tagctl plan
 tagctl apply
+```
+
+```bash Also remove the tags the plan removes
+tagctl apply --allow-removals
 ```
 </CodeGroup>
 

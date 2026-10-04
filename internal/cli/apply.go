@@ -23,15 +23,15 @@ var applyCmd = &cobra.Command{
 	Short: "Apply planned tag changes",
 	Long: `Apply executes the changes from a previously generated plan.
 
-Before applying, it will:
-  • Load the plan file and reject any change it cannot perform
-  • Show a summary of changes, with every tag it will remove listed apart
-  • Ask for confirmation (unless --auto-approve is set), or about each
-    resource with --interactive
-
 Tags are only removed with --allow-removals. Without it the additions and
 updates are applied and every removal in the plan is skipped: a rename then
 adds the new key and keeps the old one.
+
+Before applying, it will:
+  • Load the plan file and reject any change it cannot perform
+  • Show a summary of changes
+  • Ask for confirmation (unless --auto-approve is set), or about each
+    resource with --interactive
 
 Examples:
   # Apply the latest plan
@@ -43,14 +43,14 @@ Examples:
   # Apply the latest plan of another directory
   tagctl apply --output-dir reports
 
+  # Also perform the removals of the plan (renamed and forbidden tags)
+  tagctl apply --allow-removals
+
   # Apply without confirmation
   tagctl apply --auto-approve
 
   # Decide resource by resource
   tagctl apply --interactive
-
-  # Also perform the removals of the plan (renamed and forbidden tags)
-  tagctl apply --allow-removals
 
   # Apply with a different profile or an assumed role
   tagctl apply --profile production
@@ -63,8 +63,8 @@ func init() {
 	addOutputDirFlag(applyCmd, "directory to look for the latest plan in")
 	applyCmd.Flags().Bool("auto-approve", false, "skip confirmation prompt")
 	applyCmd.Flags().BoolP("interactive", "i", false, "review the plan resource by resource and apply only the approved changes")
-	applyCmd.Flags().Bool(allowRemovalsFlag, false, "remove the tags the plan removes (skipped by default)")
 	applyCmd.Flags().Bool("mock", false, "use mock applier for demonstration")
+	applyCmd.Flags().Bool(allowRemovalsFlag, false, "remove the tags the plan removes (skipped by default)")
 	addAWSAuthFlags(applyCmd)
 }
 
@@ -73,7 +73,6 @@ func runApply(cmd *cobra.Command, args []string) error {
 	autoApprove, _ := cmd.Flags().GetBool("auto-approve")
 	useMock, _ := cmd.Flags().GetBool("mock")
 	interactive, _ := cmd.Flags().GetBool("interactive")
-	allowRemovals, _ := cmd.Flags().GetBool(allowRemovalsFlag)
 
 	if _, err := outputFormatFor(cmd, formatTable); err != nil {
 		return err
@@ -116,9 +115,11 @@ func runApply(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	printPlanSummary(os.Stderr, planFile, plan, allowRemovals)
-
+	allowRemovals, _ := cmd.Flags().GetBool(allowRemovalsFlag)
 	plan, skippedRemovals := withoutRemovals(plan, allowRemovals)
+
+	printPlanSummary(planFile, plan)
+	printRemovalSummary(os.Stderr, planFile, plan, skippedRemovals)
 	if plan.IsEmpty() {
 		printSkippedRemovals(os.Stdout, skippedRemovals)
 		return nil
@@ -172,11 +173,11 @@ func runApply(cmd *cobra.Command, args []string) error {
 	}
 
 	printApplyResult(result, skipped)
-	printSkippedRemovals(os.Stdout, skippedRemovals)
 	if result.ErrorCount > 0 {
-		return fmt.Errorf("%d of %d changes failed", result.ErrorCount, result.TotalChanges)
+		err = fmt.Errorf("%d of %d changes failed", result.ErrorCount, result.TotalChanges)
 	}
-	return nil
+	printSkippedRemovals(os.Stdout, skippedRemovals)
+	return err
 }
 
 func checkInteractive(interactive, autoApprove bool) error {
@@ -225,80 +226,15 @@ func approveWhole(ctx context.Context, plan *types.Plan) (*types.Plan, error) {
 	return plan, nil
 }
 
-const (
-	allowRemovalsFlag = "allow-removals"
-
-	// maxListedRemovals caps the removals spelled out before the prompt.
-	maxListedRemovals = 20
-)
-
-// withoutRemovals returns the plan apply will run and how many removals it
-// leaves out: all of them unless removals are allowed.
-func withoutRemovals(plan *types.Plan, allowRemovals bool) (*types.Plan, int) {
-	if allowRemovals {
-		return plan, 0
-	}
-	kept := *plan
-	kept.Changes = make([]types.TagChange, 0, len(plan.Changes))
-	for _, c := range plan.Changes {
-		if c.Action != types.ActionRemove {
-			kept.Changes = append(kept.Changes, c)
-		}
-	}
-	return &kept, len(plan.Changes) - len(kept.Changes)
-}
-
-// printSkippedRemovals reports the removals apply left out and how to run them.
-func printSkippedRemovals(w io.Writer, skipped int) {
-	if skipped == 0 {
-		return
-	}
-	fmt.Fprintf(w, "Skipped: %d removal(s), no tag was removed. Run again with --%s to perform them.\n", skipped, allowRemovalsFlag)
-}
-
-// printPlanSummary describes what apply is about to do with the plan. It goes
-// to stderr, next to the confirmation prompt, so both stay visible when stdout
-// is redirected. Removals cannot be undone from the plan, so they are listed.
-func printPlanSummary(w io.Writer, planFile string, plan *types.Plan, allowRemovals bool) {
-	applied, skippedRemovals := withoutRemovals(plan, allowRemovals)
-	summary := applied.Summarize()
-	fmt.Fprintf(w, "Applying plan from %s\n", planFile)
-	fmt.Fprintf(w, "Plan created at: %s\n\n", plan.CreatedAt.Format("2006-01-02 15:04:05"))
-	fmt.Fprintf(w, "Changes to apply:\n")
-	fmt.Fprintf(w, "  • %d resources will be modified\n", summary.TotalResources)
-	fmt.Fprintf(w, "  • %d tags will be added\n", summary.TagsAdded)
-	fmt.Fprintf(w, "  • %d tags will be updated\n", summary.TagsUpdated)
-	if skippedRemovals > 0 {
-		fmt.Fprintf(w, "  • %d removals will be SKIPPED (pass --%s to perform them)\n", skippedRemovals, allowRemovalsFlag)
-	}
-	if summary.TagsRemoved == 0 {
-		fmt.Fprintln(w)
-		return
-	}
-
-	fmt.Fprintf(w, "  • %d tags will be REMOVED:\n", summary.TagsRemoved)
-	listed := 0
-	for _, c := range plan.Changes {
-		if c.Action != types.ActionRemove {
-			continue
-		}
-		if listed == maxListedRemovals {
-			fmt.Fprintf(w, "      ... and %d more, see %s\n", summary.TagsRemoved-listed, planFile)
-			break
-		}
-		fmt.Fprintf(w, "      - %s=%q on %s %s (%s)\n", printable(c.Tag), printable(c.OldValue),
-			printable(c.Resource.Type), printable(c.Resource.ID), printable(string(c.Reason)))
-		listed++
-	}
-	fmt.Fprintln(w)
-}
-
-// describeChange names the tag and what happens to it in a progress line.
-func describeChange(c types.TagChange) string {
-	if c.Action == types.ActionRemove {
-		return "remove " + printable(c.Tag)
-	}
-	return printable(c.Tag) + ": " + printable(c.NewValue)
+// printPlanSummary describes the plan about to be applied on stderr.
+func printPlanSummary(planFile string, plan *types.Plan) {
+	summary := plan.Summarize()
+	fmt.Fprintf(os.Stderr, "Applying plan from %s\n", planFile)
+	fmt.Fprintf(os.Stderr, "Plan created at: %s\n\n", plan.CreatedAt.Format("2006-01-02 15:04:05"))
+	fmt.Fprintf(os.Stderr, "Changes to apply:\n")
+	fmt.Fprintf(os.Stderr, "  • %d resources will be modified\n", summary.TotalResources)
+	fmt.Fprintf(os.Stderr, "  • %d tags will be added\n", summary.TagsAdded)
+	fmt.Fprintf(os.Stderr, "  • %d tags will be updated\n", summary.TagsUpdated)
 }
 
 // confirmApply asks the operator to confirm before any tag is written. Ctrl-C

@@ -41,8 +41,14 @@ func TestApply_SkipsRemovalsWithoutAllowRemovals(t *testing.T) {
 	if run.err != nil || ExitCode(run.err) != 0 {
 		t.Fatalf("apply error = %v, want success: skipped removals do not fail the run", run.err)
 	}
-	if !strings.Contains(run.stderr, "2 removals will be SKIPPED (pass --allow-removals to perform them)") {
-		t.Errorf("stderr does not announce the skipped removals:\n%s", run.stderr)
+	for _, want := range []string{
+		"  • 1 resources will be modified\n",
+		"  • 1 tags will be added\n",
+		"  • 0 tags will be updated\n  • 2 removals will be SKIPPED (pass --allow-removals to perform them)\n\n",
+	} {
+		if !strings.Contains(run.stderr, want) {
+			t.Errorf("stderr lacks %q:\n%s", want, run.stderr)
+		}
 	}
 	for _, want := range []string{
 		"[1/1] aws_instance.i-1 (environment: prod)",
@@ -69,8 +75,8 @@ func TestApply_PerformsRemovalsWithAllowRemovals(t *testing.T) {
 	if run.err != nil {
 		t.Fatalf("apply error = %v", run.err)
 	}
-	if !strings.Contains(run.stderr, "2 tags will be REMOVED:") {
-		t.Errorf("stderr does not list the removals:\n%s", run.stderr)
+	if !strings.Contains(run.stderr, "  • 0 tags will be updated\n  • 2 tags will be REMOVED:\n") {
+		t.Errorf("stderr does not list the removals after the counts:\n%s", run.stderr)
 	}
 	for _, want := range []string{"(remove Env)", "(remove temp)", "Applied successfully: 3 changes"} {
 		if !strings.Contains(run.stdout, want) {
@@ -154,5 +160,46 @@ func TestScanPlanApply_KubernetesRemovesLabelsWithAllowRemovals(t *testing.T) {
 
 	if want := map[string]string{"environment": "prod"}; !maps.Equal(got, want) {
 		t.Errorf("labels = %v, want %v", got, want)
+	}
+}
+
+func TestApply_ReportsSkippedRemovalsWhenAChangeFails(t *testing.T) {
+	prod := fake.NewSimpleClientset(appDeployment("api", map[string]string{"temp": "1"}))
+	useFakeClusters(t, map[string]*fake.Clientset{"prod": prod})
+	useKubernetesConfig(t, `clouds:
+  kubernetes:
+    - name: prod
+      context: prod
+      namespaces: [app]
+      resource_types: [k8s_deployment]
+policy:
+  required:
+    - name: owner
+  forbidden:
+    - name: temp
+rules:
+  defaults:
+    - resource: "k8s_*"
+      when:
+        "tag:owner": absent
+      set:
+        owner: platform@company.com
+`)
+	if err := runScan(scanCmd, nil); err != nil {
+		t.Fatalf("runScan() error = %v", err)
+	}
+	if err := runPlan(planCmd, nil); err != nil {
+		t.Fatalf("runPlan() error = %v", err)
+	}
+	setFlags(t, applyCmd, map[string]string{"auto-approve": "true"})
+
+	var err error
+	stdout := captureStdout(t, func() { err = runApply(applyCmd, nil) })
+
+	if err == nil || !strings.Contains(err.Error(), "1 of 1 changes failed") || ExitCode(err) != exitError {
+		t.Errorf("runApply() error = %v, want the invalid label to fail the run", err)
+	}
+	if !strings.Contains(stdout, "Skipped: 1 removal(s)") {
+		t.Errorf("stdout does not report the skipped removal:\n%s", stdout)
 	}
 }

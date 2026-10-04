@@ -238,16 +238,7 @@ ignore:
    is skipped. Inherit resolves `Resource.Parents` (relation → parent
    `Identity()`, set by the provider) against the resources in the scan; a
    scan with no parents at all adds a `Plan.Warnings` entry that `plan` prints
-4. **Apply**: `engine.ValidatePlan` (add/update/remove, a named tag, never set
-   and removed on one resource) → `engine.Applier` → per resource
-   `Provider.ApplyTags()` for the tags to set, then `provider.TagRemover.RemoveTags()`
-   for the keys to remove. A failed set skips the removals of that resource; a
-   provider without `TagRemover` fails them with a clear error. Removals are
-   opt-in at the CLI: without `apply --allow-removals`, `withoutRemovals`
-   drops them from the plan before the applier runs (a rename then adds the
-   new key and keeps the old one) and they are reported as skipped, never as
-   failed, with no effect on the exit code; with the flag `printPlanSummary`
-   lists them apart before the prompt
+4. **Apply**: `engine.ValidatePlan` (add/update/remove, a named tag, never set and removed on one resource) → `engine.Applier` → `provider.Provider.ApplyTags()`, then `provider.TagRemover.RemoveTags()` (see Tag removal) → cloud API calls
 
 `apply --interactive` runs `reviewChanges` between loading the plan and the
 applier: one prompt per `Resource.Identity()` on stderr, answers read from
@@ -388,9 +379,27 @@ A provider that also implements `ApplyTagsInRegion` (engine `regionalTagger`)
 receives `Resource.Region` from the plan: AWS needs it for EC2 resources,
 tagged by bare ID with one `CreateTags` call in that region, and fails without
 it instead of probing regions.
-Tag removal is the optional
-`provider.TagRemover` (`RemoveTags(ctx, resource, keys)`), which takes the
-whole resource so the provider knows its region. AWS
+
+Provider status has one table, "Provider Status" in `docs/development.mdx`.
+README, CONTRIBUTING, `tagctl.yaml.example`, the `init` templates and the docs
+pages introduction, configuration, architecture, credentials, rules, roadmap
+and providers/kubernetes summarize it and link there: change them together.
+
+### Tag removal
+
+A plan removes a tag for `rules.rename` (the old key) and `policy.forbidden`.
+Removals are opt-in at the CLI (`internal/cli/apply_removals.go`): without
+`apply --allow-removals`, `withoutRemovals` drops them from the plan before
+the summary, the prompt and the applier, so a rename adds the new key and
+keeps the old one; they are reported as skipped (`printRemovalSummary` on
+stderr, `printSkippedRemovals` after the result), never as failed, and do not
+change the exit code. With the flag `printRemovalSummary` lists them before
+the prompt.
+
+The applier sets the tags of a resource first, then removes: a failed set
+skips the removals of that resource, and a provider without the optional
+`provider.TagRemover` (`RemoveTags(ctx, resource, keys)`, the whole resource
+so the provider knows its region) fails them with a clear error. AWS
 (`internal/provider/aws/untag.go`, `untagRouteFor`) uses `ec2:DeleteTags` by
 ID in the resource's region, the Auto Scaling, Lightsail and Global
 Accelerator APIs, and `tag:UntagResources` by ARN for everything else (a
@@ -400,11 +409,6 @@ patch with null labels. The untag IAM actions live in
 the apply template (`AllowTagRemoval`): the role's inline policies have no
 room for them. `TestUntagPolicy_MirrorsEveryApplyAction` fails when a service
 gains a tag write action without its untag counterpart.
-
-Provider status has one table, "Provider Status" in `docs/development.mdx`.
-README, CONTRIBUTING, `tagctl.yaml.example`, the `init` templates and the docs
-pages introduction, configuration, architecture, credentials, rules, roadmap
-and providers/kubernetes summarize it and link there: change them together.
 
 ## Code Conventions
 
@@ -487,9 +491,7 @@ Checklist:
    region) + `tagAppliers` + `arnServiceRoutes` only when the Tagging
    API cannot tag the type; `idAddressedTypes` + `ec2IDPrefixes` only for
    bare-ID tag APIs, which get the plan's region through `regionTagAppliers`
-   (built once from `ec2IDPrefixes`, plus S3). Removal goes through
-   `tag:UntagResources`; a type it cannot untag needs `remove<Service>Tags` +
-   `ownUntagAPI` (`untag.go`)
+   (built once from `ec2IDPrefixes`, plus S3)
 5. Register in `regionalListers()` (`provider.go`) or `globalListers()`
 6. Pinned tests: `TestRegionalListers`/`TestGlobalListers`,
    `TestGetResourceType_AllSupportedServices`, `TestTaggingIdentifier`
@@ -505,6 +507,9 @@ Checklist:
 8. Docs: table and "How tags are read" in `docs/providers/aws.mdx`; bump the
    count in README, CONTRIBUTING, this file, introduction, configuration,
    development, architecture
+9. Removal: nothing when `tag:UntagResources` can untag the type; otherwise
+   `remove<Service>Tags` + an `untagRoute` in `ownUntagAPI` (`untag.go`) and a
+   case in `TestUntagRouteFor`
 
 ### Adding a New CLI Command
 
