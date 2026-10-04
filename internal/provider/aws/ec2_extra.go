@@ -88,7 +88,7 @@ func (p *Provider) listElasticIPsFrom(ctx context.Context, client ec2ExtraAPI, r
 		if r.Name == r.ID && addr.PublicIp != nil {
 			r.Name = *addr.PublicIp
 		}
-		r = p.withEC2Parent(r, types.RelationAttachedInstance, "instance", aws.ToString(addr.InstanceId))
+		r = withEC2Parent(r, types.RelationAttachedInstance, "instance", aws.ToString(addr.InstanceId))
 		resources = append(resources, r)
 	}
 	log.Debug("AWS EC2: Found %d Elastic IPs in %s", len(resources), region)
@@ -113,7 +113,7 @@ func (p *Provider) listNATGatewaysFrom(ctx context.Context, client ec2ExtraAPI, 
 				continue
 			}
 			r := p.ec2Resource(region, "natgateway", "aws_nat_gateway", aws.ToString(gw.NatGatewayId), gw.Tags, gw.CreateTime)
-			resources = append(resources, p.withEC2Parent(r, types.RelationVPC, "vpc", aws.ToString(gw.VpcId)))
+			resources = append(resources, withEC2Parent(r, types.RelationVPC, "vpc", aws.ToString(gw.VpcId)))
 		}
 	}
 	log.Debug("AWS EC2: Found %d NAT gateways in %s", len(resources), region)
@@ -136,7 +136,7 @@ func (p *Provider) listInternetGatewaysFrom(ctx context.Context, client ec2Extra
 		for _, gw := range output.InternetGateways {
 			r := p.ec2Resource(region, "internet-gateway", "aws_internet_gateway", aws.ToString(gw.InternetGatewayId), gw.Tags, nil)
 			if len(gw.Attachments) == 1 {
-				r = p.withEC2Parent(r, types.RelationVPC, "vpc", aws.ToString(gw.Attachments[0].VpcId))
+				r = withEC2Parent(r, types.RelationVPC, "vpc", aws.ToString(gw.Attachments[0].VpcId))
 			}
 			resources = append(resources, r)
 		}
@@ -160,7 +160,7 @@ func (p *Provider) listVPCEndpointsFrom(ctx context.Context, client ec2ExtraAPI,
 		}
 		for _, ep := range output.VpcEndpoints {
 			r := p.ec2Resource(region, "vpc-endpoint", "aws_vpc_endpoint", aws.ToString(ep.VpcEndpointId), ep.Tags, ep.CreationTimestamp)
-			resources = append(resources, p.withEC2Parent(r, types.RelationVPC, "vpc", aws.ToString(ep.VpcId)))
+			resources = append(resources, withEC2Parent(r, types.RelationVPC, "vpc", aws.ToString(ep.VpcId)))
 		}
 	}
 	log.Debug("AWS EC2: Found %d VPC endpoints in %s", len(resources), region)

@@ -4,9 +4,9 @@ import (
 	"context"
 	"errors"
 	"slices"
-	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/aws/arn"
 	"github.com/aws/aws-sdk-go-v2/service/autoscaling"
 	asgtypes "github.com/aws/aws-sdk-go-v2/service/autoscaling/types"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
@@ -76,32 +76,38 @@ var ownUntagAPI = map[string]untagRoute{
 // untagRouteFor picks the API and region to remove a resource's tags with.
 // Everything untags by ARN through tag:UntagResources except EC2, which takes
 // a bare ID in the resource's region, the services in ownUntagAPI and a bucket
-// that has no ARN. An empty region for a bucket means it has to be looked up.
-func untagRouteFor(resource types.Resource) (untagRoute, string, error) {
-	service := arnService(resource.ARN)
-	region, _ := regionForARN(resource.ARN)
+// that has no ARN. An empty region for a bucket means it has to be looked up;
+// any other ARN without a region is untagged in globalRegion.
+func untagRouteFor(resource types.Resource, globalRegion string) (untagRoute, string, error) {
+	if resource.ARN == "" {
+		if resource.Type == bucketType {
+			return untagViaS3, resource.Region, nil
+		}
+		return 0, "", errors.New("the resource has no ARN to address it by")
+	}
+	parsed, err := arn.Parse(resource.ARN)
+	if err != nil {
+		return 0, "", err
+	}
+	region := parsed.Region
 	if region == "" {
 		region = resource.Region
 	}
 
-	switch {
-	case resource.ARN == "" && resource.Type == bucketType:
-		return untagViaS3, region, nil
-	case resource.ARN == "":
-		return 0, "", errors.New("the resource has no ARN to address it by")
-	case service == "s3":
+	switch parsed.Service {
+	case "s3":
 		return untagViaTaggingAPI, region, nil
-	case service == "globalaccelerator":
+	case "globalaccelerator":
 		return untagViaGlobalAccelerator, globalAcceleratorRegion, nil
 	}
-	if route, own := ownUntagAPI[service]; own {
+	if route, own := ownUntagAPI[parsed.Service]; own {
 		if region == "" {
 			return 0, "", errors.New("the resource has no region")
 		}
 		return route, region, nil
 	}
 	if region == "" {
-		region = defaultRegion
+		region = globalRegion
 	}
 	return untagViaTaggingAPI, region, nil
 }
@@ -111,12 +117,12 @@ func (p *Provider) RemoveTags(ctx context.Context, resource types.Resource, keys
 	if len(keys) == 0 {
 		return nil
 	}
-	route, region, err := untagRouteFor(resource)
+	route, region, err := untagRouteFor(resource, p.globalRegion())
 	if err != nil {
 		return provider.NewProviderError(providerName, "remove_tags", resource.Identity(), err)
 	}
 
-	arn := resource.ARN
+	resourceARN := resource.ARN
 	if region == "" {
 		region = p.getBucketRegion(ctx, regionalClient(p, p.cfg.Region, s3.NewFromConfig), resource.ID)
 	}
@@ -124,40 +130,31 @@ func (p *Provider) RemoveTags(ctx context.Context, resource types.Resource, keys
 	case untagViaS3:
 		return removeS3Tags(ctx, regionalClient(p, region, s3.NewFromConfig), resource.ID, keys)
 	case untagViaEC2:
-		return removeEC2Tags(ctx, regionalClient(p, region, ec2.NewFromConfig), nameFromARN(arn), keys)
+		return removeEC2Tags(ctx, regionalClient(p, region, ec2.NewFromConfig), nameFromARN(resourceARN), keys)
 	case untagViaAutoScaling:
-		return removeAutoScalingTags(ctx, regionalClient(p, region, autoscaling.NewFromConfig), arn, keys)
+		return removeAutoScalingTags(ctx, regionalClient(p, region, autoscaling.NewFromConfig), resourceARN, keys)
 	case untagViaLightsail:
-		return removeLightsailTags(ctx, regionalClient(p, region, lightsail.NewFromConfig), arn, keys)
+		return removeLightsailTags(ctx, regionalClient(p, region, lightsail.NewFromConfig), resourceARN, keys)
 	case untagViaGlobalAccelerator:
-		return removeGlobalAcceleratorTags(ctx, regionalClient(p, region, globalaccelerator.NewFromConfig), arn, keys)
+		return removeGlobalAcceleratorTags(ctx, regionalClient(p, region, globalaccelerator.NewFromConfig), resourceARN, keys)
 	default:
-		return removeTagsViaTaggingAPI(ctx, regionalClient(p, region, resourcegroupstaggingapi.NewFromConfig), arn, keys)
+		return removeTagsViaTaggingAPI(ctx, regionalClient(p, region, resourcegroupstaggingapi.NewFromConfig), resourceARN, keys)
 	}
 }
 
-// arnService returns the service segment of an ARN, or "".
-func arnService(arn string) string {
-	parts := strings.SplitN(arn, ":", 4)
-	if len(parts) < 4 || parts[0] != "arn" {
-		return ""
-	}
-	return parts[2]
-}
-
-func removeTagsViaTaggingAPI(ctx context.Context, client taggingUntagAPI, arn string, keys []string) error {
+func removeTagsViaTaggingAPI(ctx context.Context, client taggingUntagAPI, resourceARN string, keys []string) error {
 	output, err := client.UntagResources(ctx, &resourcegroupstaggingapi.UntagResourcesInput{
-		ResourceARNList: []string{arn},
+		ResourceARNList: []string{resourceARN},
 		TagKeys:         keys,
 	})
 	if err != nil {
-		return provider.NewProviderError(providerName, "untag_resources", arn, err)
+		return provider.NewProviderError(providerName, "untag_resources", resourceARN, err)
 	}
-	if failure, failed := output.FailedResourcesMap[arn]; failed {
-		return provider.NewProviderError(providerName, "untag_resources", arn,
+	if failure, failed := output.FailedResourcesMap[resourceARN]; failed {
+		return provider.NewProviderError(providerName, "untag_resources", resourceARN,
 			&taggingFailure{code: string(failure.ErrorCode), message: aws.ToString(failure.ErrorMessage)})
 	}
-	log.Debug("AWS Tagging: Removed %d tags from %s", len(keys), arn)
+	log.Debug("AWS Tagging: Removed %d tags from %s", len(keys), resourceARN)
 	return nil
 }
 
@@ -207,8 +204,8 @@ func removeS3Tags(ctx context.Context, client s3UntagAPI, bucket string, keys []
 	return nil
 }
 
-func removeAutoScalingTags(ctx context.Context, client autoScalingUntagAPI, arn string, keys []string) error {
-	name := asgNameFromARN(arn)
+func removeAutoScalingTags(ctx context.Context, client autoScalingUntagAPI, resourceARN string, keys []string) error {
+	name := asgNameFromARN(resourceARN)
 	tags := make([]asgtypes.Tag, 0, len(keys))
 	for _, key := range keys {
 		tags = append(tags, asgtypes.Tag{
@@ -218,30 +215,30 @@ func removeAutoScalingTags(ctx context.Context, client autoScalingUntagAPI, arn 
 		})
 	}
 	if _, err := client.DeleteTags(ctx, &autoscaling.DeleteTagsInput{Tags: tags}); err != nil {
-		return provider.NewProviderError(providerName, "remove_autoscaling_tags", arn, err)
+		return provider.NewProviderError(providerName, "remove_autoscaling_tags", resourceARN, err)
 	}
 	log.Debug("AWS AutoScaling: Removed %d tags from %s", len(keys), name)
 	return nil
 }
 
-func removeLightsailTags(ctx context.Context, client lightsailUntagAPI, arn string, keys []string) error {
+func removeLightsailTags(ctx context.Context, client lightsailUntagAPI, resourceARN string, keys []string) error {
 	_, err := client.UntagResource(ctx, &lightsail.UntagResourceInput{
-		ResourceName: aws.String(nameFromARN(arn)),
-		ResourceArn:  aws.String(arn),
+		ResourceName: aws.String(nameFromARN(resourceARN)),
+		ResourceArn:  aws.String(resourceARN),
 		TagKeys:      keys,
 	})
 	if err != nil {
-		return provider.NewProviderError(providerName, "remove_lightsail_tags", arn, err)
+		return provider.NewProviderError(providerName, "remove_lightsail_tags", resourceARN, err)
 	}
-	log.Debug("AWS Lightsail: Removed %d tags from %s", len(keys), arn)
+	log.Debug("AWS Lightsail: Removed %d tags from %s", len(keys), resourceARN)
 	return nil
 }
 
-func removeGlobalAcceleratorTags(ctx context.Context, client globalAcceleratorUntagAPI, arn string, keys []string) error {
-	_, err := client.UntagResource(ctx, &globalaccelerator.UntagResourceInput{ResourceArn: aws.String(arn), TagKeys: keys})
+func removeGlobalAcceleratorTags(ctx context.Context, client globalAcceleratorUntagAPI, resourceARN string, keys []string) error {
+	_, err := client.UntagResource(ctx, &globalaccelerator.UntagResourceInput{ResourceArn: aws.String(resourceARN), TagKeys: keys})
 	if err != nil {
-		return provider.NewProviderError(providerName, "remove_global_accelerator_tags", arn, err)
+		return provider.NewProviderError(providerName, "remove_global_accelerator_tags", resourceARN, err)
 	}
-	log.Debug("AWS Global Accelerator: Removed %d tags from %s", len(keys), arn)
+	log.Debug("AWS Global Accelerator: Removed %d tags from %s", len(keys), resourceARN)
 	return nil
 }

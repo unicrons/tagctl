@@ -170,3 +170,26 @@ func TestNetworkListers_RecordTheVPC(t *testing.T) {
 	endpoints, err := p.listVPCEndpointsFrom(ctx, extra, defaultRegion)
 	assertParents(t, parentsByID(t, endpoints, err), map[string]map[string]string{"vpce-1": vpc})
 }
+
+func TestWithEC2Parent(t *testing.T) {
+	cases := []struct {
+		name     string
+		arn      string
+		parentID string
+		want     map[string]string
+	}{
+		{"parent in the child's region and account", "arn:aws:ec2:us-east-1:123456789012:subnet/subnet-1", "vpc-1", map[string]string{types.RelationVPC: testVPCARN}},
+		{"parent in the child's partition", "arn:aws-cn:ec2:cn-north-1:123456789012:subnet/subnet-1", "vpc-1", map[string]string{types.RelationVPC: "arn:aws-cn:ec2:cn-north-1:123456789012:vpc/vpc-1"}},
+		{"no parent id", "arn:aws:ec2:us-east-1:123456789012:subnet/subnet-1", "", nil},
+		{"snapshot without a source volume", "arn:aws:ec2:us-east-1:123456789012:snapshot/snap-1", noSourceVolume, nil},
+		{"child without an ARN", "", "vpc-1", nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := withEC2Parent(types.Resource{ARN: tc.arn}, types.RelationVPC, "vpc", tc.parentID)
+			if !maps.Equal(got.Parents, tc.want) {
+				t.Errorf("Parents = %v, want %v", got.Parents, tc.want)
+			}
+		})
+	}
+}

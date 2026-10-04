@@ -274,10 +274,12 @@ func TestUntagRouteFor(t *testing.T) {
 		{"global ARN uses the default region", types.Resource{ARN: "arn:aws:iam::123456789012:role/app"}, untagViaTaggingAPI, defaultRegion, ""},
 		{"global ARN with a scanned region", types.Resource{ARN: "arn:aws:route53:::hostedzone/Z1", Region: "us-east-1"}, untagViaTaggingAPI, "us-east-1", ""},
 		{"no ARN", types.Resource{ID: "fn", Type: "aws_lambda_function", Region: "us-east-1"}, 0, "", "no ARN"},
+		{"not an ARN", types.Resource{ID: "fn", ARN: "fn", Region: "us-east-1"}, 0, "", "arn: invalid prefix"},
+		{"another partition", types.Resource{ARN: "arn:aws-cn:lambda:cn-north-1:123456789012:function:fn"}, untagViaTaggingAPI, "cn-north-1", ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			route, region, err := untagRouteFor(tc.resource)
+			route, region, err := untagRouteFor(tc.resource, defaultRegion)
 			if tc.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
 					t.Fatalf("err = %v, want one containing %q", err, tc.wantErr)
@@ -288,21 +290,6 @@ func TestUntagRouteFor(t *testing.T) {
 				t.Errorf("untagRouteFor() = %d, %q, %v; want %d, %q", route, region, err, tc.wantRoute, tc.wantRegion)
 			}
 		})
-	}
-}
-
-func TestARNService(t *testing.T) {
-	cases := map[string]string{
-		"arn:aws:ec2:us-east-1:123456789012:volume/vol-1": "ec2",
-		"arn:aws:s3:::logs":                  "s3",
-		"arn:aws:iam::123456789012:role/app": "iam",
-		"vol-1":                              "",
-		"":                                   "",
-	}
-	for arn, want := range cases {
-		if got := arnService(arn); got != want {
-			t.Errorf("arnService(%q) = %q, want %q", arn, got, want)
-		}
 	}
 }
 
