@@ -78,8 +78,16 @@ clouds:
     #   role_session_name: tagctl       # Optional
     #   mfa_serial: arn:aws:iam::111111111111:mfa/me  # Optional, code read from stdin
 
-  # Only aws is scanned. kubernetes (experimental) and gcp/azure (not started)
-  # are accepted and ignored. Provider status:
+  # Kubernetes clusters: labels are the tags. See https://tagctl.dev/providers/kubernetes
+  # for the resource types, RBAC and the limits of label values (no e-mails).
+  # kubernetes:
+  #   - name: production            # unique; the account of its resources
+  #     kubeconfig: ~/.kube/config  # or in-cluster; omitted: KUBECONFIG, then ~/.kube/config
+  #     context: prod-context       # omitted: the current context
+  #     namespaces: [app, backend]  # omitted: the whole cluster
+  #     resource_types: [k8s_deployment, k8s_service]   # omitted: all but k8s_secret
+
+  # gcp and azure are reserved keys: accepted and ignored. Provider status:
   # https://github.com/unicrons/tagctl/blob/main/docs/development.mdx
 
 # Tag policy definition

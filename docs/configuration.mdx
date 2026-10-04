@@ -82,8 +82,9 @@ Defines which cloud accounts to scan.
   <Card title="AWS" icon="aws" href="/providers/aws">
     106 resource types, see the provider page (Stable)
   </Card>
-  <Card title="Other Providers" icon="cloud" href="/development#provider-status">
-    `kubernetes`, `gcp` and `azure` are accepted but not scanned yet
+  <Card title="Kubernetes" icon="dharmachakra" href="/providers/kubernetes">
+    Six resource types, labels as tags. `gcp` and `azure` are accepted but not
+    scanned yet
   </Card>
 </CardGroup>
 
@@ -310,8 +311,8 @@ config file (`scan`, `plan`, `apply`, `evaluate` with or without `--policy`,
 - Default rules: `resource` present, `set` not empty, `when` conditions written
   as `tag:<name>` with `absent` or an exact value
 - Glob patterns in `rules.defaults[].resource` and `ignore.resources`
-- Kubernetes cluster names and `resource_types` (unknown or repeated types are
-  rejected)
+- Kubernetes cluster names (required, unique) and `resource_types` (unknown or
+  repeated types are rejected)
 
 `tagctl validate` is stricter than the commands: it also fails on a file with
 no cloud account or no tag policy, and warns about unknown providers, a

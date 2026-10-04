@@ -4,11 +4,15 @@ package k8s
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
+	"time"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/metadata"
 	"k8s.io/client-go/rest"
@@ -41,43 +45,27 @@ type Provider struct {
 	resourceTypes []string
 }
 
+// inClusterKubeconfig is the kubeconfig value that selects the pod's service account.
+const inClusterKubeconfig = "in-cluster"
+
+// Client-side limits: client-go defaults to 5 requests per second, and a
+// request to an unresponsive API server would otherwise never return.
+const (
+	clientQPS     = 50
+	clientBurst   = 100
+	clientTimeout = 60 * time.Second
+)
+
 // New creates a new Kubernetes provider with the given cluster configuration.
-func New(ctx context.Context, cluster config.KubernetesCluster) (*Provider, error) {
-	var cfg *rest.Config
-	var err error
-
-	if cluster.Kubeconfig == "in-cluster" {
-		cfg, err = rest.InClusterConfig()
-		if err != nil {
-			return nil, provider.NewProviderError(providerName, "in_cluster_config", "", err)
-		}
-	} else {
-		kubeconfig := cluster.Kubeconfig
-		if kubeconfig == "" {
-			// Default to ~/.kube/config
-			home, _ := os.UserHomeDir()
-			kubeconfig = filepath.Join(home, ".kube", "config")
-		}
-
-		// Expand ~ in path
-		if len(kubeconfig) > 1 && kubeconfig[:2] == "~/" {
-			home, _ := os.UserHomeDir()
-			kubeconfig = filepath.Join(home, kubeconfig[2:])
-		}
-
-		loadingRules := &clientcmd.ClientConfigLoadingRules{ExplicitPath: kubeconfig}
-		configOverrides := &clientcmd.ConfigOverrides{}
-
-		if cluster.Context != "" {
-			configOverrides.CurrentContext = cluster.Context
-		}
-
-		clientConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, configOverrides)
-		cfg, err = clientConfig.ClientConfig()
-		if err != nil {
-			return nil, provider.NewProviderError(providerName, "load_kubeconfig", kubeconfig, err)
-		}
+func New(_ context.Context, cluster config.KubernetesCluster) (*Provider, error) {
+	cfg, err := restConfig(cluster)
+	if err != nil {
+		return nil, err
 	}
+	cfg.QPS = clientQPS
+	cfg.Burst = clientBurst
+	cfg.Timeout = clientTimeout
+	cfg.UserAgent = "tagctl"
 
 	clientset, err := kubernetes.NewForConfig(cfg)
 	if err != nil {
@@ -90,6 +78,44 @@ func New(ctx context.Context, cluster config.KubernetesCluster) (*Provider, erro
 	}
 
 	return NewWithClients(clientset, metadataClient, cluster), nil
+}
+
+// restConfig resolves the API server and credentials for a cluster: the
+// in-cluster service account, an explicit kubeconfig file, or the kubectl
+// loading rules (KUBECONFIG, then ~/.kube/config, then in-cluster).
+func restConfig(cluster config.KubernetesCluster) (*rest.Config, error) {
+	if cluster.Kubeconfig == inClusterKubeconfig {
+		cfg, err := rest.InClusterConfig()
+		if err != nil {
+			return nil, provider.NewProviderError(providerName, "in_cluster_config", "", err)
+		}
+		return cfg, nil
+	}
+
+	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
+	if cluster.Kubeconfig != "" {
+		loadingRules.ExplicitPath = expandHome(cluster.Kubeconfig)
+	}
+
+	overrides := &clientcmd.ConfigOverrides{CurrentContext: cluster.Context}
+	cfg, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, overrides).ClientConfig()
+	if err != nil {
+		return nil, provider.NewProviderError(providerName, "load_kubeconfig", cluster.Kubeconfig, err)
+	}
+	return cfg, nil
+}
+
+// expandHome replaces a leading ~/ with the user's home directory.
+func expandHome(path string) string {
+	rest, ok := strings.CutPrefix(path, "~/")
+	if !ok {
+		return path
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return path
+	}
+	return filepath.Join(home, rest)
 }
 
 // NewWithClients creates a Kubernetes provider from pre-built clients.
@@ -119,6 +145,12 @@ func (p *Provider) ClusterName() string {
 	return p.cluster.Name
 }
 
+// AccountID returns the cluster name, the account its resources carry, so a
+// plan entry is applied to the cluster it was scanned from.
+func (p *Provider) AccountID() string {
+	return p.cluster.Name
+}
+
 type namespacedLister func(ctx context.Context, namespace string) ([]types.Resource, error)
 
 func (p *Provider) namespacedListers() map[string]namespacedLister {
@@ -131,78 +163,52 @@ func (p *Provider) namespacedListers() map[string]namespacedLister {
 	}
 }
 
-// ListResources discovers all labeled resources across configured namespaces.
-// An unsupported resource type fails before any API call.
+// ListResources discovers the configured resource types. Without configured
+// namespaces each type is listed once across the whole cluster. Errors name
+// the cluster and are returned joined, next to whatever was listed.
 func (p *Provider) ListResources(ctx context.Context) ([]types.Resource, error) {
 	listers := p.namespacedListers()
 	for _, rt := range p.resourceTypes {
 		if _, ok := listers[rt]; !ok && rt != ResourceTypeNamespace {
-			return nil, provider.NewProviderError(providerName, "list_resources", "",
-				&UnsupportedResourceError{ResourceType: rt})
+			return nil, p.clusterError(provider.NewProviderError(providerName, "list_resources", "",
+				&UnsupportedResourceError{ResourceType: rt}))
 		}
 	}
 
-	namespaces, err := p.getNamespaces(ctx)
-	if err != nil {
-		return nil, err
+	namespaces := p.namespaces
+	if len(namespaces) == 0 {
+		namespaces = []string{metav1.NamespaceAll}
 	}
 
-	var allResources []types.Resource
-	var mu sync.Mutex
+	var calls []func() ([]types.Resource, error)
+	for _, rt := range p.resourceTypes {
+		if rt == ResourceTypeNamespace {
+			calls = append(calls, func() ([]types.Resource, error) { return p.listNamespaces(ctx) })
+			continue
+		}
+		for _, ns := range namespaces {
+			calls = append(calls, func() ([]types.Resource, error) { return listers[rt](ctx, ns) })
+		}
+	}
+
+	results := make([][]types.Resource, len(calls))
+	errs := make([]error, len(calls))
 	var wg sync.WaitGroup
-	errChan := make(chan error, len(namespaces)*len(p.resourceTypes)+1)
-
-	for _, ns := range namespaces {
-		for _, rt := range p.resourceTypes {
-			list, ok := listers[rt]
-			if !ok {
-				continue
+	for i, call := range calls {
+		wg.Go(func() {
+			results[i], errs[i] = call()
+			if errs[i] != nil {
+				errs[i] = p.clusterError(errs[i])
 			}
-
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-
-				resources, err := list(ctx, ns)
-				if err != nil {
-					errChan <- err
-					return
-				}
-
-				mu.Lock()
-				allResources = append(allResources, resources...)
-				mu.Unlock()
-			}()
-		}
+		})
 	}
-
-	// List namespaces separately (cluster-scoped)
-	if p.shouldListResourceType(ResourceTypeNamespace) {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			resources, err := p.listNamespaces(ctx)
-			if err != nil {
-				errChan <- err
-				return
-			}
-			mu.Lock()
-			allResources = append(allResources, resources...)
-			mu.Unlock()
-		}()
-	}
-
 	wg.Wait()
-	close(errChan)
 
-	// Collect errors
-	// errChan is closed after every writer finished, so len is the exact count.
-	errs := make([]error, 0, len(errChan))
-	for err := range errChan {
-		errs = append(errs, err)
-	}
+	return slices.Concat(results...), errors.Join(errs...)
+}
 
-	return allResources, errors.Join(errs...)
+func (p *Provider) clusterError(err error) error {
+	return fmt.Errorf("cluster %s: %w", p.cluster.Name, err)
 }
 
 // ApplyTags applies labels to a Kubernetes resource.
@@ -210,6 +216,10 @@ func (p *Provider) ApplyTags(ctx context.Context, resourceID string, tags map[st
 	// Parse resource ID: type/namespace/name or type/name for cluster-scoped
 	resourceType, namespace, name, err := parseResourceID(resourceID)
 	if err != nil {
+		return provider.NewProviderError(providerName, "apply_labels", resourceID, err)
+	}
+
+	if err = validateLabels(tags); err != nil {
 		return provider.NewProviderError(providerName, "apply_labels", resourceID, err)
 	}
 
@@ -235,35 +245,6 @@ func (p *Provider) ApplyTags(ctx context.Context, resourceID string, tags map[st
 		return provider.NewProviderError(providerName, "apply_labels", resourceID,
 			&UnsupportedResourceError{ResourceType: resourceType})
 	}
-}
-
-// getNamespaces returns the list of namespaces to scan.
-func (p *Provider) getNamespaces(ctx context.Context) ([]string, error) {
-	if len(p.namespaces) > 0 {
-		return p.namespaces, nil
-	}
-
-	items, err := p.allNamespaces(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	namespaces := make([]string, 0, len(items))
-	for _, ns := range items {
-		namespaces = append(namespaces, ns.Name)
-	}
-
-	return namespaces, nil
-}
-
-// shouldListResourceType checks if a resource type should be listed.
-func (p *Provider) shouldListResourceType(rt string) bool {
-	for _, t := range p.resourceTypes {
-		if t == rt {
-			return true
-		}
-	}
-	return false
 }
 
 // UnsupportedResourceError is returned when trying to operate on an unsupported resource type.

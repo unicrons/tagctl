@@ -100,13 +100,13 @@ means the same thing wherever it is reported.
 
 ## Providers
 
-AWS is the only provider the CLI runs today. The state of each one is in the
+The CLI runs AWS and Kubernetes today. The state of each provider is in the
 [provider status](/development#provider-status) table.
 
-- **Kubernetes**: `internal/provider/k8s/` already lists and labels pods,
-  deployments, services, namespaces, config maps and secrets. What is left is
-  wiring it into the CLI (`initProviders` skips `clouds.kubernetes`) and
-  covering `scan` and `apply` against a cluster end to end.
+- **Kubernetes**: `scan`, `plan` and `apply` cover pods, deployments, services,
+  namespaces, config maps and secrets. What is left is more resource types
+  (StatefulSets, DaemonSets, Jobs) and annotations as a second tag source for
+  values labels cannot hold.
 - **GCP** and **Azure**: not started. `clouds.gcp` and `clouds.azure` are
   reserved config keys. The evaluator, planner and report writers are
   cloud-agnostic, so a new provider implements `ListResources` and `ApplyTags`

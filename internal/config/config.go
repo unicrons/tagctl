@@ -61,7 +61,7 @@ type CloudsConfig struct {
 
 // KubernetesCluster represents a Kubernetes cluster configuration.
 type KubernetesCluster struct {
-	// Name is a friendly name for this cluster.
+	// Name identifies this cluster; resources carry it as their account.
 	Name string `yaml:"name" mapstructure:"name"`
 
 	// Kubeconfig is the path to kubeconfig file or "in-cluster" for in-cluster config.
@@ -366,10 +366,16 @@ func (c *Config) Validate() error {
 		return err
 	}
 
+	clusterNames := make(map[string]bool, len(c.Clouds.Kubernetes))
 	for i, k8s := range c.Clouds.Kubernetes {
 		if k8s.Name == "" {
 			return fmt.Errorf("kubernetes[%d]: name is required", i)
 		}
+		// The name is the account of every resource in the cluster.
+		if clusterNames[k8s.Name] {
+			return fmt.Errorf("kubernetes[%d]: name %q is used by another cluster", i, k8s.Name)
+		}
+		clusterNames[k8s.Name] = true
 		if err := k8s.validateResourceTypes(i); err != nil {
 			return err
 		}

@@ -25,12 +25,13 @@ icon: 'sitemap'
 │        ListResources() / ApplyTags() / Name()              │
 └────────┬────────────────────────────────────────────────────┘
          │
-┌────────▼────────┐
-│  AWS Provider   │   ┌─────────────────────┐
-│  106 resource   │   │  Kubernetes: code   │
-│  types, one     │   │  exists, not wired  │
-│  file per       │   │  GCP, Azure: not    │
-│  service        │   │  started            │
+┌────────▼────────┐   ┌─────────────────────┐
+│  AWS Provider   │   │ Kubernetes Provider │
+│  106 resource   │   │ six resource types, │
+│  types, one     │   │ labels as tags      │
+│  file per       │   │                     │
+│  service        │   │ GCP, Azure: not     │
+│                 │   │ started             │
 └─────────────────┘   └─────────────────────┘
 ```
 
@@ -78,7 +79,7 @@ tagctl/
 │   ├── provider/         # Cloud providers
 │   │   ├── provider.go   # Interface definition
 │   │   ├── aws/          # AWS, one file per service group
-│   │   └── k8s/          # Kubernetes (not wired into the CLI yet)
+│   │   └── k8s/          # Kubernetes
 │   └── types/            # Domain types
 │       ├── resource.go   # Resource type with ARN
 │       ├── violation.go  # Violation + Finding types
