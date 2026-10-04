@@ -16,7 +16,7 @@ clouds:
     # - profile: audit-base
     #   role_arn: arn:aws:iam::123456789012:role/TagctlScan   # permissions/aws/ ships the role templates
 
-  # Only aws is scanned. Provider status:
+  # Kubernetes clusters go under a kubernetes key. Provider status:
   # https://github.com/unicrons/tagctl/blob/main/docs/development.mdx
 
 policy:
