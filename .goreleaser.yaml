@@ -37,6 +37,28 @@ archives:
 checksum:
   name_template: checksums.txt
 
+dockers_v2:
+  - images:
+      - ghcr.io/unicrons/tagctl
+    tags:
+      - "v{{ .Version }}"
+      - "{{ if not .Prerelease }}latest{{ end }}"
+    platforms:
+      - linux/amd64
+      - linux/arm64
+    labels:
+      org.opencontainers.image.title: "{{ .ProjectName }}"
+      org.opencontainers.image.description: Audit, fix and enforce cloud resource tags
+      org.opencontainers.image.source: https://github.com/unicrons/tagctl
+      org.opencontainers.image.licenses: Apache-2.0
+      org.opencontainers.image.version: "{{ .Version }}"
+      org.opencontainers.image.revision: "{{ .FullCommit }}"
+      org.opencontainers.image.created: "{{ .Date }}"
+    annotations:
+      org.opencontainers.image.description: Audit, fix and enforce cloud resource tags
+      org.opencontainers.image.source: https://github.com/unicrons/tagctl
+      org.opencontainers.image.licenses: Apache-2.0
+
 changelog:
   sort: asc
   filters:

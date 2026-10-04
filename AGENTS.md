@@ -501,6 +501,13 @@ groups the notes by conventional commit type. A tag with a pre-release suffix
 build provenance of every file in `checksums.txt`. Commit subjects are
 `type(scope): summary`, at most 60 characters.
 
+The same run pushes the multi-arch image `ghcr.io/unicrons/tagctl` (`dockers_v2`,
+linux/amd64 and linux/arm64, tags `vX.Y.Z` and, except for a pre-release,
+`latest`) with the job's `GITHUB_TOKEN` (`packages: write`). The root
+`Dockerfile` only builds inside GoReleaser's context, which holds the compiled
+binaries per platform: distroless static, `nonroot` user, no shell, base image
+pinned by digest (Dependabot `docker` ecosystem bumps it).
+
 Check a pipeline change without publishing: `goreleaser check`, then
 `goreleaser release --snapshot --clean --skip=publish` (artifacts in `dist/`).
 
