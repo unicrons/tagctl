@@ -16,7 +16,7 @@ import (
 // listEC2Instances lists all EC2 instances in a region.
 func (p *Provider) listEC2Instances(ctx context.Context, region string) ([]types.Resource, error) {
 	log.Debug("AWS EC2: Listing instances in region %s...", region)
-	client := p.getEC2Client(region)
+	client := regionalClient(p, region, ec2.NewFromConfig)
 	var resources []types.Resource
 
 	paginator := ec2.NewDescribeInstancesPaginator(client, &ec2.DescribeInstancesInput{})
@@ -71,7 +71,7 @@ func (p *Provider) listEC2Instances(ctx context.Context, region string) ([]types
 // listEBSVolumes lists all EBS volumes in a region.
 func (p *Provider) listEBSVolumes(ctx context.Context, region string) ([]types.Resource, error) {
 	log.Debug("AWS EBS: Listing volumes in region %s...", region)
-	client := p.getEC2Client(region)
+	client := regionalClient(p, region, ec2.NewFromConfig)
 	var resources []types.Resource
 
 	paginator := ec2.NewDescribeVolumesPaginator(client, &ec2.DescribeVolumesInput{})
@@ -123,7 +123,7 @@ type ebsSnapshotsAPI interface {
 
 // listEBSSnapshots lists the EBS snapshots owned by the account in a region.
 func (p *Provider) listEBSSnapshots(ctx context.Context, region string) ([]types.Resource, error) {
-	return p.listEBSSnapshotsFrom(ctx, p.getEC2Client(region), region)
+	return p.listEBSSnapshotsFrom(ctx, regionalClient(p, region, ec2.NewFromConfig), region)
 }
 
 // listEBSSnapshotsFrom lists owned EBS snapshots using the given client.
@@ -170,7 +170,7 @@ type ec2CreateTagsAPI interface {
 // applyEC2Tags tags an EC2 resource addressed by bare ID in the region the
 // plan recorded for it.
 func (p *Provider) applyEC2Tags(ctx context.Context, resourceID, region string, tags map[string]string) error {
-	return applyEC2TagsWith(ctx, func(region string) ec2CreateTagsAPI { return p.getEC2Client(region) }, resourceID, region, tags)
+	return applyEC2TagsWith(ctx, func(region string) ec2CreateTagsAPI { return regionalClient(p, region, ec2.NewFromConfig) }, resourceID, region, tags)
 }
 
 // applyEC2TagsWith makes the single CreateTags call. An ID says nothing about
@@ -198,20 +198,16 @@ func applyEC2TagsWith(ctx context.Context, clientFor func(region string) ec2Crea
 	return nil
 }
 
-// ec2TagsToMap converts EC2 tags to a map.
+// ec2TagsToMap is tagsToMap for the tag type every EC2 lister shares.
 func ec2TagsToMap(tags []ec2types.Tag) map[string]string {
-	result := make(map[string]string)
-	for _, tag := range tags {
-		if tag.Key != nil && tag.Value != nil {
-			result[*tag.Key] = *tag.Value
-		}
-	}
-	return result
+	return tagsToMap(tags,
+		func(t ec2types.Tag) *string { return t.Key },
+		func(t ec2types.Tag) *string { return t.Value })
 }
 
 // listSecurityGroups lists all EC2 security groups in a region.
 func (p *Provider) listSecurityGroups(ctx context.Context, region string) ([]types.Resource, error) {
-	return p.listSecurityGroupsFrom(ctx, p.getEC2Client(region), region)
+	return p.listSecurityGroupsFrom(ctx, regionalClient(p, region, ec2.NewFromConfig), region)
 }
 
 // listSecurityGroupsFrom lists security groups using the given client.
@@ -257,7 +253,7 @@ func (p *Provider) listSecurityGroupsFrom(ctx context.Context, client ec2Describ
 
 // listVPCs lists all VPCs in a region.
 func (p *Provider) listVPCs(ctx context.Context, region string) ([]types.Resource, error) {
-	return p.listVPCsFrom(ctx, p.getEC2Client(region), region)
+	return p.listVPCsFrom(ctx, regionalClient(p, region, ec2.NewFromConfig), region)
 }
 
 // listVPCsFrom lists VPCs using the given client.
@@ -302,7 +298,7 @@ func (p *Provider) listVPCsFrom(ctx context.Context, client ec2DescribeVpcsAPI, 
 
 // listSubnets lists all subnets in a region.
 func (p *Provider) listSubnets(ctx context.Context, region string) ([]types.Resource, error) {
-	return p.listSubnetsFrom(ctx, p.getEC2Client(region), region)
+	return p.listSubnetsFrom(ctx, regionalClient(p, region, ec2.NewFromConfig), region)
 }
 
 // listSubnetsFrom lists subnets using the given client.

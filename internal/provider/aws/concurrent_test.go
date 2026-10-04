@@ -192,28 +192,6 @@ func TestRegionalClient_BuildsOnceUnderConcurrentCalls(t *testing.T) {
 	}
 }
 
-func TestCachedClient_ReusesPerRegionAndFillsTheGivenCache(t *testing.T) {
-	p := clientCacheProvider()
-	cache := map[string]*sqs.Client{}
-
-	first := cachedClient(p, cache, "eu-west-1", sqs.NewFromConfig)
-	second := cachedClient(p, cache, "eu-west-1", sqs.NewFromConfig)
-	other := cachedClient(p, cache, "ap-south-1", sqs.NewFromConfig)
-
-	if first != second {
-		t.Error("second call built a new client, want the cached one")
-	}
-	if first == other {
-		t.Error("both regions share one client")
-	}
-	if got := other.Options().Region; got != "ap-south-1" {
-		t.Errorf("client region = %q, want ap-south-1", got)
-	}
-	if len(cache) != 2 || len(p.clients) != 0 {
-		t.Errorf("typed cache holds %d and generic cache %d, want 2 and 0", len(cache), len(p.clients))
-	}
-}
-
 func TestNameFromARN(t *testing.T) {
 	tests := []struct {
 		arn  string

@@ -20,7 +20,7 @@ type autoscalingAPI interface {
 
 // listAutoScalingGroups lists all Auto Scaling groups in a region.
 func (p *Provider) listAutoScalingGroups(ctx context.Context, region string) ([]types.Resource, error) {
-	return p.listAutoScalingGroupsFrom(ctx, p.getAutoScalingClient(region), region)
+	return p.listAutoScalingGroupsFrom(ctx, regionalClient(p, region, autoscaling.NewFromConfig), region)
 }
 
 // listAutoScalingGroupsFrom lists Auto Scaling groups using the given client.
@@ -38,6 +38,9 @@ func (p *Provider) listAutoScalingGroupsFrom(ctx context.Context, client autosca
 
 		for _, asg := range output.AutoScalingGroups {
 			name := aws.ToString(asg.AutoScalingGroupName)
+			tags := tagsToMap(asg.Tags,
+				func(t asgtypes.TagDescription) *string { return t.Key },
+				func(t asgtypes.TagDescription) *string { return t.Value })
 
 			resource := types.Resource{
 				ID:       name,
@@ -48,7 +51,7 @@ func (p *Provider) listAutoScalingGroupsFrom(ctx context.Context, client autosca
 				Account:  p.accountID,
 				Provider: providerName,
 				// Auto Scaling returns tags inline, so no extra call is needed.
-				Tags: asgTagsToMap(asg.Tags),
+				Tags: tags,
 			}
 
 			if asg.CreatedTime != nil {
@@ -85,7 +88,7 @@ func (p *Provider) applyAutoScalingTags(ctx context.Context, arn string, tags ma
 		})
 	}
 
-	client := p.getAutoScalingClient(region)
+	client := regionalClient(p, region, autoscaling.NewFromConfig)
 	_, err = client.CreateOrUpdateTags(ctx, &autoscaling.CreateOrUpdateTagsInput{
 		Tags: tagList,
 	})
@@ -95,17 +98,6 @@ func (p *Provider) applyAutoScalingTags(ctx context.Context, arn string, tags ma
 
 	log.Debug("AWS AutoScaling: Applied %d tags to %s", len(tags), asgName)
 	return nil
-}
-
-// asgTagsToMap converts Auto Scaling tag descriptions to a map.
-func asgTagsToMap(tags []asgtypes.TagDescription) map[string]string {
-	result := make(map[string]string)
-	for _, tag := range tags {
-		if tag.Key != nil && tag.Value != nil {
-			result[*tag.Key] = *tag.Value
-		}
-	}
-	return result
 }
 
 // asgNameFromARN extracts the Auto Scaling group name from its ARN, which ends

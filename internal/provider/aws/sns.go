@@ -20,7 +20,7 @@ type snsAPI interface {
 
 // listSNSTopics lists all SNS topics in a region.
 func (p *Provider) listSNSTopics(ctx context.Context, region string) ([]types.Resource, error) {
-	return p.listSNSTopicsFrom(ctx, p.getSNSClient(region), region)
+	return p.listSNSTopicsFrom(ctx, regionalClient(p, region, sns.NewFromConfig), region)
 }
 
 // listSNSTopicsFrom lists SNS topics using the given client.
@@ -67,7 +67,9 @@ func getSNSTags(ctx context.Context, client snsAPI, arn string) (map[string]stri
 	if err != nil {
 		return nil, err
 	}
-	return snsTagsToMap(output.Tags), nil
+	return tagsToMap(output.Tags,
+		func(t snstypes.Tag) *string { return t.Key },
+		func(t snstypes.Tag) *string { return t.Value }), nil
 }
 
 // applySNSTags applies tags to an SNS topic.
@@ -82,7 +84,7 @@ func (p *Provider) applySNSTags(ctx context.Context, arn string, tags map[string
 		tagList = append(tagList, snstypes.Tag{Key: aws.String(k), Value: aws.String(v)})
 	}
 
-	client := p.getSNSClient(region)
+	client := regionalClient(p, region, sns.NewFromConfig)
 	_, err = client.TagResource(ctx, &sns.TagResourceInput{
 		ResourceArn: aws.String(arn),
 		Tags:        tagList,
@@ -93,15 +95,4 @@ func (p *Provider) applySNSTags(ctx context.Context, arn string, tags map[string
 
 	log.Debug("AWS SNS: Applied %d tags to %s", len(tags), arn)
 	return nil
-}
-
-// snsTagsToMap converts SNS tags to a map.
-func snsTagsToMap(tags []snstypes.Tag) map[string]string {
-	result := make(map[string]string)
-	for _, tag := range tags {
-		if tag.Key != nil && tag.Value != nil {
-			result[*tag.Key] = *tag.Value
-		}
-	}
-	return result
 }

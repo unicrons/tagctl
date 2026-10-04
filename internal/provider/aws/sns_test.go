@@ -128,18 +128,3 @@ func TestListSNSTopics_Empty(t *testing.T) {
 		t.Errorf("got %d resources, want 0", len(resources))
 	}
 }
-
-func TestSNSTagsToMap(t *testing.T) {
-	tags := snsTagsToMap([]snstypes.Tag{
-		{Key: aws.String("a"), Value: aws.String("1")},
-		{Key: aws.String("b"), Value: aws.String("2")},
-		{Key: nil, Value: aws.String("skipped")},
-	})
-
-	if len(tags) != 2 {
-		t.Fatalf("got %d tags, want 2 (nil key dropped)", len(tags))
-	}
-	if tags["a"] != "1" || tags["b"] != "2" {
-		t.Errorf("tags = %v, want a=1 b=2", tags)
-	}
-}

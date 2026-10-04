@@ -29,7 +29,7 @@ type ecsAPI interface {
 
 // listECSResources lists ECS clusters and their services in a region.
 func (p *Provider) listECSResources(ctx context.Context, region string) ([]types.Resource, error) {
-	return p.listECSResourcesFrom(ctx, p.getECSClient(region), region)
+	return p.listECSResourcesFrom(ctx, regionalClient(p, region, ecs.NewFromConfig), region)
 }
 
 // listECSResourcesFrom lists ECS clusters and services using the given client.
@@ -140,7 +140,7 @@ func (p *Provider) applyECSTags(ctx context.Context, arn string, tags map[string
 	if err != nil {
 		return provider.NewProviderError(providerName, "apply_ecs_tags", arn, err)
 	}
-	client := p.getECSClient(region)
+	client := regionalClient(p, region, ecs.NewFromConfig)
 	_, err = client.TagResource(ctx, &ecs.TagResourceInput{
 		ResourceArn: aws.String(arn),
 		Tags:        tagList,
@@ -153,15 +153,11 @@ func (p *Provider) applyECSTags(ctx context.Context, arn string, tags map[string
 	return nil
 }
 
-// ecsTagsToMap converts ECS tags to a map.
+// ecsTagsToMap is tagsToMap for the tag type ECS clusters and services share.
 func ecsTagsToMap(tags []ecstypes.Tag) map[string]string {
-	result := make(map[string]string)
-	for _, tag := range tags {
-		if tag.Key != nil && tag.Value != nil {
-			result[*tag.Key] = *tag.Value
-		}
-	}
-	return result
+	return tagsToMap(tags,
+		func(t ecstypes.Tag) *string { return t.Key },
+		func(t ecstypes.Tag) *string { return t.Value })
 }
 
 // chunk splits items into slices of at most size elements.

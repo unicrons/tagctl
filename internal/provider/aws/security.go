@@ -266,7 +266,7 @@ func (p *Provider) listFMSPoliciesFrom(ctx context.Context, client fmsAPI, regio
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
-			if notSubscribed(err) || isFMSNonAdmin(err) {
+			if notSubscribed(err, "InvalidOperationException") || isFMSNonAdmin(err) {
 				log.Debug("AWS Firewall Manager: not the administrator account in %s, skipping", region)
 				return nil, nil
 			}

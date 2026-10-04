@@ -220,9 +220,12 @@ its own API.
 
 Some services report "not set up" instead of an empty list: DRS in a region
 never initialised, Shield without an Advanced subscription, Firewall Manager
-outside the administrator account. tagctl treats those answers as zero
-resources (visible at `--log-level debug`), not as errors. Lightsail is only
-called in the regions where it has an endpoint.
+outside the administrator account, Glacier in an account with no Glacier
+storage. tagctl treats those answers as zero resources (visible at
+`--log-level debug`), not as errors. Lightsail is only called in the regions
+where it has an endpoint: tagctl asks `lightsail:GetRegions` once per account
+and uses a built-in list when that call fails (see
+[Read-Only (Scan)](#read-only-scan)).
 
 <Warning>
 `tag:GetResources` is eventually consistent. Tags written by `tagctl apply`
@@ -502,6 +505,7 @@ Every copy on this page is checked against those files by
         "dlm:GetLifecyclePolicies",
         "drs:DescribeSourceServers",
         "lightsail:GetInstances",
+        "lightsail:GetRegions",
         "ssm:DescribeParameters",
         "ssm:ListDocuments",
         "ssm-incidents:ListResponsePlans",
@@ -543,6 +547,15 @@ Every copy on this page is checked against those files by
   and `globalaccelerator:ListTagsForResource` sit in `Discovery` because
   ALB/NLB and Global Accelerator tags are always read through them.
 </Note>
+
+<Warning>
+  A role deployed before `lightsail:GetRegions` was part of this policy does
+  not have it. tagctl then logs one error per account and falls back to a
+  built-in list of Lightsail regions, which may lack the newest ones:
+  Lightsail instances in a region outside that list are not scanned.
+  Redeploy the template, or add the action to your own role, to scan every
+  Lightsail region.
+</Warning>
 
 ### Read-Write (Apply)
 

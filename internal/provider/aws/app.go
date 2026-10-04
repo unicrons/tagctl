@@ -74,7 +74,7 @@ type beanstalkAPI interface {
 const cognitoPageSize = 60
 
 func (p *Provider) listStateMachines(ctx context.Context, region string) ([]types.Resource, error) {
-	return p.listStateMachinesFrom(ctx, p.getStepFunctionsClient(region), region)
+	return p.listStateMachinesFrom(ctx, regionalClient(p, region, sfn.NewFromConfig), region)
 }
 
 func (p *Provider) listStateMachinesFrom(ctx context.Context, client stepFunctionsAPI, region string) ([]types.Resource, error) {
@@ -103,7 +103,7 @@ func (p *Provider) listStateMachinesFrom(ctx context.Context, client stepFunctio
 }
 
 func (p *Provider) listSecrets(ctx context.Context, region string) ([]types.Resource, error) {
-	return p.listSecretsFrom(ctx, p.getSecretsManagerClient(region), region)
+	return p.listSecretsFrom(ctx, regionalClient(p, region, secretsmanager.NewFromConfig), region)
 }
 
 func (p *Provider) listSecretsFrom(ctx context.Context, client secretsManagerAPI, region string) ([]types.Resource, error) {
@@ -116,10 +116,13 @@ func (p *Provider) listSecretsFrom(ctx context.Context, client secretsManagerAPI
 		}
 		for _, s := range output.SecretList {
 			name := aws.ToString(s.Name)
+			tags := tagsToMap(s.Tags,
+				func(t smtypes.Tag) *string { return t.Key },
+				func(t smtypes.Tag) *string { return t.Value })
 			resources = append(resources, types.Resource{
 				ID: name, Name: name, ARN: aws.ToString(s.ARN), Type: "aws_secretsmanager_secret",
 				Region: region, Account: p.accountID, Provider: providerName,
-				Tags: secretTagsToMap(s.Tags), CreatedAt: s.CreatedDate,
+				Tags: tags, CreatedAt: s.CreatedDate,
 			})
 		}
 	}
@@ -127,18 +130,8 @@ func (p *Provider) listSecretsFrom(ctx context.Context, client secretsManagerAPI
 	return resources, nil
 }
 
-func secretTagsToMap(tags []smtypes.Tag) map[string]string {
-	result := make(map[string]string)
-	for _, tag := range tags {
-		if tag.Key != nil && tag.Value != nil {
-			result[*tag.Key] = *tag.Value
-		}
-	}
-	return result
-}
-
 func (p *Provider) listStacks(ctx context.Context, region string) ([]types.Resource, error) {
-	return p.listStacksFrom(ctx, p.getCloudFormationClient(region), region)
+	return p.listStacksFrom(ctx, regionalClient(p, region, cloudformation.NewFromConfig), region)
 }
 
 func (p *Provider) listStacksFrom(ctx context.Context, client cloudFormationAPI, region string) ([]types.Resource, error) {
@@ -154,10 +147,13 @@ func (p *Provider) listStacksFrom(ctx context.Context, client cloudFormationAPI,
 				continue
 			}
 			name := aws.ToString(s.StackName)
+			tags := tagsToMap(s.Tags,
+				func(t cfntypes.Tag) *string { return t.Key },
+				func(t cfntypes.Tag) *string { return t.Value })
 			resources = append(resources, types.Resource{
 				ID: name, Name: name, ARN: aws.ToString(s.StackId), Type: "aws_cloudformation_stack",
 				Region: region, Account: p.accountID, Provider: providerName,
-				Tags: cfnTagsToMap(s.Tags), CreatedAt: s.CreationTime,
+				Tags: tags, CreatedAt: s.CreationTime,
 			})
 		}
 	}
@@ -165,18 +161,8 @@ func (p *Provider) listStacksFrom(ctx context.Context, client cloudFormationAPI,
 	return resources, nil
 }
 
-func cfnTagsToMap(tags []cfntypes.Tag) map[string]string {
-	result := make(map[string]string)
-	for _, tag := range tags {
-		if tag.Key != nil && tag.Value != nil {
-			result[*tag.Key] = *tag.Value
-		}
-	}
-	return result
-}
-
 func (p *Provider) listAlarms(ctx context.Context, region string) ([]types.Resource, error) {
-	return p.listAlarmsFrom(ctx, p.getCloudWatchClient(region), region)
+	return p.listAlarmsFrom(ctx, regionalClient(p, region, cloudwatch.NewFromConfig), region)
 }
 
 func (p *Provider) listAlarmsFrom(ctx context.Context, client cloudWatchAPI, region string) ([]types.Resource, error) {
@@ -210,7 +196,7 @@ func (p *Provider) alarmResource(ctx context.Context, region, name, arn, resourc
 }
 
 func (p *Provider) listEventRules(ctx context.Context, region string) ([]types.Resource, error) {
-	return p.listEventRulesFrom(ctx, p.getEventBridgeClient(region), region)
+	return p.listEventRulesFrom(ctx, regionalClient(p, region, eventbridge.NewFromConfig), region)
 }
 
 func (p *Provider) listEventRulesFrom(ctx context.Context, client eventBridgeAPI, region string) ([]types.Resource, error) {
@@ -242,7 +228,7 @@ func (p *Provider) listEventRulesFrom(ctx context.Context, client eventBridgeAPI
 }
 
 func (p *Provider) listCertificates(ctx context.Context, region string) ([]types.Resource, error) {
-	return p.listCertificatesFrom(ctx, p.getACMClient(region), region)
+	return p.listCertificatesFrom(ctx, regionalClient(p, region, acm.NewFromConfig), region)
 }
 
 func (p *Provider) listCertificatesFrom(ctx context.Context, client acmAPI, region string) ([]types.Resource, error) {
@@ -270,7 +256,7 @@ func (p *Provider) listCertificatesFrom(ctx context.Context, client acmAPI, regi
 }
 
 func (p *Provider) listUserPools(ctx context.Context, region string) ([]types.Resource, error) {
-	return p.listUserPoolsFrom(ctx, p.getCognitoClient(region), region)
+	return p.listUserPoolsFrom(ctx, regionalClient(p, region, cognitoidentityprovider.NewFromConfig), region)
 }
 
 func (p *Provider) listUserPoolsFrom(ctx context.Context, client cognitoAPI, region string) ([]types.Resource, error) {
@@ -299,7 +285,7 @@ func (p *Provider) listUserPoolsFrom(ctx context.Context, client cognitoAPI, reg
 }
 
 func (p *Provider) listCodeBuildProjects(ctx context.Context, region string) ([]types.Resource, error) {
-	return p.listCodeBuildProjectsFrom(ctx, p.getCodeBuildClient(region), region)
+	return p.listCodeBuildProjectsFrom(ctx, regionalClient(p, region, codebuild.NewFromConfig), region)
 }
 
 // BatchGetProjects is avoided: it returns every environment variable in clear.
@@ -324,7 +310,7 @@ func (p *Provider) listCodeBuildProjectsFrom(ctx context.Context, client codeBui
 }
 
 func (p *Provider) listBackupVaults(ctx context.Context, region string) ([]types.Resource, error) {
-	return p.listBackupVaultsFrom(ctx, p.getBackupClient(region), region)
+	return p.listBackupVaultsFrom(ctx, regionalClient(p, region, backup.NewFromConfig), region)
 }
 
 func (p *Provider) listBackupVaultsFrom(ctx context.Context, client backupAPI, region string) ([]types.Resource, error) {
@@ -353,7 +339,7 @@ func (p *Provider) listBackupVaultsFrom(ctx context.Context, client backupAPI, r
 }
 
 func (p *Provider) listFSxFileSystems(ctx context.Context, region string) ([]types.Resource, error) {
-	return p.listFSxFileSystemsFrom(ctx, p.getFSxClient(region), region)
+	return p.listFSxFileSystemsFrom(ctx, regionalClient(p, region, fsx.NewFromConfig), region)
 }
 
 func (p *Provider) listFSxFileSystemsFrom(ctx context.Context, client fsxAPI, region string) ([]types.Resource, error) {
@@ -366,10 +352,13 @@ func (p *Provider) listFSxFileSystemsFrom(ctx context.Context, client fsxAPI, re
 		}
 		for _, fs := range output.FileSystems {
 			id := aws.ToString(fs.FileSystemId)
+			tags := tagsToMap(fs.Tags,
+				func(t fsxtypes.Tag) *string { return t.Key },
+				func(t fsxtypes.Tag) *string { return t.Value })
 			r := types.Resource{
 				ID: id, Name: id, ARN: aws.ToString(fs.ResourceARN), Type: "aws_fsx_file_system",
 				Region: region, Account: p.accountID, Provider: providerName,
-				Tags: fsxTagsToMap(fs.Tags), CreatedAt: fs.CreationTime,
+				Tags: tags, CreatedAt: fs.CreationTime,
 			}
 			if name, ok := r.Tags["Name"]; ok {
 				r.Name = name
@@ -381,18 +370,8 @@ func (p *Provider) listFSxFileSystemsFrom(ctx context.Context, client fsxAPI, re
 	return resources, nil
 }
 
-func fsxTagsToMap(tags []fsxtypes.Tag) map[string]string {
-	result := make(map[string]string)
-	for _, tag := range tags {
-		if tag.Key != nil && tag.Value != nil {
-			result[*tag.Key] = *tag.Value
-		}
-	}
-	return result
-}
-
 func (p *Provider) listBeanstalkEnvironments(ctx context.Context, region string) ([]types.Resource, error) {
-	return p.listBeanstalkEnvironmentsFrom(ctx, p.getBeanstalkClient(region), region)
+	return p.listBeanstalkEnvironmentsFrom(ctx, regionalClient(p, region, elasticbeanstalk.NewFromConfig), region)
 }
 
 func (p *Provider) listBeanstalkEnvironmentsFrom(ctx context.Context, client beanstalkAPI, region string) ([]types.Resource, error) {

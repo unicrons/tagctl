@@ -1,8 +1,11 @@
 package aws
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -24,6 +27,8 @@ import (
 	ssmincidentstypes "github.com/aws/aws-sdk-go-v2/service/ssmincidents/types"
 	"github.com/aws/aws-sdk-go-v2/service/workspaces"
 	workspacestypes "github.com/aws/aws-sdk-go-v2/service/workspaces/types"
+
+	"github.com/unicrons/tagctl/internal/log"
 )
 
 type mockAppStreamClient struct {
@@ -82,9 +87,21 @@ func (m *mockDRSClient) DescribeSourceServers(ctx context.Context, params *drs.D
 }
 
 type mockLightsailClient struct {
-	instances []lightsailtypes.Instance
-	err       error
-	tagged    *lightsail.TagResourceInput
+	instances   []lightsailtypes.Instance
+	err         error
+	tagged      *lightsail.TagResourceInput
+	regions     []lightsailtypes.RegionName
+	regionsErr  error
+	regionCalls int
+}
+
+func (m *mockLightsailClient) GetRegions(ctx context.Context, params *lightsail.GetRegionsInput, optFns ...func(*lightsail.Options)) (*lightsail.GetRegionsOutput, error) {
+	m.regionCalls++
+	out := &lightsail.GetRegionsOutput{}
+	for _, name := range m.regions {
+		out.Regions = append(out.Regions, lightsailtypes.Region{Name: name})
+	}
+	return out, m.regionsErr
 }
 
 func (m *mockLightsailClient) GetInstances(ctx context.Context, params *lightsail.GetInstancesInput, optFns ...func(*lightsail.Options)) (*lightsail.GetInstancesOutput, error) {
@@ -201,8 +218,99 @@ func TestListLightsailInstances(t *testing.T) {
 		t.Errorf("resources = %+v, err = %v", resources, err)
 	}
 
-	if resources, err := testProvider().listLightsailInstances(context.Background(), "me-south-1"); err != nil || resources != nil {
+	p := testProvider()
+	regions := &mockLightsailClient{regions: []lightsailtypes.RegionName{"us-east-1"}}
+	p.lightsailEndpoints(context.Background(), func() lightsailAPI { return regions })
+	if resources, err := p.listLightsailInstances(context.Background(), "me-south-1"); err != nil || resources != nil {
 		t.Errorf("regions without a Lightsail endpoint must be skipped, got %+v, %v", resources, err)
+	}
+}
+
+func TestLightsailEndpoints_AsksGetRegionsOncePerProvider(t *testing.T) {
+	p := testProvider()
+	mock := &mockLightsailClient{regions: []lightsailtypes.RegionName{"us-east-1", "ap-southeast-3"}}
+	client := func() lightsailAPI { return mock }
+
+	first := p.lightsailEndpoints(context.Background(), client)
+	second := p.lightsailEndpoints(context.Background(), client)
+
+	if mock.regionCalls != 1 {
+		t.Errorf("GetRegions called %d times, want 1", mock.regionCalls)
+	}
+	if len(second) != 2 || !first["us-east-1"] || !first["ap-southeast-3"] {
+		t.Errorf("endpoints = %v, want the two regions GetRegions returned", first)
+	}
+	if lightsailFallbackRegions["ap-southeast-3"] {
+		t.Fatal("ap-southeast-3 joined the built-in list: pick a region outside it")
+	}
+	if first["eu-west-1"] {
+		t.Error("eu-west-1 comes from the built-in list, want only what GetRegions returned")
+	}
+}
+
+func TestLightsailEndpoints_FallsBackToTheBuiltInList(t *testing.T) {
+	tests := []struct {
+		name string
+		mock *mockLightsailClient
+	}{
+		{"GetRegions fails", &mockLightsailClient{regionsErr: apiError{"AccessDeniedException"}}},
+		{"GetRegions returns no region", &mockLightsailClient{}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := testProvider().lightsailEndpoints(context.Background(), func() lightsailAPI { return tt.mock })
+
+			if tt.mock.regionCalls != 1 {
+				t.Errorf("GetRegions called %d times, want 1", tt.mock.regionCalls)
+			}
+			if len(got) != len(lightsailFallbackRegions) || !got["eu-west-1"] {
+				t.Errorf("endpoints = %v, want the built-in list", got)
+			}
+		})
+	}
+}
+
+func TestLightsailEndpoints_LogsTheFallbackOncePerProvider(t *testing.T) {
+	var logged bytes.Buffer
+	log.SetOutput(&logged)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+
+	p := testProvider()
+	client := func() lightsailAPI { return &mockLightsailClient{regionsErr: apiError{"AccessDeniedException"}} }
+	p.lightsailEndpoints(context.Background(), client)
+	p.lightsailEndpoints(context.Background(), client)
+
+	if n := strings.Count(logged.String(), "[ERROR]"); n != 1 || !strings.Contains(logged.String(), "lightsail:GetRegions") {
+		t.Errorf("logged %d error lines, want one naming lightsail:GetRegions: %q", n, logged.String())
+	}
+}
+
+func TestLightsailEndpoints_CancelledScanLogsNoFallback(t *testing.T) {
+	var logged bytes.Buffer
+	log.SetOutput(&logged)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	got := testProvider().lightsailEndpoints(ctx, func() lightsailAPI {
+		return &mockLightsailClient{regionsErr: context.Canceled}
+	})
+
+	if logged.Len() != 0 || !got["eu-west-1"] {
+		t.Errorf("logged %q, endpoints %v; want no log line and the built-in list", logged.String(), got)
+	}
+}
+
+func TestLightsailEndpoints_NotAskedOutsideTheCommercialPartition(t *testing.T) {
+	p := &Provider{partition: "aws-cn", regions: []string{"cn-north-1"}}
+
+	got := p.lightsailEndpoints(context.Background(), func() lightsailAPI {
+		t.Error("Lightsail client built in a partition without Lightsail")
+		return &mockLightsailClient{}
+	})
+
+	if got["cn-north-1"] {
+		t.Errorf("endpoints = %v, want no China region", got)
 	}
 }
 

@@ -416,12 +416,13 @@ The canonical guide, with snippets, is
 `docs/contributing/adding-an-aws-service.mdx`; change it with the pattern.
 Checklist:
 
-1. Client: `regionalClient(p, region, svc.NewFromConfig)`; no new typed
-   `<svc>Clients` maps or `get<Service>Client` getters
+1. Client: `regionalClient(p, region, svc.NewFromConfig)` (global services
+   pass `p.globalRegion()`); `Provider` has no per-service client fields or
+   getters
 2. Lister: `list<Service>` resolves the client, `list<Service>From` takes a
    narrow API interface; `p.resource`/`p.bulkResource`, `tagsToMap`;
-   `notSubscribed(err)` is zero resources at debug level; page with the SDK
-   paginator or `paginate`
+   `notSubscribed(err, "<the service's own code>")` is zero resources at
+   debug level; page with the SDK paginator or `paginate`
 3. Tags: inline, `p.resourceTags(ctx, region, arn, fallback)` inside
    `forEachConcurrently(ctx, ...)`, or `p.requireBulkTags(ctx, ...)` +
    `p.bulkTags(ctx, ...)`. ARNs the API does not return: `p.buildARN` /
@@ -431,9 +432,10 @@ Checklist:
    error type to `resourceGone`
 4. Writes: `tagging_api` (`applyTagsViaTaggingAPI`) by default;
    `apply<Service>Tags` (region from `regionForARN(arn)`, never a configured
-   region) + `tagAppliers(region)` + `arnServiceRoutes` only when the Tagging
+   region) + `tagAppliers` + `arnServiceRoutes` only when the Tagging
    API cannot tag the type; `idAddressedTypes` + `ec2IDPrefixes` only for
-   bare-ID tag APIs, which get the plan's region through `tagAppliers`
+   bare-ID tag APIs, which get the plan's region through `regionTagAppliers`
+   (built once from `ec2IDPrefixes`, plus S3)
 5. Register in `regionalListers()` (`provider.go`) or `globalListers()`
 6. Pinned tests: `TestRegionalListers`/`TestGlobalListers`,
    `TestGetResourceType_AllSupportedServices`, `TestTaggingIdentifier`
@@ -585,12 +587,14 @@ Install with: `make hooks`
     `prowler/providers/aws/services` (90 services); the seven with nothing to
     tag per account are deliberately absent (account, inspector2, macie,
     organizations, resourceexplorer2, securityhub, trustedadvisor). Global
-    Accelerator lives only in us-west-2 and Lightsail only in
-    `lightsailRegions`; both are addressed by their own tag API, not the
-    Tagging API. `idAddressedTypes` in the applier is the short list of types
-    tagged by ID (EC2 family); everything else, S3 buckets included, is tagged
-    by ARN. An identifier that is neither an ARN nor an EC2 ID has no route
-    and `ApplyTags` fails with `unknown resource type`
+    Accelerator lives only in us-west-2 and Lightsail only in the regions
+    `lightsailEndpoints` returns (`GetRegions` once per provider, commercial
+    partition only; `lightsailFallbackRegions` and one `log.Error` when the
+    call fails); both are addressed by their own tag API, not the Tagging API.
+    `idAddressedTypes` in the applier is the short list of types tagged by ID
+    (EC2 family); everything else, S3 buckets included, is tagged by ARN. An
+    identifier that is neither an ARN nor an EC2 ID has no route and
+    `ApplyTags` fails with `unknown resource type`
 
 12. **Cost Explorer bills per request**: `cost` runs one `GetCostAndUsage`
     query per tag (plus its pages). `--trend` switches that query to `DAILY`

@@ -2,6 +2,7 @@ package aws
 
 import (
 	"context"
+	"maps"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/kms"
@@ -22,7 +23,7 @@ type kmsAPI interface {
 
 // listKMSKeys lists customer-managed KMS keys in a region.
 func (p *Provider) listKMSKeys(ctx context.Context, region string) ([]types.Resource, error) {
-	return p.listKMSKeysFrom(ctx, p.getKMSClient(region), region)
+	return p.listKMSKeysFrom(ctx, regionalClient(p, region, kms.NewFromConfig), region)
 }
 
 // listKMSKeysFrom lists KMS keys using the given client. AWS-managed keys
@@ -91,11 +92,9 @@ func getKMSTags(ctx context.Context, client kmsAPI, keyID string) (map[string]st
 		if err != nil {
 			return nil, err
 		}
-		for _, tag := range output.Tags {
-			if tag.TagKey != nil && tag.TagValue != nil {
-				tags[*tag.TagKey] = *tag.TagValue
-			}
-		}
+		maps.Copy(tags, tagsToMap(output.Tags,
+			func(t kmstypes.Tag) *string { return t.TagKey },
+			func(t kmstypes.Tag) *string { return t.TagValue }))
 	}
 	return tags, nil
 }
@@ -111,7 +110,7 @@ func (p *Provider) applyKMSTags(ctx context.Context, arn string, tags map[string
 	if err != nil {
 		return provider.NewProviderError(providerName, "apply_kms_tags", arn, err)
 	}
-	client := p.getKMSClient(region)
+	client := regionalClient(p, region, kms.NewFromConfig)
 	_, err = client.TagResource(ctx, &kms.TagResourceInput{
 		KeyId: aws.String(arn),
 		Tags:  tagList,

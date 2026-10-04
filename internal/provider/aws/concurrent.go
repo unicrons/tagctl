@@ -45,25 +45,8 @@ func forEachConcurrently[T any](ctx context.Context, items []T, fn func(T) []typ
 // one wraps a single resource for forEachConcurrently.
 func one(r types.Resource) []types.Resource { return []types.Resource{r} }
 
-// cachedClient returns the client for region from cache, creating it on first use.
-func cachedClient[T, O any](p *Provider, cache map[string]*T, region string, newClient func(aws.Config, ...func(*O)) *T) *T {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	if client, ok := cache[region]; ok {
-		return client
-	}
-
-	regionalCfg := p.cfg.Copy()
-	regionalCfg.Region = region
-	client := newClient(regionalCfg)
-	cache[region] = client
-	return client
-}
-
 // regionalClient returns the client of type T for region, creating and caching
-// it in p.clients on first use. Services added after the typed cache maps use
-// this instead of a dedicated map and getter.
+// it in p.clients on first use.
 func regionalClient[T, O any](p *Provider, region string, newClient func(aws.Config, ...func(*O)) *T) *T {
 	key := fmt.Sprintf("%T/%s", (*T)(nil), region)
 	p.mu.Lock()

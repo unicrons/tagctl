@@ -50,7 +50,7 @@ type sageMakerAPI interface {
 const openSearchDescribeBatch = 5
 
 func (p *Provider) listRedshiftClusters(ctx context.Context, region string) ([]types.Resource, error) {
-	return p.listRedshiftClustersFrom(ctx, p.getRedshiftClient(region), region)
+	return p.listRedshiftClustersFrom(ctx, regionalClient(p, region, redshift.NewFromConfig), region)
 }
 
 func (p *Provider) listRedshiftClustersFrom(ctx context.Context, client redshiftAPI, region string) ([]types.Resource, error) {
@@ -63,6 +63,9 @@ func (p *Provider) listRedshiftClustersFrom(ctx context.Context, client redshift
 		}
 		for _, c := range output.Clusters {
 			id := aws.ToString(c.ClusterIdentifier)
+			tags := tagsToMap(c.Tags,
+				func(t redshifttypes.Tag) *string { return t.Key },
+				func(t redshifttypes.Tag) *string { return t.Value })
 			resources = append(resources, types.Resource{
 				ID:        id,
 				Name:      id,
@@ -71,7 +74,7 @@ func (p *Provider) listRedshiftClustersFrom(ctx context.Context, client redshift
 				Region:    region,
 				Account:   p.accountID,
 				Provider:  providerName,
-				Tags:      redshiftTagsToMap(c.Tags),
+				Tags:      tags,
 				CreatedAt: c.ClusterCreateTime,
 			})
 		}
@@ -80,18 +83,8 @@ func (p *Provider) listRedshiftClustersFrom(ctx context.Context, client redshift
 	return resources, nil
 }
 
-func redshiftTagsToMap(tags []redshifttypes.Tag) map[string]string {
-	result := make(map[string]string)
-	for _, tag := range tags {
-		if tag.Key != nil && tag.Value != nil {
-			result[*tag.Key] = *tag.Value
-		}
-	}
-	return result
-}
-
 func (p *Provider) listOpenSearchDomains(ctx context.Context, region string) ([]types.Resource, error) {
-	return p.listOpenSearchDomainsFrom(ctx, p.getOpenSearchClient(region), region)
+	return p.listOpenSearchDomainsFrom(ctx, regionalClient(p, region, opensearch.NewFromConfig), region)
 }
 
 func (p *Provider) listOpenSearchDomainsFrom(ctx context.Context, client openSearchAPI, region string) ([]types.Resource, error) {
@@ -133,7 +126,7 @@ func (p *Provider) listOpenSearchDomainsFrom(ctx context.Context, client openSea
 }
 
 func (p *Provider) listMSKClusters(ctx context.Context, region string) ([]types.Resource, error) {
-	return p.listMSKClustersFrom(ctx, p.getMSKClient(region), region)
+	return p.listMSKClustersFrom(ctx, regionalClient(p, region, kafka.NewFromConfig), region)
 }
 
 func (p *Provider) listMSKClustersFrom(ctx context.Context, client mskAPI, region string) ([]types.Resource, error) {
@@ -168,7 +161,7 @@ func (p *Provider) listMSKClustersFrom(ctx context.Context, client mskAPI, regio
 }
 
 func (p *Provider) listGlueJobs(ctx context.Context, region string) ([]types.Resource, error) {
-	return p.listGlueJobsFrom(ctx, p.getGlueClient(region), region)
+	return p.listGlueJobsFrom(ctx, regionalClient(p, region, glue.NewFromConfig), region)
 }
 
 func (p *Provider) listGlueJobsFrom(ctx context.Context, client glueAPI, region string) ([]types.Resource, error) {
@@ -203,7 +196,7 @@ func (p *Provider) listGlueJobsFrom(ctx context.Context, client glueAPI, region 
 }
 
 func (p *Provider) listFirehoseStreams(ctx context.Context, region string) ([]types.Resource, error) {
-	return p.listFirehoseStreamsFrom(ctx, p.getFirehoseClient(region), region)
+	return p.listFirehoseStreamsFrom(ctx, regionalClient(p, region, firehose.NewFromConfig), region)
 }
 
 func (p *Provider) listFirehoseStreamsFrom(ctx context.Context, client firehoseAPI, region string) ([]types.Resource, error) {
@@ -240,7 +233,7 @@ func (p *Provider) listFirehoseStreamsFrom(ctx context.Context, client firehoseA
 }
 
 func (p *Provider) listSageMakerResources(ctx context.Context, region string) ([]types.Resource, error) {
-	return p.listSageMakerResourcesFrom(ctx, p.getSageMakerClient(region), region)
+	return p.listSageMakerResourcesFrom(ctx, regionalClient(p, region, sagemaker.NewFromConfig), region)
 }
 
 func (p *Provider) listSageMakerResourcesFrom(ctx context.Context, client sageMakerAPI, region string) ([]types.Resource, error) {

@@ -29,7 +29,7 @@ type ecrRepository struct {
 
 // listECRRepositories lists all ECR repositories in a region.
 func (p *Provider) listECRRepositories(ctx context.Context, region string) ([]types.Resource, error) {
-	return p.listECRRepositoriesFrom(ctx, p.getECRClient(region), region)
+	return p.listECRRepositoriesFrom(ctx, regionalClient(p, region, ecr.NewFromConfig), region)
 }
 
 // listECRRepositoriesFrom lists ECR repositories using the given client.
@@ -58,7 +58,9 @@ func (p *Provider) listECRRepositoriesFrom(ctx context.Context, client ecrAPI, r
 			if err != nil {
 				return nil, err
 			}
-			return ecrTagsToMap(output.Tags), nil
+			return tagsToMap(output.Tags,
+				func(t ecrtypes.Tag) *string { return t.Key },
+				func(t ecrtypes.Tag) *string { return t.Value }), nil
 		})
 		if err != nil {
 			p.skipResource(ctx, "ECR", region, "repository "+r.name, err)
@@ -92,7 +94,7 @@ func (p *Provider) applyECRTags(ctx context.Context, arn string, tags map[string
 	if err != nil {
 		return provider.NewProviderError(providerName, "apply_ecr_tags", arn, err)
 	}
-	client := p.getECRClient(region)
+	client := regionalClient(p, region, ecr.NewFromConfig)
 	_, err = client.TagResource(ctx, &ecr.TagResourceInput{
 		ResourceArn: aws.String(arn),
 		Tags:        tagList,
@@ -103,15 +105,4 @@ func (p *Provider) applyECRTags(ctx context.Context, arn string, tags map[string
 
 	log.Debug("AWS ECR: Applied %d tags to %s", len(tags), arn)
 	return nil
-}
-
-// ecrTagsToMap converts ECR tags to a map.
-func ecrTagsToMap(tags []ecrtypes.Tag) map[string]string {
-	result := make(map[string]string)
-	for _, tag := range tags {
-		if tag.Key != nil && tag.Value != nil {
-			result[*tag.Key] = *tag.Value
-		}
-	}
-	return result
 }

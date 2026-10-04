@@ -2,6 +2,7 @@ package aws
 
 import (
 	"context"
+	"maps"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
@@ -21,7 +22,7 @@ type dynamoDBAPI interface {
 
 // listDynamoDBTables lists all DynamoDB tables in a region.
 func (p *Provider) listDynamoDBTables(ctx context.Context, region string) ([]types.Resource, error) {
-	return p.listDynamoDBTablesFrom(ctx, p.getDynamoDBClient(region), region)
+	return p.listDynamoDBTablesFrom(ctx, regionalClient(p, region, dynamodb.NewFromConfig), region)
 }
 
 // listDynamoDBTablesFrom lists DynamoDB tables using the given client.
@@ -77,11 +78,9 @@ func getDynamoDBTags(ctx context.Context, client dynamoDBAPI, arn string) (map[s
 		if err != nil {
 			return nil, err
 		}
-		for _, tag := range output.Tags {
-			if tag.Key != nil && tag.Value != nil {
-				tags[*tag.Key] = *tag.Value
-			}
-		}
+		maps.Copy(tags, tagsToMap(output.Tags,
+			func(t ddbtypes.Tag) *string { return t.Key },
+			func(t ddbtypes.Tag) *string { return t.Value }))
 		if output.NextToken == nil {
 			return tags, nil
 		}
@@ -100,7 +99,7 @@ func (p *Provider) applyDynamoDBTags(ctx context.Context, arn string, tags map[s
 	if err != nil {
 		return provider.NewProviderError(providerName, "apply_dynamodb_tags", arn, err)
 	}
-	client := p.getDynamoDBClient(region)
+	client := regionalClient(p, region, dynamodb.NewFromConfig)
 	_, err = client.TagResource(ctx, &dynamodb.TagResourceInput{
 		ResourceArn: aws.String(arn),
 		Tags:        tagList,

@@ -145,17 +145,3 @@ func TestASGNameFromARN(t *testing.T) {
 		})
 	}
 }
-
-func TestASGTagsToMap(t *testing.T) {
-	tags := asgTagsToMap([]asgtypes.TagDescription{
-		{Key: aws.String("a"), Value: aws.String("1")},
-		{Key: aws.String("b"), Value: nil},
-	})
-
-	if len(tags) != 1 {
-		t.Fatalf("got %d tags, want 1 (nil value dropped)", len(tags))
-	}
-	if tags["a"] != "1" {
-		t.Errorf("tags[a] = %q, want %q", tags["a"], "1")
-	}
-}

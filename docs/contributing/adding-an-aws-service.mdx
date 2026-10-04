@@ -38,9 +38,9 @@ go get github.com/aws/aws-sdk-go-v2/service/memorydb
 ```
 
 Resolve the client with `regionalClient(p, region, memorydb.NewFromConfig)`.
-It creates one client per type and region and caches it in `p.clients`. Older
-services use typed `<svc>Clients` maps and `get<Service>Client` getters
-(`getSQSClient`). Do not add new ones.
+It creates one client per type and region and caches it in `p.clients`; every
+service resolves its client this way, the global ones with `p.globalRegion()`.
+Do not add a client field or getter to `Provider`.
 
 ## 2. Write the lister
 
@@ -114,20 +114,25 @@ What the lister is responsible for:
   [AWS provider](/providers/aws#supported-resources) page lists what is
   dropped today; add yours there.
 - **Services that are not set up.** Some services answer with an error when
-  they were never enabled in the account or region. When `notSubscribed(err)`
-  recognizes it, return zero resources at debug level. The DRS lister does
-  this:
+  they were never enabled in the account or region. Pass the code of that
+  error to `notSubscribed` and return zero resources at debug level. The DRS
+  lister does this:
 
   ```go
-  if notSubscribed(err) {
+  if notSubscribed(err, "UninitializedAccountException") {
   	log.Debug("AWS DRS: not initialised in %s, skipping", region)
   	return nil, nil
   }
   ```
 
-  Add a new error code to `notSubscribedCodes` in `resource.go`. A service with
-  endpoints in only some regions checks the region before building a client,
-  like `lightsailRegions` for Lightsail.
+  Each lister passes only its own service's codes; `notSubscribedCodes` in
+  `resource.go` holds the two every service shares. Use a code only when the
+  SDK models it (`types/errors.go` of the service module) and its
+  documentation says the account or region is not set up, and test the lister
+  with that SDK error type. A service with endpoints in only some regions
+  checks the region before building a client, like `lightsailEndpoints` for
+  Lightsail, which asks the service once per provider and keeps a built-in
+  list for when that call fails.
 
 **Global services** such as Route 53, CloudFront and IAM are listed once per
 account, not per region. Their listers take only `ctx`, live next to
@@ -228,13 +233,13 @@ of paginators in "How tags are read" on the AWS provider page.
 `idAddressedTypes`, and passes the region the plan recorded for it
 (`ApplyTagsInRegion`). `getResourceType` parses the ARN and picks a route from
 its service segment in `arnServiceRoutes`, whatever the partition, and
-`tagAppliers(region)` maps the route to a method. An ARN whose service is not
+`tagAppliers` maps the route to a method. An ARN whose service is not
 in the table goes to `tagging_api`, which is `applyTagsViaTaggingAPI`
 (`tag:TagResources`). Most new types need nothing here.
 
 Write an `apply<Service>Tags` method only when the Tagging API cannot tag the
-type, as with Lightsail. It has the `tagApplier` signature, takes the region
-from the ARN with `regionForARN` and wraps errors in
+type, as with Lightsail. Its method expression is a `tagApplier`; it takes the
+region from the ARN with `regionForARN` and wraps errors in
 `provider.NewProviderError`:
 
 ```go
@@ -255,8 +260,8 @@ on a client with no region. Then add one entry to each map in `provider.go`:
 // arnServiceRoutes
 "lightsail":         routeLightsail,
 
-// tagAppliers()
-routeLightsail:       p.applyLightsailTags,
+// tagAppliers
+routeLightsail:          (*Provider).applyLightsailTags,
 ```
 
 A route that also depends on the resource segment (ECS clusters and services,
@@ -266,10 +271,11 @@ the Elastic Load Balancing families, S3 buckets) is decided in the `switch` of
 Only add the type to `idAddressedTypes` in `internal/engine/applier.go` when
 its tag API takes a bare ID instead of an ARN (the EC2 family). The ID then
 needs a prefix in `ec2IDPrefixes`, such as `i-`, and its applier needs the
-region from the plan, because an ID does not carry one: wrap it in
-`tagAppliers(region)` the way the EC2 entries are. An identifier that is
-neither an ARN nor a known ID prefix has no route, and `ApplyTags` fails with
-`unknown resource type`. S3 buckets are addressed by ARN.
+region from the plan, because an ID does not carry one: `regionTagAppliers`
+gives every route of `ec2IDPrefixes` to `applyEC2Tags`, which takes it. An
+identifier that is neither an ARN nor a known ID prefix has no route, and
+`ApplyTags` fails with `unknown resource type`. S3 buckets are addressed by
+ARN.
 
 ## 5. Register the lister
 

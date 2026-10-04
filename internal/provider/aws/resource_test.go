@@ -24,11 +24,15 @@ func TestTagsToMap(t *testing.T) {
 }
 
 func TestNotSubscribed(t *testing.T) {
-	if !notSubscribed(apiError{"UninitializedAccountException"}) || !notSubscribed(apiError{"ResourceNotFoundException"}) {
+	const drsCode = "UninitializedAccountException"
+	if !notSubscribed(apiError{drsCode}, drsCode) || !notSubscribed(apiError{"OptInRequired"}) || !notSubscribed(apiError{"SubscriptionRequiredException"}, drsCode) {
 		t.Error("subscription errors must be recognised")
 	}
-	if notSubscribed(apiError{"AccessDeniedException"}) || notSubscribed(errors.New("dial tcp: timeout")) {
+	if notSubscribed(apiError{"AccessDeniedException"}, drsCode) || notSubscribed(errors.New("dial tcp: timeout"), drsCode) {
 		t.Error("real failures must not be swallowed")
+	}
+	if notSubscribed(apiError{drsCode}) || notSubscribed(apiError{"ResourceNotFoundException"}, drsCode) {
+		t.Error("a code another service uses for not set up must stay an error")
 	}
 }
 

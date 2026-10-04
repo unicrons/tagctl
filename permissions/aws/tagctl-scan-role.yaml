@@ -253,6 +253,7 @@ Resources:
                   - dlm:GetLifecyclePolicies
                   - drs:DescribeSourceServers
                   - lightsail:GetInstances
+                  - lightsail:GetRegions
                   - ssm:DescribeParameters
                   - ssm:ListDocuments
                   - ssm-incidents:ListResponsePlans
