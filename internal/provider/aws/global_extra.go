@@ -52,7 +52,7 @@ func (p *Provider) listProtectionsFrom(ctx context.Context, client shieldAPI) ([
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
-			if notSubscribed(err) {
+			if notSubscribed(err, "ResourceNotFoundException") {
 				log.Debug("AWS Shield: no Shield Advanced subscription, skipping")
 				return nil, nil
 			}

@@ -421,8 +421,8 @@ Checklist:
    getters
 2. Lister: `list<Service>` resolves the client, `list<Service>From` takes a
    narrow API interface; `p.resource`/`p.bulkResource`, `tagsToMap`;
-   `notSubscribed(err)` is zero resources at debug level; page with the SDK
-   paginator or `paginate`
+   `notSubscribed(err, "<the service's own code>")` is zero resources at
+   debug level; page with the SDK paginator or `paginate`
 3. Tags: inline, `p.resourceTags(ctx, region, arn, fallback)` inside
    `forEachConcurrently(ctx, ...)`, or `p.requireBulkTags(ctx, ...)` +
    `p.bulkTags(ctx, ...)`. ARNs the API does not return: `p.buildARN` /

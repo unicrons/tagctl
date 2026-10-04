@@ -114,20 +114,24 @@ What the lister is responsible for:
   [AWS provider](/providers/aws#supported-resources) page lists what is
   dropped today; add yours there.
 - **Services that are not set up.** Some services answer with an error when
-  they were never enabled in the account or region. When `notSubscribed(err)`
-  recognizes it, return zero resources at debug level. The DRS lister does
-  this:
+  they were never enabled in the account or region. Pass the code of that
+  error to `notSubscribed` and return zero resources at debug level. The DRS
+  lister does this:
 
   ```go
-  if notSubscribed(err) {
+  if notSubscribed(err, "UninitializedAccountException") {
   	log.Debug("AWS DRS: not initialised in %s, skipping", region)
   	return nil, nil
   }
   ```
 
-  Add a new error code to `notSubscribedCodes` in `resource.go`. A service with
-  endpoints in only some regions checks the region before building a client,
-  like `lightsailRegions` for Lightsail.
+  Each lister passes only its own service's codes; `notSubscribedCodes` in
+  `resource.go` holds the two every service shares. Use a code only when the
+  SDK models it (`types/errors.go` of the service module) and its
+  documentation says the account or region is not set up, and test the lister
+  with that SDK error type. A service with endpoints in only some regions
+  checks the region before building a client, like `lightsailRegions` for
+  Lightsail.
 
 **Global services** such as Route 53, CloudFront and IAM are listed once per
 account, not per region. Their listers take only `ctx`, live next to

@@ -203,7 +203,7 @@ func (p *Provider) listSourceServersFrom(ctx context.Context, client drsAPI, reg
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
-			if notSubscribed(err) {
+			if notSubscribed(err, "UninitializedAccountException") {
 				log.Debug("AWS DRS: not initialised in %s, skipping", region)
 				return nil, nil
 			}
