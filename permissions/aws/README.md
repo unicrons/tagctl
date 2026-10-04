@@ -140,6 +140,18 @@ as failed and still applies the additions. `AllowTagRemoval=true` creates the po
 managed policy (`AWS::IAM::ManagedPolicy`, limit 6,144 characters) and attaches
 it to the role, because the role's inline policies have no room for it.
 
+Every action in the four policies, and every scoped ARN pattern, can be checked
+against the machine-readable Service Authorization Reference:
+
+```bash
+make iam-check   # needs network access to servicereference.us-east-1.amazonaws.com
+```
+
+It confirms that an action exists and accepts the resource type. It cannot
+tell which action `tag:TagResources` or `tag:UntagResources` checks for a
+service, and the removals have not been run against a live account for every
+service.
+
 ### Protected tag keys
 
 `ProtectedTagKeys` denies any request whose `aws:TagKeys` match one of the

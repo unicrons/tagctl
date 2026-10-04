@@ -1057,8 +1057,17 @@ apply policy.
 
 <Note>
   `tag:UntagResources` and `workspaces:DeleteTags` stay on `"*"` for the same
-  reason as their tagging counterparts. The action names mirror the tag write
-  actions of the apply policy one to one; they have not been exercised against
+  reason as their tagging counterparts. Every action exists in the
+  [Service Authorization Reference](https://docs.aws.amazon.com/service-authorization/latest/reference/reference_policies_actions-resources-contextkeys.html),
+  and every ARN pattern matches a resource type the reference lists for the
+  untag action of its service. `make iam-check` repeats that check for every
+  policy on this page against the
+  [machine-readable reference](https://docs.aws.amazon.com/service-authorization/latest/reference/service-reference.html).
+
+  The reference does not say which action `tag:UntagResources` checks for a
+  resource. Each service gets the counterpart of its tag action in the apply
+  policy: Kinesis and ACM also have a newer `UntagResource`, which the policy
+  does not grant. The removals have not been run against a live account for
   every service.
 </Note>
 
