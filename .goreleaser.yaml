@@ -1,8 +1,6 @@
 version: 2
 
-before:
-  hooks:
-    - go mod tidy
+project_name: tagctl
 
 builds:
   - main: ./cmd/tagctl
@@ -16,31 +14,53 @@ builds:
     goarch:
       - amd64
       - arm64
+    flags:
+      - -trimpath
     ldflags:
-      - -s -w -X github.com/unicrons/tagctl/internal/cli.Version={{ .Version }} -X github.com/unicrons/tagctl/internal/cli.Commit={{ .ShortCommit }} -X github.com/unicrons/tagctl/internal/cli.Date={{ .Date }}
-
-universal_binaries:
-  - replace: true
+      - -s -w
+      - -X github.com/unicrons/tagctl/internal/cli.Version={{ .Version }}
+      - -X github.com/unicrons/tagctl/internal/cli.Commit={{ .ShortCommit }}
+      - -X github.com/unicrons/tagctl/internal/cli.Date={{ .Date }}
 
 archives:
-  - formats: [zip]
-    name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+  # No version in the name, so releases/latest/download/<name> stays a stable URL.
+  - name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+    formats: [tar.gz]
     format_overrides:
-      - goos: linux
-        formats: [tar.gz]
+      - goos: windows
+        formats: [zip]
+    files:
+      - LICENSE
+      - README.md
+      - tagctl.yaml.example
+
+checksum:
+  name_template: checksums.txt
 
 changelog:
   sort: asc
   filters:
     exclude:
-      - "^docs:"
-      - "^test:"
-      - "^ci:"
-      - "^chore:"
-
-checksum:
-  name_template: checksums.txt
+      - '^Merge '
+      - '^chore\(merge\)'
+  groups:
+    - title: Features
+      regexp: '^.*?feat(\([^)]+\))?!?:.+$'
+      order: 0
+    - title: Bug fixes
+      regexp: '^.*?fix(\([^)]+\))?!?:.+$'
+      order: 1
+    - title: Performance
+      regexp: '^.*?perf(\([^)]+\))?!?:.+$'
+      order: 2
+    - title: Documentation
+      regexp: '^.*?docs(\([^)]+\))?!?:.+$'
+      order: 3
+    - title: Dependencies
+      regexp: '^.*?deps(\([^)]+\))?!?:.+$'
+      order: 4
+    - title: Other changes
+      order: 999
 
 release:
-  # Visit the project's GitHub Releases page to publish this release.
-  draft: true
+  prerelease: auto

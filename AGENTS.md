@@ -491,10 +491,18 @@ CI will reject.
 ## Releases
 
 Pushing a `v*` tag runs `.github/workflows/release.yml`: GoReleaser
-(`.goreleaser.yaml`) builds linux/darwin/windows × amd64/arm64 with `-s -w`
-and the `internal/cli.Version`/`Commit`/`Date` ldflags (`internal/cli/version.go`,
-also used by `make build`), attaches archives and `checksums.txt` to a draft
-GitHub Release to publish by hand, with notes sorted from the commit log. Commit subjects are `type(scope): summary`, at most 60 characters.
+(`.goreleaser.yaml`) builds linux/darwin/windows × amd64/arm64 with
+`CGO_ENABLED=0`, `-trimpath`, `-s -w` and the `internal/cli.Version`/`Commit`/`Date`
+ldflags (`internal/cli/version.go`, also set by `make build`), attaches the
+archives (`tagctl_<os>_<arch>.tar.gz`, `.zip` on Windows, each with LICENSE,
+README and `tagctl.yaml.example`) and `checksums.txt` to the GitHub Release and
+groups the notes by conventional commit type. A tag with a pre-release suffix
+(`v1.0.0-rc.1`) is published as a pre-release; the workflow then attests the
+build provenance of every file in `checksums.txt`. Commit subjects are
+`type(scope): summary`, at most 60 characters.
+
+Check a pipeline change without publishing: `goreleaser check`, then
+`goreleaser release --snapshot --clean --skip=publish` (artifacts in `dist/`).
 
 ## GitHub Action
 
