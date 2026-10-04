@@ -220,9 +220,10 @@ its own API.
 
 Some services report "not set up" instead of an empty list: DRS in a region
 never initialised, Shield without an Advanced subscription, Firewall Manager
-outside the administrator account. tagctl treats those answers as zero
-resources (visible at `--log-level debug`), not as errors. Lightsail is only
-called in the regions where it has an endpoint.
+outside the administrator account, Glacier in an account with no Glacier
+storage. tagctl treats those answers as zero resources (visible at
+`--log-level debug`), not as errors. Lightsail is only called in the regions
+where it has an endpoint.
 
 <Warning>
 `tag:GetResources` is eventually consistent. Tags written by `tagctl apply`

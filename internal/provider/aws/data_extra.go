@@ -233,6 +233,8 @@ func (p *Provider) listEMRClustersFrom(ctx context.Context, client emrAPI, regio
 	return resources, nil
 }
 
+// listVaults lists Glacier vaults. An account with no Glacier storage is
+// refused the vault API, which is not an error.
 func (p *Provider) listVaults(ctx context.Context, region string) ([]types.Resource, error) {
 	return p.listVaultsFrom(ctx, regionalClient(p, region, glacier.NewFromConfig), region)
 }
@@ -246,6 +248,10 @@ func (p *Provider) listVaultsFrom(ctx context.Context, client glacierAPI, region
 	for paginator.HasMorePages() {
 		output, err := paginator.NextPage(ctx)
 		if err != nil {
+			if notSubscribed(err, "NoLongerSupportedException") {
+				log.Debug("AWS Glacier: no Glacier storage in %s, skipping", region)
+				return nil, nil
+			}
 			return nil, provider.NewProviderError(providerName, "list_glacier_vaults", "", err)
 		}
 		for _, v := range output.VaultList {
