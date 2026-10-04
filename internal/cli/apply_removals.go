@@ -52,7 +52,7 @@ func listRemovals(w io.Writer, planFile string, plan *types.Plan) {
 			continue
 		}
 		if listed == maxListedRemovals {
-			fmt.Fprintf(w, "      ... and %d more, see %s\n", removed-listed, planFile)
+			fmt.Fprintf(w, "      ... and %d more, see %s\n", removed-listed, printable(planFile))
 			break
 		}
 		fmt.Fprintf(w, "      - %s=%q on %s %s (%s)\n", printable(c.Tag), printable(c.OldValue),

@@ -251,6 +251,12 @@ skipped changes are counted apart, never as applied or failed. The review runs
 on the plan `withoutRemovals` returned, so it only offers a removal (`- tag`)
 with `--allow-removals`.
 
+A plan file is untrusted input: everything `apply` prints from it or from a
+provider (resource type and ID, tag keys and values, the plan path, error
+text) goes through `printable()`. `TestApply_NeutralisesControlCharactersFromThePlan`
+runs each field through the normal, `--interactive` and `--mock` paths; add a
+row for a new printed field.
+
 ### Demo data
 
 `internal/demo` holds everything that is example data, so `internal/engine`
