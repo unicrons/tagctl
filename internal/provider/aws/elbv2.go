@@ -27,7 +27,7 @@ type elbv2API interface {
 
 // listLoadBalancers lists all Application and Network Load Balancers in a region.
 func (p *Provider) listLoadBalancers(ctx context.Context, region string) ([]types.Resource, error) {
-	return p.listLoadBalancersFrom(ctx, p.getELBv2Client(region), region)
+	return p.listLoadBalancersFrom(ctx, regionalClient(p, region, elbv2.NewFromConfig), region)
 }
 
 // listLoadBalancersFrom lists load balancers using the given client.
@@ -119,7 +119,7 @@ func (p *Provider) applyELBv2Tags(ctx context.Context, arn string, tags map[stri
 		tagList = append(tagList, elbv2types.Tag{Key: aws.String(k), Value: aws.String(v)})
 	}
 
-	client := p.getELBv2Client(region)
+	client := regionalClient(p, region, elbv2.NewFromConfig)
 	_, err = client.AddTags(ctx, &elbv2.AddTagsInput{
 		ResourceArns: []string{arn},
 		Tags:         tagList,
@@ -145,7 +145,7 @@ func elbv2TagsToMap(tags []elbv2types.Tag) map[string]string {
 
 // listTargetGroups lists ALB/NLB target groups in a region.
 func (p *Provider) listTargetGroups(ctx context.Context, region string) ([]types.Resource, error) {
-	return p.listTargetGroupsFrom(ctx, p.getELBv2Client(region), region)
+	return p.listTargetGroupsFrom(ctx, regionalClient(p, region, elbv2.NewFromConfig), region)
 }
 
 func (p *Provider) listTargetGroupsFrom(ctx context.Context, client elbv2API, region string) ([]types.Resource, error) {

@@ -20,7 +20,7 @@ type efsAPI interface {
 
 // listEFSFileSystems lists all EFS file systems in a region.
 func (p *Provider) listEFSFileSystems(ctx context.Context, region string) ([]types.Resource, error) {
-	return p.listEFSFileSystemsFrom(ctx, p.getEFSClient(region), region)
+	return p.listEFSFileSystemsFrom(ctx, regionalClient(p, region, efs.NewFromConfig), region)
 }
 
 // listEFSFileSystemsFrom lists EFS file systems using the given client.
@@ -71,7 +71,7 @@ func (p *Provider) applyEFSTags(ctx context.Context, arn string, tags map[string
 	if err != nil {
 		return provider.NewProviderError(providerName, "apply_efs_tags", arn, err)
 	}
-	client := p.getEFSClient(region)
+	client := regionalClient(p, region, efs.NewFromConfig)
 	_, err = client.TagResource(ctx, &efs.TagResourceInput{
 		ResourceId: aws.String(nameFromARN(arn)),
 		Tags:       tagList,

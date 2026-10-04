@@ -50,7 +50,7 @@ func (p *Provider) globalListers() []globalLister {
 }
 
 func (p *Provider) listHostedZones(ctx context.Context) ([]types.Resource, error) {
-	return p.listHostedZonesFrom(ctx, p.getRoute53Client())
+	return p.listHostedZonesFrom(ctx, regionalClient(p, p.globalRegion(), route53.NewFromConfig))
 }
 
 func (p *Provider) listHostedZonesFrom(ctx context.Context, client route53API) ([]types.Resource, error) {
@@ -79,7 +79,7 @@ func (p *Provider) listHostedZonesFrom(ctx context.Context, client route53API) (
 }
 
 func (p *Provider) listDistributions(ctx context.Context) ([]types.Resource, error) {
-	return p.listDistributionsFrom(ctx, p.getCloudFrontClient())
+	return p.listDistributionsFrom(ctx, regionalClient(p, p.globalRegion(), cloudfront.NewFromConfig))
 }
 
 func (p *Provider) listDistributionsFrom(ctx context.Context, client cloudFrontAPI) ([]types.Resource, error) {
@@ -112,7 +112,7 @@ func (p *Provider) listDistributionsFrom(ctx context.Context, client cloudFrontA
 // listIAMRoles lists customer-managed IAM roles. Service-linked roles are
 // owned by AWS and cannot be tagged.
 func (p *Provider) listIAMRoles(ctx context.Context) ([]types.Resource, error) {
-	return p.listIAMRolesFrom(ctx, p.getIAMClient())
+	return p.listIAMRolesFrom(ctx, regionalClient(p, p.globalRegion(), iam.NewFromConfig))
 }
 
 func (p *Provider) listIAMRolesFrom(ctx context.Context, client iamAPI) ([]types.Resource, error) {

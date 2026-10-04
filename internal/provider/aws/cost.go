@@ -36,7 +36,7 @@ const unattributedKey = ""
 // A non-empty trend also splits each tag's spend into periods of that
 // granularity, from the same request.
 func (p *Provider) CostReport(ctx context.Context, tags []string, start, end time.Time, trend types.CostGranularity) (*types.CostReport, error) {
-	return p.costReportFrom(ctx, p.getCostExplorerClient(), tags, start, end, trend)
+	return p.costReportFrom(ctx, regionalClient(p, p.globalRegion(), costexplorer.NewFromConfig), tags, start, end, trend)
 }
 
 // costReportFrom builds the report using the given client.
@@ -231,21 +231,4 @@ func sortedValues(byValue map[string]float64) []types.ValueCost {
 	})
 
 	return values
-}
-
-// getCostExplorerClient returns the Cost Explorer client, which is global and
-// reached through the partition's global region.
-func (p *Provider) getCostExplorerClient() *costexplorer.Client {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	if p.costClient != nil {
-		return p.costClient
-	}
-
-	cfg := p.cfg.Copy()
-	cfg.Region = p.globalRegion()
-	p.costClient = costexplorer.NewFromConfig(cfg)
-
-	return p.costClient
 }

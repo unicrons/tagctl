@@ -29,7 +29,7 @@ type ecsAPI interface {
 
 // listECSResources lists ECS clusters and their services in a region.
 func (p *Provider) listECSResources(ctx context.Context, region string) ([]types.Resource, error) {
-	return p.listECSResourcesFrom(ctx, p.getECSClient(region), region)
+	return p.listECSResourcesFrom(ctx, regionalClient(p, region, ecs.NewFromConfig), region)
 }
 
 // listECSResourcesFrom lists ECS clusters and services using the given client.
@@ -140,7 +140,7 @@ func (p *Provider) applyECSTags(ctx context.Context, arn string, tags map[string
 	if err != nil {
 		return provider.NewProviderError(providerName, "apply_ecs_tags", arn, err)
 	}
-	client := p.getECSClient(region)
+	client := regionalClient(p, region, ecs.NewFromConfig)
 	_, err = client.TagResource(ctx, &ecs.TagResourceInput{
 		ResourceArn: aws.String(arn),
 		Tags:        tagList,

@@ -176,17 +176,18 @@ func fetchBulkTagGroup(ctx context.Context, client taggingAPI, filters []string)
 
 // startTagSources launches one bulk tag fetch per region of tagSweepRegions.
 func (p *Provider) startTagSources(ctx context.Context) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
 	regions := p.tagSweepRegions()
-	p.tagSources = make(map[string]*tagSource, len(regions))
+	sources := make(map[string]*tagSource, len(regions))
 	for _, region := range regions {
-		region := region
-		client := p.getTaggingClientLocked(region)
-		p.tagSources[region] = newTagSource(func() (map[string]map[string]string, error) {
+		client := regionalClient(p, region, resourcegroupstaggingapi.NewFromConfig)
+		sources[region] = newTagSource(func() (map[string]map[string]string, error) {
 			return fetchBulkTags(ctx, client, region)
 		})
 	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.tagSources = sources
 }
 
 // requireBulkTags reports whether bulk tags are available for region. Services
@@ -310,7 +311,7 @@ func (p *Provider) resourceTags(ctx context.Context, region, arn string, fallbac
 
 // applyTagsViaTaggingAPI tags any resource by ARN through TagResources.
 func (p *Provider) applyTagsViaTaggingAPI(ctx context.Context, arn string, tags map[string]string) error {
-	return tagResources(ctx, p.getTaggingClient(p.taggingRegion(arn)), arn, tags)
+	return tagResources(ctx, regionalClient(p, p.taggingRegion(arn), resourcegroupstaggingapi.NewFromConfig), arn, tags)
 }
 
 // tagResources adds tags to one ARN through TagResources, which leaves the
@@ -350,20 +351,4 @@ type taggingFailure struct {
 
 func (f *taggingFailure) Error() string {
 	return f.code + ": " + f.message
-}
-
-func (p *Provider) getTaggingClient(region string) *resourcegroupstaggingapi.Client {
-	return cachedClient(p, p.taggingClients, region, resourcegroupstaggingapi.NewFromConfig)
-}
-
-// getTaggingClientLocked is getTaggingClient for callers already holding p.mu.
-func (p *Provider) getTaggingClientLocked(region string) *resourcegroupstaggingapi.Client {
-	if client, ok := p.taggingClients[region]; ok {
-		return client
-	}
-	regionalCfg := p.cfg.Copy()
-	regionalCfg.Region = region
-	client := resourcegroupstaggingapi.NewFromConfig(regionalCfg)
-	p.taggingClients[region] = client
-	return client
 }

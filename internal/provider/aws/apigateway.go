@@ -24,7 +24,7 @@ type httpAPIsAPI interface {
 
 // listRestAPIs lists API Gateway REST APIs in a region. Tags come inline.
 func (p *Provider) listRestAPIs(ctx context.Context, region string) ([]types.Resource, error) {
-	return p.listRestAPIsFrom(ctx, p.getAPIGatewayClient(region), region)
+	return p.listRestAPIsFrom(ctx, regionalClient(p, region, apigateway.NewFromConfig), region)
 }
 
 func (p *Provider) listRestAPIsFrom(ctx context.Context, client restAPIsAPI, region string) ([]types.Resource, error) {
@@ -60,7 +60,7 @@ func (p *Provider) listRestAPIsFrom(ctx context.Context, client restAPIsAPI, reg
 
 // listHTTPAPIs lists API Gateway v2 HTTP and WebSocket APIs in a region.
 func (p *Provider) listHTTPAPIs(ctx context.Context, region string) ([]types.Resource, error) {
-	return p.listHTTPAPIsFrom(ctx, p.getAPIGatewayV2Client(region), region)
+	return p.listHTTPAPIsFrom(ctx, regionalClient(p, region, apigatewayv2.NewFromConfig), region)
 }
 
 func (p *Provider) listHTTPAPIsFrom(ctx context.Context, client httpAPIsAPI, region string) ([]types.Resource, error) {

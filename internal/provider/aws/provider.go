@@ -14,48 +14,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws/arn"
 	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
 	"github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/service/acm"
-	"github.com/aws/aws-sdk-go-v2/service/apigateway"
-	"github.com/aws/aws-sdk-go-v2/service/apigatewayv2"
-	"github.com/aws/aws-sdk-go-v2/service/autoscaling"
-	"github.com/aws/aws-sdk-go-v2/service/backup"
-	"github.com/aws/aws-sdk-go-v2/service/cloudformation"
-	"github.com/aws/aws-sdk-go-v2/service/cloudfront"
-	"github.com/aws/aws-sdk-go-v2/service/cloudwatch"
-	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
-	"github.com/aws/aws-sdk-go-v2/service/codebuild"
-	"github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider"
-	"github.com/aws/aws-sdk-go-v2/service/costexplorer"
-	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
-	"github.com/aws/aws-sdk-go-v2/service/ecr"
-	"github.com/aws/aws-sdk-go-v2/service/ecs"
-	"github.com/aws/aws-sdk-go-v2/service/efs"
-	"github.com/aws/aws-sdk-go-v2/service/eks"
-	"github.com/aws/aws-sdk-go-v2/service/elasticache"
-	"github.com/aws/aws-sdk-go-v2/service/elasticbeanstalk"
-	elb "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancing"
-	elbv2 "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2"
-	"github.com/aws/aws-sdk-go-v2/service/eventbridge"
-	"github.com/aws/aws-sdk-go-v2/service/firehose"
-	"github.com/aws/aws-sdk-go-v2/service/fsx"
-	"github.com/aws/aws-sdk-go-v2/service/glue"
-	"github.com/aws/aws-sdk-go-v2/service/iam"
-	"github.com/aws/aws-sdk-go-v2/service/kafka"
-	"github.com/aws/aws-sdk-go-v2/service/kinesis"
-	"github.com/aws/aws-sdk-go-v2/service/kms"
-	"github.com/aws/aws-sdk-go-v2/service/lambda"
-	"github.com/aws/aws-sdk-go-v2/service/opensearch"
-	"github.com/aws/aws-sdk-go-v2/service/rds"
-	"github.com/aws/aws-sdk-go-v2/service/redshift"
-	"github.com/aws/aws-sdk-go-v2/service/resourcegroupstaggingapi"
-	"github.com/aws/aws-sdk-go-v2/service/route53"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
-	"github.com/aws/aws-sdk-go-v2/service/sagemaker"
-	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
-	"github.com/aws/aws-sdk-go-v2/service/sfn"
-	"github.com/aws/aws-sdk-go-v2/service/sns"
-	"github.com/aws/aws-sdk-go-v2/service/sqs"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/aws/smithy-go/logging"
 
@@ -103,50 +62,6 @@ type Provider struct {
 	regions   []string
 	mu        sync.Mutex
 
-	// Service clients per region
-	ec2Clients         map[string]*ec2.Client
-	s3Client           *s3.Client
-	s3RegionalClients  map[string]*s3.Client // Cache for regional S3 clients
-	rdsClients         map[string]*rds.Client
-	lambdaClients      map[string]*lambda.Client
-	snsClients         map[string]*sns.Client
-	sqsClients         map[string]*sqs.Client
-	elbv2Clients       map[string]*elbv2.Client
-	autoscalingClients map[string]*autoscaling.Client
-	dynamodbClients    map[string]*dynamodb.Client
-	ecsClients         map[string]*ecs.Client
-	eksClients         map[string]*eks.Client
-	elasticacheClients map[string]*elasticache.Client
-	efsClients         map[string]*efs.Client
-	ecrClients         map[string]*ecr.Client
-	kmsClients         map[string]*kms.Client
-	kinesisClients     map[string]*kinesis.Client
-	logsClients        map[string]*cloudwatchlogs.Client
-	taggingClients     map[string]*resourcegroupstaggingapi.Client
-	classicELBClients  map[string]*elb.Client
-	apigwClients       map[string]*apigateway.Client
-	apigwv2Clients     map[string]*apigatewayv2.Client
-	sfnClients         map[string]*sfn.Client
-	secretsClients     map[string]*secretsmanager.Client
-	cfnClients         map[string]*cloudformation.Client
-	cloudwatchClients  map[string]*cloudwatch.Client
-	eventsClients      map[string]*eventbridge.Client
-	firehoseClients    map[string]*firehose.Client
-	redshiftClients    map[string]*redshift.Client
-	opensearchClients  map[string]*opensearch.Client
-	mskClients         map[string]*kafka.Client
-	sagemakerClients   map[string]*sagemaker.Client
-	glueClients        map[string]*glue.Client
-	acmClients         map[string]*acm.Client
-	cognitoClients     map[string]*cognitoidentityprovider.Client
-	codebuildClients   map[string]*codebuild.Client
-	backupClients      map[string]*backup.Client
-	fsxClients         map[string]*fsx.Client
-	beanstalkClients   map[string]*elasticbeanstalk.Client
-	route53Client      *route53.Client
-	cloudfrontClient   *cloudfront.Client
-	iamClient          *iam.Client
-
 	// tagSources holds the per-region bulk tag fetch started by ListResources.
 	tagSources map[string]*tagSource
 
@@ -156,10 +71,6 @@ type Provider struct {
 	// clients caches the SDK clients created through regionalClient, keyed by
 	// client type and region.
 	clients map[string]any
-
-	// costClient is global: Cost Explorer is reached through the partition's
-	// global region.
-	costClient *costexplorer.Client
 }
 
 // New creates a new AWS provider with the given account configuration.
@@ -234,73 +145,12 @@ func New(ctx context.Context, account cfgpkg.AWSAccount) (*Provider, error) {
 	}
 
 	p := &Provider{
-		cfg:                cfg,
-		account:            account,
-		accountID:          aws.ToString(identity.Account),
-		partition:          partition,
-		regions:            regions,
-		clients:            make(map[string]any),
-		ec2Clients:         make(map[string]*ec2.Client),
-		s3RegionalClients:  make(map[string]*s3.Client),
-		rdsClients:         make(map[string]*rds.Client),
-		lambdaClients:      make(map[string]*lambda.Client),
-		snsClients:         make(map[string]*sns.Client),
-		sqsClients:         make(map[string]*sqs.Client),
-		elbv2Clients:       make(map[string]*elbv2.Client),
-		autoscalingClients: make(map[string]*autoscaling.Client),
-		dynamodbClients:    make(map[string]*dynamodb.Client),
-		ecsClients:         make(map[string]*ecs.Client),
-		eksClients:         make(map[string]*eks.Client),
-		elasticacheClients: make(map[string]*elasticache.Client),
-		efsClients:         make(map[string]*efs.Client),
-		ecrClients:         make(map[string]*ecr.Client),
-		kmsClients:         make(map[string]*kms.Client),
-		kinesisClients:     make(map[string]*kinesis.Client),
-		logsClients:        make(map[string]*cloudwatchlogs.Client),
-		taggingClients:     make(map[string]*resourcegroupstaggingapi.Client),
-		classicELBClients:  make(map[string]*elb.Client),
-		apigwClients:       make(map[string]*apigateway.Client),
-		apigwv2Clients:     make(map[string]*apigatewayv2.Client),
-		sfnClients:         make(map[string]*sfn.Client),
-		secretsClients:     make(map[string]*secretsmanager.Client),
-		cfnClients:         make(map[string]*cloudformation.Client),
-		cloudwatchClients:  make(map[string]*cloudwatch.Client),
-		eventsClients:      make(map[string]*eventbridge.Client),
-		firehoseClients:    make(map[string]*firehose.Client),
-		redshiftClients:    make(map[string]*redshift.Client),
-		opensearchClients:  make(map[string]*opensearch.Client),
-		mskClients:         make(map[string]*kafka.Client),
-		sagemakerClients:   make(map[string]*sagemaker.Client),
-		glueClients:        make(map[string]*glue.Client),
-		acmClients:         make(map[string]*acm.Client),
-		cognitoClients:     make(map[string]*cognitoidentityprovider.Client),
-		codebuildClients:   make(map[string]*codebuild.Client),
-		backupClients:      make(map[string]*backup.Client),
-		fsxClients:         make(map[string]*fsx.Client),
-		beanstalkClients:   make(map[string]*elasticbeanstalk.Client),
-	}
-
-	// Route 53, CloudFront and IAM are called through the partition's global region.
-	globalCfg := cfg.Copy()
-	globalCfg.Region = p.globalRegion()
-	p.s3Client = s3.NewFromConfig(cfg)
-	p.route53Client = route53.NewFromConfig(globalCfg)
-	p.cloudfrontClient = cloudfront.NewFromConfig(globalCfg)
-	p.iamClient = iam.NewFromConfig(globalCfg)
-
-	// Initialize regional clients
-	for _, region := range regions {
-		log.Debug("AWS: Initializing clients for region %s", region)
-		regionalCfg := cfg.Copy()
-		regionalCfg.Region = region
-
-		p.ec2Clients[region] = ec2.NewFromConfig(regionalCfg)
-		p.rdsClients[region] = rds.NewFromConfig(regionalCfg)
-		p.lambdaClients[region] = lambda.NewFromConfig(regionalCfg)
-		p.snsClients[region] = sns.NewFromConfig(regionalCfg)
-		p.sqsClients[region] = sqs.NewFromConfig(regionalCfg)
-		p.elbv2Clients[region] = elbv2.NewFromConfig(regionalCfg)
-		p.autoscalingClients[region] = autoscaling.NewFromConfig(regionalCfg)
+		cfg:       cfg,
+		account:   account,
+		accountID: aws.ToString(identity.Account),
+		partition: partition,
+		regions:   regions,
+		clients:   make(map[string]any),
 	}
 
 	log.Info("AWS: Provider initialized for %d region(s): %v", len(regions), regions)
@@ -723,171 +573,6 @@ func (p *Provider) getResourceType(resourceID string) string {
 	return "tagging_api"
 }
 
-// getEC2Client returns the EC2 client for a region.
-func (p *Provider) getEC2Client(region string) *ec2.Client {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	if client, ok := p.ec2Clients[region]; ok {
-		return client
-	}
-
-	// Create client for unknown region
-	regionalCfg := p.cfg.Copy()
-	regionalCfg.Region = region
-	client := ec2.NewFromConfig(regionalCfg)
-	p.ec2Clients[region] = client
-	return client
-}
-
-// getRDSClient returns the RDS client for a region.
-func (p *Provider) getRDSClient(region string) *rds.Client {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	if client, ok := p.rdsClients[region]; ok {
-		return client
-	}
-
-	regionalCfg := p.cfg.Copy()
-	regionalCfg.Region = region
-	client := rds.NewFromConfig(regionalCfg)
-	p.rdsClients[region] = client
-	return client
-}
-
-// getLambdaClient returns the Lambda client for a region.
-func (p *Provider) getLambdaClient(region string) *lambda.Client {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	if client, ok := p.lambdaClients[region]; ok {
-		return client
-	}
-
-	regionalCfg := p.cfg.Copy()
-	regionalCfg.Region = region
-	client := lambda.NewFromConfig(regionalCfg)
-	p.lambdaClients[region] = client
-	return client
-}
-
-// getS3RegionalClient returns a cached S3 client for a specific region.
-func (p *Provider) getS3RegionalClient(region string) *s3.Client {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	if client, ok := p.s3RegionalClients[region]; ok {
-		return client
-	}
-
-	regionalCfg := p.cfg.Copy()
-	regionalCfg.Region = region
-	client := s3.NewFromConfig(regionalCfg)
-	p.s3RegionalClients[region] = client
-	return client
-}
-
-// getSNSClient returns the SNS client for a region.
-func (p *Provider) getSNSClient(region string) *sns.Client {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	if client, ok := p.snsClients[region]; ok {
-		return client
-	}
-
-	regionalCfg := p.cfg.Copy()
-	regionalCfg.Region = region
-	client := sns.NewFromConfig(regionalCfg)
-	p.snsClients[region] = client
-	return client
-}
-
-// getSQSClient returns the SQS client for a region.
-func (p *Provider) getSQSClient(region string) *sqs.Client {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	if client, ok := p.sqsClients[region]; ok {
-		return client
-	}
-
-	regionalCfg := p.cfg.Copy()
-	regionalCfg.Region = region
-	client := sqs.NewFromConfig(regionalCfg)
-	p.sqsClients[region] = client
-	return client
-}
-
-// getELBv2Client returns the ELBv2 client for a region.
-func (p *Provider) getELBv2Client(region string) *elbv2.Client {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	if client, ok := p.elbv2Clients[region]; ok {
-		return client
-	}
-
-	regionalCfg := p.cfg.Copy()
-	regionalCfg.Region = region
-	client := elbv2.NewFromConfig(regionalCfg)
-	p.elbv2Clients[region] = client
-	return client
-}
-
-// getAutoScalingClient returns the Auto Scaling client for a region.
-func (p *Provider) getAutoScalingClient(region string) *autoscaling.Client {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	if client, ok := p.autoscalingClients[region]; ok {
-		return client
-	}
-
-	regionalCfg := p.cfg.Copy()
-	regionalCfg.Region = region
-	client := autoscaling.NewFromConfig(regionalCfg)
-	p.autoscalingClients[region] = client
-	return client
-}
-
-func (p *Provider) getDynamoDBClient(region string) *dynamodb.Client {
-	return cachedClient(p, p.dynamodbClients, region, dynamodb.NewFromConfig)
-}
-
-func (p *Provider) getECSClient(region string) *ecs.Client {
-	return cachedClient(p, p.ecsClients, region, ecs.NewFromConfig)
-}
-
-func (p *Provider) getEKSClient(region string) *eks.Client {
-	return cachedClient(p, p.eksClients, region, eks.NewFromConfig)
-}
-
-func (p *Provider) getElastiCacheClient(region string) *elasticache.Client {
-	return cachedClient(p, p.elasticacheClients, region, elasticache.NewFromConfig)
-}
-
-func (p *Provider) getEFSClient(region string) *efs.Client {
-	return cachedClient(p, p.efsClients, region, efs.NewFromConfig)
-}
-
-func (p *Provider) getECRClient(region string) *ecr.Client {
-	return cachedClient(p, p.ecrClients, region, ecr.NewFromConfig)
-}
-
-func (p *Provider) getKMSClient(region string) *kms.Client {
-	return cachedClient(p, p.kmsClients, region, kms.NewFromConfig)
-}
-
-func (p *Provider) getKinesisClient(region string) *kinesis.Client {
-	return cachedClient(p, p.kinesisClients, region, kinesis.NewFromConfig)
-}
-
-func (p *Provider) getLogsClient(region string) *cloudwatchlogs.Client {
-	return cachedClient(p, p.logsClients, region, cloudwatchlogs.NewFromConfig)
-}
-
 // logBulkTagCoverage reports, per region, how many discovered resources
 // carried tags when bulk tags were used. Zero matches with tagged resources
 // present would point at an ARN mismatch.
@@ -913,87 +598,3 @@ func (p *Provider) logBulkTagCoverage(ctx context.Context, resources []types.Res
 			region, tagged[region], total[region], len(src.tags))
 	}
 }
-
-func (p *Provider) getClassicELBClient(region string) *elb.Client {
-	return cachedClient(p, p.classicELBClients, region, elb.NewFromConfig)
-}
-
-func (p *Provider) getAPIGatewayClient(region string) *apigateway.Client {
-	return cachedClient(p, p.apigwClients, region, apigateway.NewFromConfig)
-}
-
-func (p *Provider) getAPIGatewayV2Client(region string) *apigatewayv2.Client {
-	return cachedClient(p, p.apigwv2Clients, region, apigatewayv2.NewFromConfig)
-}
-
-func (p *Provider) getStepFunctionsClient(region string) *sfn.Client {
-	return cachedClient(p, p.sfnClients, region, sfn.NewFromConfig)
-}
-
-func (p *Provider) getSecretsManagerClient(region string) *secretsmanager.Client {
-	return cachedClient(p, p.secretsClients, region, secretsmanager.NewFromConfig)
-}
-
-func (p *Provider) getCloudFormationClient(region string) *cloudformation.Client {
-	return cachedClient(p, p.cfnClients, region, cloudformation.NewFromConfig)
-}
-
-func (p *Provider) getCloudWatchClient(region string) *cloudwatch.Client {
-	return cachedClient(p, p.cloudwatchClients, region, cloudwatch.NewFromConfig)
-}
-
-func (p *Provider) getEventBridgeClient(region string) *eventbridge.Client {
-	return cachedClient(p, p.eventsClients, region, eventbridge.NewFromConfig)
-}
-
-func (p *Provider) getFirehoseClient(region string) *firehose.Client {
-	return cachedClient(p, p.firehoseClients, region, firehose.NewFromConfig)
-}
-
-func (p *Provider) getRedshiftClient(region string) *redshift.Client {
-	return cachedClient(p, p.redshiftClients, region, redshift.NewFromConfig)
-}
-
-func (p *Provider) getOpenSearchClient(region string) *opensearch.Client {
-	return cachedClient(p, p.opensearchClients, region, opensearch.NewFromConfig)
-}
-
-func (p *Provider) getMSKClient(region string) *kafka.Client {
-	return cachedClient(p, p.mskClients, region, kafka.NewFromConfig)
-}
-
-func (p *Provider) getSageMakerClient(region string) *sagemaker.Client {
-	return cachedClient(p, p.sagemakerClients, region, sagemaker.NewFromConfig)
-}
-
-func (p *Provider) getGlueClient(region string) *glue.Client {
-	return cachedClient(p, p.glueClients, region, glue.NewFromConfig)
-}
-
-func (p *Provider) getACMClient(region string) *acm.Client {
-	return cachedClient(p, p.acmClients, region, acm.NewFromConfig)
-}
-
-func (p *Provider) getCognitoClient(region string) *cognitoidentityprovider.Client {
-	return cachedClient(p, p.cognitoClients, region, cognitoidentityprovider.NewFromConfig)
-}
-
-func (p *Provider) getCodeBuildClient(region string) *codebuild.Client {
-	return cachedClient(p, p.codebuildClients, region, codebuild.NewFromConfig)
-}
-
-func (p *Provider) getBackupClient(region string) *backup.Client {
-	return cachedClient(p, p.backupClients, region, backup.NewFromConfig)
-}
-
-func (p *Provider) getFSxClient(region string) *fsx.Client {
-	return cachedClient(p, p.fsxClients, region, fsx.NewFromConfig)
-}
-
-func (p *Provider) getBeanstalkClient(region string) *elasticbeanstalk.Client {
-	return cachedClient(p, p.beanstalkClients, region, elasticbeanstalk.NewFromConfig)
-}
-
-func (p *Provider) getRoute53Client() *route53.Client       { return p.route53Client }
-func (p *Provider) getCloudFrontClient() *cloudfront.Client { return p.cloudfrontClient }
-func (p *Provider) getIAMClient() *iam.Client               { return p.iamClient }

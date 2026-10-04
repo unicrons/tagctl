@@ -8,6 +8,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/aws/arn"
+	"github.com/aws/aws-sdk-go-v2/service/resourcegroupstaggingapi"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/aws/smithy-go"
@@ -36,8 +37,8 @@ type s3BucketResult struct {
 
 // listS3Buckets lists all S3 buckets and their tags using parallel processing.
 func (p *Provider) listS3Buckets(ctx context.Context) ([]types.Resource, error) {
-	regional := func(region string) s3API { return p.getS3RegionalClient(region) }
-	return p.listS3BucketsFrom(ctx, p.s3Client, regional)
+	regional := func(region string) s3API { return regionalClient(p, region, s3.NewFromConfig) }
+	return p.listS3BucketsFrom(ctx, regionalClient(p, p.cfg.Region, s3.NewFromConfig), regional)
 }
 
 // listS3BucketsFrom lists buckets through the global client and reads each
@@ -200,8 +201,10 @@ func isBucketARN(parsed arn.ARN) bool {
 
 // applyS3Tags applies tags to an S3 bucket addressed by ARN.
 func (p *Provider) applyS3Tags(ctx context.Context, bucketARN, region string, tags map[string]string) error {
-	taggingFor := func(region string) taggingAPI { return p.getTaggingClient(region) }
-	return p.applyS3TagsWith(ctx, p.s3Client, taggingFor, bucketARN, region, tags)
+	taggingFor := func(region string) taggingAPI {
+		return regionalClient(p, region, resourcegroupstaggingapi.NewFromConfig)
+	}
+	return p.applyS3TagsWith(ctx, regionalClient(p, p.cfg.Region, s3.NewFromConfig), taggingFor, bucketARN, region, tags)
 }
 
 // applyS3TagsWith tags a bucket through TagResources in the bucket's region.

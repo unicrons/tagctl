@@ -416,8 +416,9 @@ The canonical guide, with snippets, is
 `docs/contributing/adding-an-aws-service.mdx`; change it with the pattern.
 Checklist:
 
-1. Client: `regionalClient(p, region, svc.NewFromConfig)`; no new typed
-   `<svc>Clients` maps or `get<Service>Client` getters
+1. Client: `regionalClient(p, region, svc.NewFromConfig)` (global services
+   pass `p.globalRegion()`); `Provider` has no per-service client fields or
+   getters
 2. Lister: `list<Service>` resolves the client, `list<Service>From` takes a
    narrow API interface; `p.resource`/`p.bulkResource`, `tagsToMap`;
    `notSubscribed(err)` is zero resources at debug level; page with the SDK

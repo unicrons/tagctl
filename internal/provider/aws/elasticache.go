@@ -29,7 +29,7 @@ type elastiCacheCluster struct {
 
 // listElastiCacheClusters lists all ElastiCache clusters in a region.
 func (p *Provider) listElastiCacheClusters(ctx context.Context, region string) ([]types.Resource, error) {
-	return p.listElastiCacheClustersFrom(ctx, p.getElastiCacheClient(region), region)
+	return p.listElastiCacheClustersFrom(ctx, regionalClient(p, region, elasticache.NewFromConfig), region)
 }
 
 // listElastiCacheClustersFrom lists ElastiCache clusters using the given client.
@@ -92,7 +92,7 @@ func (p *Provider) applyElastiCacheTags(ctx context.Context, arn string, tags ma
 	if err != nil {
 		return provider.NewProviderError(providerName, "apply_elasticache_tags", arn, err)
 	}
-	client := p.getElastiCacheClient(region)
+	client := regionalClient(p, region, elasticache.NewFromConfig)
 	_, err = client.AddTagsToResource(ctx, &elasticache.AddTagsToResourceInput{
 		ResourceName: aws.String(arn),
 		Tags:         tagList,

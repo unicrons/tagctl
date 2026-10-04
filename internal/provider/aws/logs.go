@@ -29,7 +29,7 @@ type logGroup struct {
 
 // listLogGroups lists all CloudWatch log groups in a region.
 func (p *Provider) listLogGroups(ctx context.Context, region string) ([]types.Resource, error) {
-	return p.listLogGroupsFrom(ctx, p.getLogsClient(region), region)
+	return p.listLogGroupsFrom(ctx, regionalClient(p, region, cloudwatchlogs.NewFromConfig), region)
 }
 
 // listLogGroupsFrom lists CloudWatch log groups using the given client.
@@ -108,7 +108,7 @@ func (p *Provider) applyLogGroupTags(ctx context.Context, arn string, tags map[s
 	if err != nil {
 		return provider.NewProviderError(providerName, "apply_log_group_tags", arn, err)
 	}
-	client := p.getLogsClient(region)
+	client := regionalClient(p, region, cloudwatchlogs.NewFromConfig)
 	_, err = client.TagResource(ctx, &cloudwatchlogs.TagResourceInput{
 		ResourceArn: aws.String(arn),
 		Tags:        tags,

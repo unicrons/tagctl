@@ -21,7 +21,7 @@ type dynamoDBAPI interface {
 
 // listDynamoDBTables lists all DynamoDB tables in a region.
 func (p *Provider) listDynamoDBTables(ctx context.Context, region string) ([]types.Resource, error) {
-	return p.listDynamoDBTablesFrom(ctx, p.getDynamoDBClient(region), region)
+	return p.listDynamoDBTablesFrom(ctx, regionalClient(p, region, dynamodb.NewFromConfig), region)
 }
 
 // listDynamoDBTablesFrom lists DynamoDB tables using the given client.
@@ -100,7 +100,7 @@ func (p *Provider) applyDynamoDBTags(ctx context.Context, arn string, tags map[s
 	if err != nil {
 		return provider.NewProviderError(providerName, "apply_dynamodb_tags", arn, err)
 	}
-	client := p.getDynamoDBClient(region)
+	client := regionalClient(p, region, dynamodb.NewFromConfig)
 	_, err = client.TagResource(ctx, &dynamodb.TagResourceInput{
 		ResourceArn: aws.String(arn),
 		Tags:        tagList,

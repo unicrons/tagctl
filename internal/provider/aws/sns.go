@@ -20,7 +20,7 @@ type snsAPI interface {
 
 // listSNSTopics lists all SNS topics in a region.
 func (p *Provider) listSNSTopics(ctx context.Context, region string) ([]types.Resource, error) {
-	return p.listSNSTopicsFrom(ctx, p.getSNSClient(region), region)
+	return p.listSNSTopicsFrom(ctx, regionalClient(p, region, sns.NewFromConfig), region)
 }
 
 // listSNSTopicsFrom lists SNS topics using the given client.
@@ -82,7 +82,7 @@ func (p *Provider) applySNSTags(ctx context.Context, arn string, tags map[string
 		tagList = append(tagList, snstypes.Tag{Key: aws.String(k), Value: aws.String(v)})
 	}
 
-	client := p.getSNSClient(region)
+	client := regionalClient(p, region, sns.NewFromConfig)
 	_, err = client.TagResource(ctx, &sns.TagResourceInput{
 		ResourceArn: aws.String(arn),
 		Tags:        tagList,

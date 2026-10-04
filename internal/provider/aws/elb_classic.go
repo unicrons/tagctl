@@ -21,7 +21,7 @@ type classicELBAPI interface {
 
 // listClassicLoadBalancers lists classic (v1) load balancers in a region.
 func (p *Provider) listClassicLoadBalancers(ctx context.Context, region string) ([]types.Resource, error) {
-	return p.listClassicLoadBalancersFrom(ctx, p.getClassicELBClient(region), region)
+	return p.listClassicLoadBalancersFrom(ctx, regionalClient(p, region, elb.NewFromConfig), region)
 }
 
 func (p *Provider) listClassicLoadBalancersFrom(ctx context.Context, client classicELBAPI, region string) ([]types.Resource, error) {
@@ -98,7 +98,7 @@ func (p *Provider) applyClassicELBTags(ctx context.Context, arn string, tags map
 	if err != nil {
 		return provider.NewProviderError(providerName, "apply_classic_elb_tags", arn, err)
 	}
-	client := p.getClassicELBClient(region)
+	client := regionalClient(p, region, elb.NewFromConfig)
 	_, err = client.AddTags(ctx, &elb.AddTagsInput{
 		LoadBalancerNames: []string{nameFromARN(arn)},
 		Tags:              tagList,

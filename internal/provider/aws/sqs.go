@@ -24,7 +24,7 @@ type sqsAPI interface {
 
 // listSQSQueues lists all SQS queues in a region.
 func (p *Provider) listSQSQueues(ctx context.Context, region string) ([]types.Resource, error) {
-	return p.listSQSQueuesFrom(ctx, p.getSQSClient(region), region)
+	return p.listSQSQueuesFrom(ctx, regionalClient(p, region, sqs.NewFromConfig), region)
 }
 
 // listSQSQueuesFrom lists SQS queues using the given client.
@@ -104,7 +104,7 @@ func (p *Provider) applySQSTags(ctx context.Context, arn string, tags map[string
 		return provider.NewProviderError(providerName, "apply_sqs_tags", arn, err)
 	}
 
-	client := p.getSQSClient(region)
+	client := regionalClient(p, region, sqs.NewFromConfig)
 	if _, err := client.TagQueue(ctx, &sqs.TagQueueInput{
 		QueueUrl: aws.String(queueURL),
 		Tags:     tags,

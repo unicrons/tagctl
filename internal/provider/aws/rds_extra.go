@@ -21,7 +21,7 @@ type rdsExtraAPI interface {
 
 // listRDSClusters lists Aurora, DocumentDB and Neptune clusters in a region.
 func (p *Provider) listRDSClusters(ctx context.Context, region string) ([]types.Resource, error) {
-	return p.listRDSClustersFrom(ctx, p.getRDSClient(region), region)
+	return p.listRDSClustersFrom(ctx, regionalClient(p, region, rds.NewFromConfig), region)
 }
 
 func (p *Provider) listRDSClustersFrom(ctx context.Context, client rdsExtraAPI, region string) ([]types.Resource, error) {
@@ -54,7 +54,7 @@ func (p *Provider) listRDSClustersFrom(ctx context.Context, client rdsExtraAPI, 
 // listRDSSnapshots lists the manual DB snapshots in a region. Automated
 // snapshots inherit their tags from the instance and cannot be tagged.
 func (p *Provider) listRDSSnapshots(ctx context.Context, region string) ([]types.Resource, error) {
-	return p.listRDSSnapshotsFrom(ctx, p.getRDSClient(region), region)
+	return p.listRDSSnapshotsFrom(ctx, regionalClient(p, region, rds.NewFromConfig), region)
 }
 
 func (p *Provider) listRDSSnapshotsFrom(ctx context.Context, client rdsExtraAPI, region string) ([]types.Resource, error) {

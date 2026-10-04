@@ -21,7 +21,7 @@ type lambdaAPI interface {
 
 // listLambdaFunctions lists all Lambda functions in a region.
 func (p *Provider) listLambdaFunctions(ctx context.Context, region string) ([]types.Resource, error) {
-	return p.listLambdaFunctionsFrom(ctx, p.getLambdaClient(region), region)
+	return p.listLambdaFunctionsFrom(ctx, regionalClient(p, region, lambda.NewFromConfig), region)
 }
 
 // listLambdaFunctionsFrom lists Lambda functions using the given client.
@@ -79,7 +79,7 @@ func (p *Provider) applyLambdaTags(ctx context.Context, functionARN string, tags
 		return provider.NewProviderError(providerName, "tag_lambda_function", functionARN, err)
 	}
 
-	client := p.getLambdaClient(region)
+	client := regionalClient(p, region, lambda.NewFromConfig)
 
 	_, err = client.TagResource(ctx, &lambda.TagResourceInput{
 		Resource: aws.String(functionARN),

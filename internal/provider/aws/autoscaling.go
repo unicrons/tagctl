@@ -20,7 +20,7 @@ type autoscalingAPI interface {
 
 // listAutoScalingGroups lists all Auto Scaling groups in a region.
 func (p *Provider) listAutoScalingGroups(ctx context.Context, region string) ([]types.Resource, error) {
-	return p.listAutoScalingGroupsFrom(ctx, p.getAutoScalingClient(region), region)
+	return p.listAutoScalingGroupsFrom(ctx, regionalClient(p, region, autoscaling.NewFromConfig), region)
 }
 
 // listAutoScalingGroupsFrom lists Auto Scaling groups using the given client.
@@ -85,7 +85,7 @@ func (p *Provider) applyAutoScalingTags(ctx context.Context, arn string, tags ma
 		})
 	}
 
-	client := p.getAutoScalingClient(region)
+	client := regionalClient(p, region, autoscaling.NewFromConfig)
 	_, err = client.CreateOrUpdateTags(ctx, &autoscaling.CreateOrUpdateTagsInput{
 		Tags: tagList,
 	})

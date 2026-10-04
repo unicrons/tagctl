@@ -28,7 +28,7 @@ type kinesisStream struct {
 
 // listKinesisStreams lists all Kinesis data streams in a region.
 func (p *Provider) listKinesisStreams(ctx context.Context, region string) ([]types.Resource, error) {
-	return p.listKinesisStreamsFrom(ctx, p.getKinesisClient(region), region)
+	return p.listKinesisStreamsFrom(ctx, regionalClient(p, region, kinesis.NewFromConfig), region)
 }
 
 // listKinesisStreamsFrom lists Kinesis streams using the given client.
@@ -106,7 +106,7 @@ func (p *Provider) applyKinesisTags(ctx context.Context, arn string, tags map[st
 	if err != nil {
 		return provider.NewProviderError(providerName, "apply_kinesis_tags", arn, err)
 	}
-	client := p.getKinesisClient(region)
+	client := regionalClient(p, region, kinesis.NewFromConfig)
 	_, err = client.AddTagsToStream(ctx, &kinesis.AddTagsToStreamInput{
 		StreamARN: aws.String(arn),
 		Tags:      tags,

@@ -38,9 +38,9 @@ go get github.com/aws/aws-sdk-go-v2/service/memorydb
 ```
 
 Resolve the client with `regionalClient(p, region, memorydb.NewFromConfig)`.
-It creates one client per type and region and caches it in `p.clients`. Older
-services use typed `<svc>Clients` maps and `get<Service>Client` getters
-(`getSQSClient`). Do not add new ones.
+It creates one client per type and region and caches it in `p.clients`; every
+service resolves its client this way, the global ones with `p.globalRegion()`.
+Do not add a client field or getter to `Provider`.
 
 ## 2. Write the lister
 

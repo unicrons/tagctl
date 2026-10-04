@@ -22,7 +22,7 @@ type rdsInstanceAPI interface {
 
 // listRDSInstances lists all RDS instances in a region.
 func (p *Provider) listRDSInstances(ctx context.Context, region string) ([]types.Resource, error) {
-	return p.listRDSInstancesFrom(ctx, p.getRDSClient(region), region)
+	return p.listRDSInstancesFrom(ctx, regionalClient(p, region, rds.NewFromConfig), region)
 }
 
 // listRDSInstancesFrom lists RDS instances using the given client.
@@ -75,7 +75,7 @@ func (p *Provider) applyRDSTags(ctx context.Context, resourceARN string, tags ma
 		return provider.NewProviderError(providerName, "add_rds_tags", resourceARN, err)
 	}
 
-	client := p.getRDSClient(region)
+	client := regionalClient(p, region, rds.NewFromConfig)
 
 	rdsTags := make([]rdstypes.Tag, 0, len(tags))
 	for k, v := range tags {

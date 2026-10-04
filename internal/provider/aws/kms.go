@@ -22,7 +22,7 @@ type kmsAPI interface {
 
 // listKMSKeys lists customer-managed KMS keys in a region.
 func (p *Provider) listKMSKeys(ctx context.Context, region string) ([]types.Resource, error) {
-	return p.listKMSKeysFrom(ctx, p.getKMSClient(region), region)
+	return p.listKMSKeysFrom(ctx, regionalClient(p, region, kms.NewFromConfig), region)
 }
 
 // listKMSKeysFrom lists KMS keys using the given client. AWS-managed keys
@@ -111,7 +111,7 @@ func (p *Provider) applyKMSTags(ctx context.Context, arn string, tags map[string
 	if err != nil {
 		return provider.NewProviderError(providerName, "apply_kms_tags", arn, err)
 	}
-	client := p.getKMSClient(region)
+	client := regionalClient(p, region, kms.NewFromConfig)
 	_, err = client.TagResource(ctx, &kms.TagResourceInput{
 		KeyId: aws.String(arn),
 		Tags:  tagList,

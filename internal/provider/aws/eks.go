@@ -20,7 +20,7 @@ type eksAPI interface {
 
 // listEKSClusters lists all EKS clusters in a region.
 func (p *Provider) listEKSClusters(ctx context.Context, region string) ([]types.Resource, error) {
-	return p.listEKSClustersFrom(ctx, p.getEKSClient(region), region)
+	return p.listEKSClustersFrom(ctx, regionalClient(p, region, eks.NewFromConfig), region)
 }
 
 // listEKSClustersFrom lists EKS clusters using the given client. DescribeCluster
@@ -72,7 +72,7 @@ func (p *Provider) applyEKSTags(ctx context.Context, arn string, tags map[string
 	if err != nil {
 		return provider.NewProviderError(providerName, "apply_eks_tags", arn, err)
 	}
-	client := p.getEKSClient(region)
+	client := regionalClient(p, region, eks.NewFromConfig)
 	_, err = client.TagResource(ctx, &eks.TagResourceInput{
 		ResourceArn: aws.String(arn),
 		Tags:        tags,
