@@ -154,3 +154,28 @@ func TestWriteCostCSV_NeutralisesFormulaTagNames(t *testing.T) {
 		t.Errorf("tag cell = %q, want it prefixed with a quote", rows[1][0])
 	}
 }
+
+func TestWriteCostCSV_NeutralisesFormulaCurrency(t *testing.T) {
+	flat := costReport(map[string][2]float64{"owner": {1, 1}})
+	trend := trendReport(2, types.CostDaily, 50, 100)
+
+	for name, report := range map[string]*types.CostReport{"per tag": flat, "per period": trend} {
+		t.Run(name, func(t *testing.T) {
+			report.Currency = " =cmd()"
+
+			var buf bytes.Buffer
+			if err := writeCostCSV(&buf, report); err != nil {
+				t.Fatalf("writeCostCSV: %v", err)
+			}
+			rows, err := csv.NewReader(&buf).ReadAll()
+			if err != nil {
+				t.Fatalf("ReadAll: %v", err)
+			}
+			for _, row := range rows[1:] {
+				if cell := row[len(row)-1]; cell != "' =cmd()" {
+					t.Errorf("currency cell = %q, want it prefixed with a quote", cell)
+				}
+			}
+		})
+	}
+}

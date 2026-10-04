@@ -238,7 +238,7 @@ func discoverResources(ctx context.Context, cfg *config.Config, regions, resourc
 		spinner.Success(fmt.Sprintf("Discovered %d resources", result.TotalResources))
 	}
 	if result != nil && len(resourceTypes) > 0 && result.TotalResources == 0 {
-		fmt.Fprintf(os.Stderr, "Warning: no discovered resource matches --%s %s\n", flagResourceType, strings.Join(resourceTypes, ", "))
+		fmt.Fprintf(os.Stderr, "Warning: no discovered resource matches --%s %s\n", flagResourceType, printable(strings.Join(resourceTypes, ", ")))
 	}
 	return result, err
 }
@@ -303,9 +303,9 @@ func printDemoModeWarning() {
 // printOutputFilesBanner prints the location of generated output files to stderr.
 func printOutputFilesBanner(paths *ScanOutputPaths) {
 	// Get absolute paths for clearer output
-	absJSON := getAbsolutePath(paths.JSON)
-	absCSV := getAbsolutePath(paths.CSV)
-	absHTML := getAbsolutePath(paths.HTML)
+	absJSON := printable(getAbsolutePath(paths.JSON))
+	absCSV := printable(getAbsolutePath(paths.CSV))
+	absHTML := printable(getAbsolutePath(paths.HTML))
 	c := paletteFor(os.Stderr)
 
 	fmt.Fprintln(os.Stderr)

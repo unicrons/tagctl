@@ -95,7 +95,7 @@ func runPlan(cmd *cobra.Command, args []string) error {
 		spinner.Fail("Failed to load scan results")
 		return fmt.Errorf("failed to load scan results: %w", err)
 	}
-	spinner.Success(fmt.Sprintf("Loaded scan from %s", scanPath))
+	spinner.Success(fmt.Sprintf("Loaded scan from %s", printable(scanPath)))
 	warnPartialScan(os.Stderr, scanPath, scanResult, "resources it missed get no changes in this plan")
 
 	log.Info("Using scan results from: %s", scanPath)
@@ -221,7 +221,7 @@ func savePlanAndOutput(plan *types.Plan, outputDir, outFile, format string) erro
 	}
 
 	if !plan.IsEmpty() {
-		fmt.Fprintf(os.Stderr, "\nPlan saved to: %s\nRun 'tagctl apply' to execute this plan.\n", planFile)
+		fmt.Fprintf(os.Stderr, "\nPlan saved to: %s\nRun 'tagctl apply' to execute this plan.\n", printable(planFile))
 	}
 	return nil
 }

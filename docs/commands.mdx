@@ -35,9 +35,11 @@ notices about files written (`Detailed results saved to`, `Plan saved to`,
 warnings on stdout, since they are part of the report it was asked for.
 
 The table output of `scan`, `plan`, `diff`, `normalize`, `terraform`, `cost`
-and `validate`, and every log line, replace control characters in resource
-names, tag keys and values with `?`, so a hostile tag value cannot send escape
-sequences to your terminal. JSON and CSV output keep the original values.
+(its `--trend` section included) and `validate`, the report and plan paths
+`scan` and `plan` print on stderr, and every log line, replace control
+characters in resource names, tag keys and values with `?`, so a hostile tag
+value cannot send escape sequences to your terminal. JSON and CSV output keep
+the original values.
 
 ### Colour
 

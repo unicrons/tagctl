@@ -348,7 +348,7 @@ func costCSVRows(report *types.CostReport) [][]string {
 		rows := make([][]string, 0, len(tags)+1)
 		rows = append(rows, costTrendCSVHeader)
 		for _, tag := range tags {
-			rows = append(rows, trendCSVRows(tag, report.Currency)...)
+			rows = append(rows, trendCSVRows(tag, csvSafe(report.Currency))...)
 		}
 		return rows
 	}
@@ -358,7 +358,7 @@ func costCSVRows(report *types.CostReport) [][]string {
 	for _, tag := range tags {
 		rows = append(rows, []string{
 			csvSafe(tag.Tag), csvAmount(tag.Attributed), csvAmount(tag.Unattributed),
-			csvPercent(tag.CoveragePct()), report.Currency,
+			csvPercent(tag.CoveragePct()), csvSafe(report.Currency),
 		})
 	}
 	return rows
@@ -421,7 +421,7 @@ func signedMoney(amount float64, currency string) string {
 	if currency == "" {
 		currency = "USD"
 	}
-	return fmt.Sprintf("%+.2f %s", amount, currency)
+	return fmt.Sprintf("%+.2f %s", amount, printable(currency))
 }
 
 // truncate shortens a value so the columns stay aligned.

@@ -3,6 +3,8 @@ package cli
 import (
 	"bytes"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -80,6 +82,12 @@ func TestCommandOutput_NeutralisesEscapeSequences(t *testing.T) {
 				Tags: map[string]*types.TagCost{"t": {
 					Tag: "tag-" + hostile, Attributed: 4, Unattributed: 6,
 					Values: []types.ValueCost{{Value: "value-" + hostile, Amount: 4}},
+					Trend: &types.CostTrend{
+						Granularity: types.CostDaily,
+						Periods:     []types.CostPeriod{{Start: time.Now().AddDate(0, 0, -1), End: time.Now(), Attributed: 4, Unattributed: 6}},
+						Change:      &types.CostChange{Unattributed: 1},
+						Projection:  &types.CostProjection{Start: time.Now(), End: time.Now().AddDate(0, 0, 1), Unattributed: 7, Method: "linear"},
+					},
 				}},
 			})
 		}},
@@ -116,4 +124,64 @@ func TestCommandOutput_NeutralisesEscapeSequences(t *testing.T) {
 			}
 		})
 	}
+}
+
+func assertNoControlCharacters(t *testing.T, out string, want ...string) {
+	t.Helper()
+
+	for _, text := range want {
+		if !strings.Contains(out, text) {
+			t.Errorf("output lacks %q:\n%q", text, out)
+		}
+	}
+	if strings.ContainsAny(out, "\x1b\x07") {
+		t.Errorf("output carries an injected control character: %q", out)
+	}
+}
+
+func TestOutputDirNotices_NeutraliseEscapeSequences(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("control characters are not valid in Windows file names")
+	}
+
+	t.Run("scan report paths", func(t *testing.T) {
+		dir := t.TempDir()
+		policy := writeFixture(t, dir, "tagctl.yaml", demoPolicy)
+
+		run := execute(t, "-c", policy, "scan", "--mock", "--output-dir", filepath.Join(dir, hostile))
+		if run.err != nil {
+			t.Fatalf("scan error = %v", run.err)
+		}
+		assertNoControlCharacters(t, run.stderr, "Detailed results saved to")
+	})
+
+	t.Run("plan scan and plan paths", func(t *testing.T) {
+		dir := t.TempDir()
+		config := writeFixture(t, dir, "tagctl.yaml", awsPolicy+
+			"rules:\n  defaults:\n    - resource: \"*\"\n      when:\n        \"tag:owner\": absent\n      set:\n        owner: platform@example.com\n")
+		reports := filepath.Join(dir, hostile)
+		if err := os.Mkdir(reports, 0o750); err != nil {
+			t.Fatal(err)
+		}
+		scan := failedScan(0)
+		scan.Partial, scan.Errors = true, []string{"aws: throttled"}
+		writeScan(t, reports, "scan-20260101-100000.json", scan)
+
+		run := execute(t, "-c", config, "plan", "--output-dir", reports)
+		if run.err != nil {
+			t.Fatalf("plan error = %v", run.err)
+		}
+		assertNoControlCharacters(t, run.stderr, "Loaded scan from", "is a partial scan", "Plan saved to")
+	})
+}
+
+func TestScan_ResourceTypeWarningNeutralisesEscapeSequences(t *testing.T) {
+	policy := writeFixture(t, t.TempDir(), "tagctl.yaml", awsPolicy)
+	stubScanProviders(t, stubResource("i-1", "aws_instance"))
+
+	run := execute(t, "-c", policy, "scan", "--no-files", "--resource-type", "zz\x1bc\x07*")
+	if run.err != nil {
+		t.Fatalf("scan error = %v", run.err)
+	}
+	assertNoControlCharacters(t, run.stderr, "no discovered resource matches --resource-type zz?c?*")
 }
