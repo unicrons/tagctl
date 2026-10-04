@@ -92,11 +92,12 @@ before `PATH`, so an older copy elsewhere does not get in the way.
 
 | Tool | Version | Purpose |
 |------|---------|---------|
-| **trufflehog** | v3.97.4 | Secret detection |
+| **trufflehog** | v3.97.9 | Secret detection |
 | **golangci-lint** | v2.13.2 | Go linter (14 linters enabled in `.golangci.yml`) |
 
 To bump a tool, change `TRUFFLEHOG_VERSION` or `GOLANGCI_LINT_VERSION` in the
-`Makefile` and the matching pin in `.github/workflows/ci.yml`.
+`Makefile` and the matching pin in `.github/workflows/` (golangci-lint in
+`ci.yml`, trufflehog in `security-scan.yml`).
 
 ### 2. Enable Pre-commit Hooks
 
