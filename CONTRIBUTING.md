@@ -477,12 +477,16 @@ form that fits; blank issues are disabled:
 A release is a tag. Pushing `vX.Y.Z` runs the `Release` workflow, which
 builds the binaries with GoReleaser (`.goreleaser.yaml`), attaches them with
 their checksums to a GitHub Release and writes the notes from the commit
-subjects since the previous tag.
+subjects since the previous tag. The same run pushes the container image to
+`ghcr.io/unicrons/tagctl` and, once the tap is set up, the Homebrew cask.
 
 ```bash
 git tag -a v1.0.0 -m "v1.0.0"
 git push origin v1.0.0
 ```
+
+The one-time setup and how to dry-run the pipeline are in
+[Releasing](docs/development.mdx#releasing).
 
 ## Recognition
 

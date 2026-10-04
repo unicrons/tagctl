@@ -23,7 +23,7 @@ others) working on this project.
 cmd/tagctl/main.go        # Entry point
 internal/
 ├── cli/
-│   ├── root.go           # Root command, global flags, version
+│   ├── root.go           # Root command, global flags
 │   ├── scan.go           # Scan command
 │   ├── plan.go           # Plan command
 │   ├── apply.go          # Apply command
@@ -35,6 +35,7 @@ internal/
 │   ├── cost.go           # Cost attribution reporting
 │   ├── gate.go           # CI gate flags shared by scan/evaluate/terraform
 │   ├── exitcode.go       # ExitCode: 0 success, 1 gate failed, 2 other error
+│   ├── version.go        # Build metadata (ldflags) and version command
 │   ├── init.go           # Config scaffolding (--template, --list-templates)
 │   ├── templates/        # Embedded tagctl.yaml templates, one per --template name
 │   ├── validate.go       # Config validation
@@ -492,10 +493,33 @@ CI will reject.
 ## Releases
 
 Pushing a `v*` tag runs `.github/workflows/release.yml`: GoReleaser
-(`.goreleaser.yaml`) builds linux/darwin/windows × amd64/arm64 with `-s -w`
-and the `main.version`/`main.buildTime` ldflags, attaches archives and
-`checksums.txt` to the GitHub Release and groups the notes by conventional
-commit type. Commit subjects are `type(scope): summary`, at most 60 characters.
+(`.goreleaser.yaml`) builds linux/darwin/windows × amd64/arm64 with
+`CGO_ENABLED=0`, `-trimpath`, `-s -w` and the `internal/cli.Version`/`Commit`/`Date`
+ldflags (`internal/cli/version.go`, also set by `make build`), attaches the
+archives (`tagctl_<os>_<arch>.tar.gz`, `.zip` on Windows, each with LICENSE,
+README and `tagctl.yaml.example`) and `checksums.txt` to the GitHub Release and
+groups the notes by conventional commit type. A tag with a pre-release suffix
+(`v1.0.0-rc.1`) is published as a pre-release; the workflow then attests the
+build provenance of every file in `checksums.txt`. Commit subjects are
+`type(scope): summary`, at most 60 characters.
+
+The same run pushes the multi-arch image `ghcr.io/unicrons/tagctl` (`dockers_v2`,
+linux/amd64 and linux/arm64, tags `vX.Y.Z` and, except for a pre-release,
+`latest`) with the job's `GITHUB_TOKEN` (`packages: write`). The root
+`Dockerfile` only builds inside GoReleaser's context, which holds the compiled
+binaries per platform: distroless static, `nonroot` user, no shell, base image
+pinned by digest (Dependabot `docker` ecosystem bumps it).
+
+`homebrew_casks` pushes `Casks/tagctl.rb` to `unicrons/homebrew-tap` with the
+`HOMEBREW_TAP_TOKEN` secret. `skip_upload` is templated on that variable: empty
+means `true` (the cask is only written to `dist/`, the release still succeeds),
+set means `auto` (pre-releases stay out of the tap). `repository.token` must be
+exactly `{{ .Env.HOMEBREW_TAP_TOKEN }}`; GoReleaser rejects any other template
+there. The owner-only setup (tap repository, secret, image visibility) is in
+"Releasing" in `docs/development.mdx`.
+
+Check a pipeline change without publishing: `goreleaser check`, then
+`goreleaser release --snapshot --clean --skip=publish` (artifacts in `dist/`).
 
 ## GitHub Action
 

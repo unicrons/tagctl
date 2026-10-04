@@ -8,24 +8,40 @@ import (
 	"github.com/unicrons/tagctl/internal/log"
 )
 
+func captureRootOutput(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	buf := new(bytes.Buffer)
+	rootCmd.SetOut(buf)
+	rootCmd.SetErr(buf)
+	t.Cleanup(func() {
+		rootCmd.SetOut(nil)
+		rootCmd.SetErr(nil)
+		rootCmd.SetArgs(nil)
+	})
+	return buf
+}
+
 func TestExecute_Version(t *testing.T) {
 	rootCmd.SetArgs([]string{"version"})
 
-	appVersion = "1.0.0"
-	appBuildTime = "2024-01-01"
+	Version, Commit, Date = "1.0.0", "abc1234", "2024-01-01"
+	t.Cleanup(func() { Version, Commit, Date = "dev", "none", "unknown" })
 
-	// Version command writes to stdout via fmt.Printf, not cmd.OutOrStdout()
-	// Just verify it executes without error
-	err := rootCmd.Execute()
-	if err != nil {
+	buf := captureRootOutput(t)
+
+	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("Execute() error = %v", err)
+	}
+
+	for _, want := range []string{"1.0.0", "abc1234", "2024-01-01"} {
+		if !strings.Contains(buf.String(), want) {
+			t.Errorf("version output should contain %q, got %q", want, buf.String())
+		}
 	}
 }
 
 func TestRootCmd_Help(t *testing.T) {
-	buf := new(bytes.Buffer)
-	rootCmd.SetOut(buf)
-	rootCmd.SetErr(buf)
+	buf := captureRootOutput(t)
 	rootCmd.SetArgs([]string{"--help"})
 
 	err := rootCmd.Execute()

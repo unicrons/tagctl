@@ -3,8 +3,10 @@
 # Variables
 BINARY_NAME=tagctl
 VERSION=$(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
+COMMIT=$(shell git rev-parse --short HEAD 2>/dev/null || echo "none")
 BUILD_TIME=$(shell date -u '+%Y-%m-%d_%H:%M:%S')
-LDFLAGS=-ldflags "-X main.version=${VERSION} -X main.buildTime=${BUILD_TIME}"
+CLI_PKG=github.com/unicrons/tagctl/internal/cli
+LDFLAGS=-ldflags "-X ${CLI_PKG}.Version=${VERSION} -X ${CLI_PKG}.Commit=${COMMIT} -X ${CLI_PKG}.Date=${BUILD_TIME}"
 
 # Go parameters
 GOCMD=go

@@ -86,10 +86,17 @@ tagctl plan        # proposes the tags to add
 tagctl apply       # writes them, after you confirm
 ```
 
-`go install` needs Go 1.26.6 or later, the version `go.mod` requires.
-Pre-built binaries for Linux, macOS and Windows (amd64 and arm64) are attached
-to every [release](https://github.com/unicrons/tagctl/releases) with a
-`checksums.txt`.
+`go install` needs Go 1.26.6 or later, the version `go.mod` requires, and is
+the way to install until the first release is tagged. After the first release,
+every [release](https://github.com/unicrons/tagctl/releases) also ships:
+
+- Pre-built binaries for Linux, macOS and Windows (amd64 and arm64), with a
+  `checksums.txt`
+- A container image: `docker run --rm ghcr.io/unicrons/tagctl version`
+- A Homebrew cask, `brew install --cask unicrons/tap/tagctl`, once the
+  `unicrons/homebrew-tap` repository is published
+
+[Getting started](docs/getting-started.mdx) has the commands for each.
 
 ## Configuration
 
