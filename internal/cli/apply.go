@@ -14,6 +14,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/unicrons/tagctl/internal/config"
+	"github.com/unicrons/tagctl/internal/demo"
 	"github.com/unicrons/tagctl/internal/engine"
 	"github.com/unicrons/tagctl/internal/types"
 )
@@ -273,7 +274,7 @@ func confirmApply(ctx context.Context, in io.Reader) (bool, error) {
 // simulating, otherwise a real applier wired to the configured providers.
 func buildApplier(ctx context.Context, cfg *config.Config, plan *types.Plan, simulated bool) (engine.Applier, error) {
 	if simulated {
-		return engine.NewMockApplier(), nil
+		return demo.Applier{}, nil
 	}
 
 	spinner := NewSpinner("Initializing cloud providers...")

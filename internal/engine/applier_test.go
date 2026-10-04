@@ -16,63 +16,6 @@ import (
 	"github.com/unicrons/tagctl/internal/types"
 )
 
-func TestMockApplier_Apply(t *testing.T) {
-	applier := NewMockApplier()
-	plan := &types.Plan{
-		ID:        "test-plan",
-		CreatedAt: time.Now(),
-		Changes: []types.TagChange{
-			{
-				Resource: types.Resource{ID: "i-123", Type: "aws_instance"},
-				Tag:      "environment",
-				Action:   types.ActionAdd,
-				NewValue: "prod",
-			},
-		},
-	}
-
-	result, err := applier.Apply(context.Background(), plan)
-
-	if err != nil {
-		t.Fatalf("Apply() error = %v", err)
-	}
-
-	if result == nil {
-		t.Fatal("Apply() returned nil result")
-	}
-
-	if result.TotalChanges != 1 {
-		t.Errorf("TotalChanges = %d, want 1", result.TotalChanges)
-	}
-
-	if result.SuccessCount != 1 {
-		t.Errorf("SuccessCount = %d, want 1", result.SuccessCount)
-	}
-
-	if result.ErrorCount != 0 {
-		t.Errorf("ErrorCount = %d, want 0", result.ErrorCount)
-	}
-}
-
-func TestMockApplier_Apply_EmptyPlan(t *testing.T) {
-	applier := NewMockApplier()
-	plan := &types.Plan{
-		ID:        "empty-plan",
-		CreatedAt: time.Now(),
-		Changes:   []types.TagChange{},
-	}
-
-	result, err := applier.Apply(context.Background(), plan)
-
-	if err != nil {
-		t.Fatalf("Apply() error = %v", err)
-	}
-
-	if result.TotalChanges != 0 {
-		t.Errorf("TotalChanges = %d, want 0", result.TotalChanges)
-	}
-}
-
 // Changes for the same ID in two regions must reach two resources, not be
 // applied twice to whichever one comes first.
 func TestGroupChangesByResource_SeparatesRegions(t *testing.T) {

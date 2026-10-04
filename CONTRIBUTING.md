@@ -95,7 +95,7 @@ make coverage
 go test -v ./internal/engine/...
 
 # Run a specific test
-go test -v -run TestMockScanner_Scan ./internal/engine/
+go test -v -run TestEvaluate ./internal/engine/
 ```
 
 ### 4. Commit
@@ -172,6 +172,7 @@ tagctl/
 │   │   ├── auth.go       # AWS auth flags shared by scan/apply/cost
 │   │   └── providers.go  # Provider initialization
 │   ├── config/           # Configuration parsing and validation
+│   ├── demo/             # Example data: scan --mock, demo mode, simulated apply
 │   ├── engine/           # Core logic
 │   │   ├── scanner.go    # Resource discovery
 │   │   ├── evaluator.go  # Policy evaluation → Findings (PASS/FAILED)
@@ -435,8 +436,8 @@ Follow standard Go conventions:
 
 - Interfaces: `Provider`, `Applier` (noun), declared only when a second
   implementation exists
-- Implementations: `RealApplier`, `MockApplier`
-- Constructors: `NewScanner()`, `NewMockScanner()`
+- Implementations: `RealApplier`, `demo.Applier`
+- Constructors: `NewScanner()`, `NewPlanner()`, `NewApplier()`
 
 ### Error Handling
 

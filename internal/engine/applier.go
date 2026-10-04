@@ -249,29 +249,3 @@ func groupChangesByResource(changes []types.TagChange) map[string][]types.TagCha
 	}
 	return grouped
 }
-
-// MockApplier is an Applier implementation that simulates changes.
-type MockApplier struct{}
-
-// NewMockApplier creates a new MockApplier.
-func NewMockApplier() *MockApplier {
-	return &MockApplier{}
-}
-
-// Apply simulates applying changes and returns success.
-func (a *MockApplier) Apply(ctx context.Context, plan *types.Plan) (*ApplyResult, error) {
-	start := time.Now()
-
-	// Simulate applying each change
-	for range plan.Changes {
-		time.Sleep(50 * time.Millisecond)
-	}
-
-	return &ApplyResult{
-		TotalChanges: len(plan.Changes),
-		SuccessCount: len(plan.Changes),
-		ErrorCount:   0,
-		Errors:       nil,
-		Duration:     time.Since(start),
-	}, nil
-}

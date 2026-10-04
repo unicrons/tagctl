@@ -248,6 +248,7 @@ tagctl/
 │   │   ├── auth.go       # AWS auth flags shared by scan/apply/cost
 │   │   └── providers.go  # Provider initialization
 │   ├── config/           # Configuration parsing
+│   ├── demo/             # Example data: scan --mock, demo mode, simulated apply
 │   ├── engine/           # Core logic
 │   │   ├── scanner.go    # Resource discovery
 │   │   ├── evaluator.go  # Policy evaluation → Findings (PASS/FAILED)
@@ -395,10 +396,10 @@ are not part of the test setup: `compose.yaml` only serves the docs preview,
 and CI runs `go test` with no AWS access at all.
 
 **Run the CLI on demo data.** `scan --mock` evaluates a built-in set of
-resources (`engine.NewMockScanner`) and writes the same reports a real scan
-does, so `plan`, `diff`, `normalize` and the report formats can be exercised
-on its output. `apply` simulates its changes when the config has no AWS
-account.
+resources (`demo.Scan` in `internal/demo`) and writes the same reports a real
+scan does, so `plan`, `diff`, `normalize` and the report formats can be
+exercised on its output. `apply` simulates its changes when the config has no
+AWS account.
 
 ```bash
 make build

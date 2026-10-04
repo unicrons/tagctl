@@ -48,6 +48,8 @@ internal/
 │   ├── auth.go           # AWS auth flags shared by scan/apply/cost
 │   └── providers.go      # Provider initialization
 ├── config/config.go      # YAML config parsing and validation
+├── demo/                 # Example data: scan.go (scan --mock, demo mode),
+│                         # plan.go (demo plan), applier.go (simulated apply)
 ├── engine/
 │   ├── scanner.go        # Resource discovery coordinator
 │   ├── evaluator.go      # Tag policy evaluation
@@ -248,6 +250,15 @@ become a filtered copy of the plan, checked again with `engine.ValidatePlan`;
 skipped changes are counted apart, never as applied or failed. The review runs
 on the plan `withoutRemovals` returned, so it only offers a removal (`- tag`)
 with `--allow-removals`.
+
+### Demo data
+
+`internal/demo` holds everything that is example data, so `internal/engine`
+has none: `demo.Scan()` is the result of `scan --mock` and of `scan` without a
+configured provider, `demo.Plan()` the plan `plan` prints (never saved) in
+that case, and `demo.Applier` the `engine.Applier` behind `apply --mock` and
+an apply without a provider. `demo` imports `engine`, never the reverse. The
+fixtures `demo-scan.golden.json` and `demo-plan.golden.json` pin the data.
 
 ### Exit codes
 

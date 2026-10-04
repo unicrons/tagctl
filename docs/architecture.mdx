@@ -66,6 +66,7 @@ tagctl/
 │   │   └── providers.go  # Provider initialization
 │   ├── config/           # Configuration parsing
 │   │   └── config.go
+│   ├── demo/             # Example data for scan --mock, demo mode and simulated apply
 │   ├── engine/           # Core business logic
 │   │   ├── scanner.go    # Resource discovery
 │   │   ├── evaluator.go  # Policy evaluation → Findings
@@ -110,7 +111,8 @@ Handles user interaction using [Cobra](https://github.com/spf13/cobra).
 ### Engine Layer
 
 Core business logic. The scanner, evaluator and planner are concrete types;
-`Applier` is the one interface, because `apply` swaps in a simulated applier.
+`Applier` is the one interface, because `apply` swaps in the simulated
+applier of `internal/demo`.
 
 ```go
 // RealScanner discovers resources and checks compliance

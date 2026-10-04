@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"github.com/unicrons/tagctl/internal/config"
+	"github.com/unicrons/tagctl/internal/demo"
 	"github.com/unicrons/tagctl/internal/engine"
 	"github.com/unicrons/tagctl/internal/log"
 	"github.com/unicrons/tagctl/internal/types"
@@ -148,10 +149,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 		if !opts.mock {
 			printDemoModeWarning()
 		}
-		result, err = mockScan(ctx, opts)
-		if err != nil {
-			return err
-		}
+		result = mockScan(opts)
 	} else {
 		result, discoveryErr = discoverResources(ctx, cfg, opts.regions, opts.resourceTypes)
 		if result == nil {
@@ -189,18 +187,14 @@ func runScan(cmd *cobra.Command, args []string) error {
 }
 
 // mockScan returns the fixed demo scan.
-func mockScan(ctx context.Context, opts scanOptions) (*types.ScanResult, error) {
+func mockScan(opts scanOptions) *types.ScanResult {
 	if len(opts.resourceTypes) > 0 {
 		fmt.Fprintf(os.Stderr, "Warning: --%s is ignored in demo mode, the mock data is fixed\n", flagResourceType)
 	}
 
 	fmt.Fprint(os.Stderr, "Scanning cloud resources (demo mode)...\n\n")
 
-	result, err := engine.NewMockScanner().Scan(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("scan failed: %w", err)
-	}
-	return result, nil
+	return demo.Scan()
 }
 
 // discoverResources scans the configured providers. A partial scan returns
