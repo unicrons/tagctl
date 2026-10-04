@@ -202,15 +202,25 @@ func TestGateOptions_Evaluate_FailOnNewNeedsBaseline(t *testing.T) {
 }
 
 func TestExecute_FailOnNewWithoutBaselineFailsBeforeRunning(t *testing.T) {
-	policy := writeFixture(t, t.TempDir(), "tagctl.yaml", "policy:\n  required:\n    - name: owner\n")
+	dir := t.TempDir()
+	policy := writeFixture(t, dir, "tagctl.yaml", "policy:\n  required:\n    - name: owner\n")
+	summary := filepath.Join(dir, "summary.md")
+	reports := filepath.Join(dir, "reports")
 
-	for _, args := range [][]string{
-		{"-c", policy, "scan", "--mock", "--fail-on-new"},
-		{"-c", policy, "evaluate", "--resources", "unused.json", "--fail-on-new"},
-		{"-c", policy, "terraform", "--plan", "unused.json", "--fail-on-new"},
+	for _, tt := range []struct {
+		name string
+		args []string
+	}{
+		{name: "scan", args: []string{"scan", "--mock", "--fail-on-new"}},
+		{name: "evaluate", args: []string{"evaluate", "--resources", "unused.json", "--fail-on-new"}},
+		{name: "terraform", args: []string{"terraform", "--plan", "unused.json", "--fail-on-new"}},
+		{name: "scan with --summary", args: []string{"scan", "--mock", "--fail-on-new", "--summary", summary, "--output-dir", reports}},
+		{name: "scan with --summary on stdout", args: []string{"scan", "--mock", "--fail-on-new", "--summary", "-"}},
+		{name: "evaluate with --summary", args: []string{"evaluate", "--resources", "unused.json", "--fail-on-new", "--summary", summary}},
+		{name: "terraform with --summary", args: []string{"terraform", "--plan", "unused.json", "--fail-on-new", "--summary", summary}},
 	} {
-		t.Run(args[2], func(t *testing.T) {
-			run := execute(t, args...)
+		t.Run(tt.name, func(t *testing.T) {
+			run := execute(t, append([]string{"-c", policy}, tt.args...)...)
 			if !errors.Is(run.err, errFailOnNewNeedsBaseline) {
 				t.Fatalf("err = %v, want the missing baseline usage error", run.err)
 			}
@@ -219,6 +229,14 @@ func TestExecute_FailOnNewWithoutBaselineFailsBeforeRunning(t *testing.T) {
 			}
 			if run.stdout != "" {
 				t.Errorf("command produced output before rejecting the flags: %q", run.stdout)
+			}
+			for _, path := range []string{summary, reports} {
+				if _, err := os.Stat(path); !os.IsNotExist(err) {
+					t.Errorf("%s was written before rejecting the flags (stat err %v)", path, err)
+				}
+			}
+			if left := fileNames(t, OutputDir); len(left) != 0 {
+				t.Errorf("output directory got %v before rejecting the flags", left)
 			}
 		})
 	}
