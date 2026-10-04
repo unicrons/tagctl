@@ -34,7 +34,7 @@ func runValidate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("no config file found. Run 'tagctl init' to create one")
 	}
 
-	fmt.Printf("Validating %s...\n", configFile)
+	fmt.Printf("Validating %s...\n", printable(configFile))
 	fmt.Println()
 
 	report := &validationReport{}

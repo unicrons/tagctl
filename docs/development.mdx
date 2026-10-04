@@ -440,10 +440,11 @@ tag-read failure path of a new lister. `TestPermissionPolicies_*` then fails
 if the lister calls an API the IAM policies in `permissions/aws/` do not allow.
 
 **Use the shared fixtures.** `test/testdata/configs/` holds valid and invalid
-`tagctl.yaml` files, `test/testdata/fixtures/` resources, scan results and
-plans as JSON. Load them through `test/testutil` (`ConfigPath`, `FixturePath`,
-`LoadResources`, `LoadScanResult`, `LoadPlan`) instead of building paths by
-hand. `evaluate-violations.golden.json` pins the evaluator's output; a change
+`tagctl.yaml` files, `test/testdata/fixtures/` resources and a plan as JSON.
+Reach them through `test/testutil` instead of building paths by
+hand: `ConfigPath` and `FixturePath` return the path of a file in either
+directory, `MustLoadResources` decodes a resources fixture.
+`evaluate-violations.golden.json` pins the evaluator's output; a change
 that moves it needs the golden file updated in the same commit.
 
 What mocks cannot show is how a real service answers: throttling, eventual

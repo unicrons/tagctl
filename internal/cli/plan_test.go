@@ -86,17 +86,15 @@ func TestExecute_InterruptedPlanIsNotSaved(t *testing.T) {
 	}
 }
 
-func TestFindLatestScan_JoinsWithTheOutputDir(t *testing.T) {
-	original := OutputDir
-	OutputDir = t.TempDir()
-	t.Cleanup(func() { OutputDir = original })
-	writeScan(t, OutputDir, "scan-20260101-000000.json", failedScan(0))
+func TestFindLatestScanIn_JoinsWithTheDir(t *testing.T) {
+	dir := t.TempDir()
+	writeScan(t, dir, "scan-20260101-000000.json", failedScan(0))
 
-	got, err := findLatestScan()
+	got, err := findLatestScanIn(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := filepath.Join(OutputDir, "scan-20260101-000000.json"); got != want {
-		t.Errorf("findLatestScan() = %q, want %q", got, want)
+	if want := filepath.Join(dir, "scan-20260101-000000.json"); got != want {
+		t.Errorf("findLatestScanIn() = %q, want %q", got, want)
 	}
 }

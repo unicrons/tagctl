@@ -43,7 +43,7 @@ internal/
 │   ├── output.go         # Table/JSON/CSV/HTML output
 │   ├── format.go         # -o validation per command (outputFormatFor)
 │   ├── paths.go          # output/ directory and file naming
-│   ├── progress.go       # Progress reporting
+│   ├── progress.go       # Spinner on stderr
 │   ├── color.go          # paletteFor: ANSI codes per stream
 │   ├── auth.go           # AWS auth flags shared by scan/apply/cost
 │   └── providers.go      # Provider initialization
@@ -164,8 +164,8 @@ Colour is per stream: `log.UseColor(w)` is the single decision (a terminal and
 `NO_COLOR` empty). CLI code takes its codes from `paletteFor(w)`
 (`internal/cli/color.go`), whose fields are empty when colour is off; never
 write a raw ANSI code. Spinners animate only on a terminal. Values from cloud
-data or user files go through `printable()` before reaching a table or a
-stderr notice; log lines (`log.write`) and the `Error:` line in `main` go
+data or user files, and the file paths a command echoes, go through
+`printable()` before reaching a table or a stderr notice; log lines (`log.write`) and the `Error:` line in `main` go
 through `log.Printable`, which keeps line breaks and tabs
 
 ## Configuration File (tagctl.yaml)
@@ -450,10 +450,12 @@ gains a tag write action without its untag counterpart.
 ## Output Files
 
 Scan and plan commands write to the `output/` directory (see `internal/cli/paths.go`).
-`--output-dir` on `scan`, `plan` and `apply` names another one (`outputDirFor`
-resolves it and the path helpers take it as an argument; `OutputDir` is only the
-default); `scan --no-files` writes no report files. `diff` and `normalize` still
-look up the latest scan in the default directory:
+`--output-dir` on `scan`, `plan`, `apply`, `diff` and `normalize` names another
+one (`outputDirFor` resolves it and the path helpers take it as an argument;
+`OutputDir` is only the default); `scan --no-files` writes no report files.
+`diff` and `normalize` only read it to look up the latest scans
+(`findRecentScans`, `findLatestScanIn`); scan files given explicitly win. The
+files:
 
 - `scan-YYYYMMDD-HHMMSS.json` — full scan results with all findings
 - `scan-YYYYMMDD-HHMMSS.csv` — findings CSV

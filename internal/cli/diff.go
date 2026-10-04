@@ -21,7 +21,8 @@ var diffCmd = &cobra.Command{
 findings that regressed, findings that were resolved, resources that appeared or
 disappeared, and the change in compliance per tag and per account.
 
-With no arguments it compares the two most recent scans in the output directory.
+With no arguments it compares the two most recent scans in the output directory
+(--output-dir). Scan files given as arguments are used as they are.
 
 A compliance percentage on its own says little. Drift is what teams act on, and
 what a pipeline can be gated on with --fail-on-regression.
@@ -32,6 +33,9 @@ Examples:
 
   # Compare two specific scans
   tagctl diff output/scan-20260101-120000.json output/scan-20260201-120000.json
+
+  # Compare the two most recent scans written by 'tagctl scan --output-dir reports'
+  tagctl diff --output-dir reports
 
   # Fail the build if anything regressed
   tagctl diff --fail-on-regression
@@ -44,6 +48,7 @@ Examples:
 
 func init() {
 	diffCmd.Flags().Bool("fail-on-regression", false, "exit 1 if any finding regressed")
+	addOutputDirFlag(diffCmd, "directory to look for the most recent scans in")
 }
 
 func runDiff(cmd *cobra.Command, args []string) error {
@@ -54,7 +59,12 @@ func runDiff(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	baselinePath, currentPath, err := resolveDiffInputs(args)
+	outputDir, err := outputDirFor(cmd)
+	if err != nil {
+		return err
+	}
+
+	baselinePath, currentPath, err := resolveDiffInputs(outputDir, args)
 	if err != nil {
 		return err
 	}
@@ -93,38 +103,37 @@ func runDiff(cmd *cobra.Command, args []string) error {
 }
 
 // resolveDiffInputs works out which two scan files to compare. With no
-// arguments it picks the two most recent scans; with one, it treats it as the
-// baseline and compares it against the most recent scan.
-func resolveDiffInputs(args []string) (baseline, current string, err error) {
+// arguments it picks the two most recent scans in dir; with one, it treats it
+// as the baseline and compares it against the most recent scan in dir.
+func resolveDiffInputs(dir string, args []string) (baseline, current string, err error) {
 	switch len(args) {
 	case 2:
 		return args[0], args[1], nil // #nosec G602 -- guarded by the switch on len(args)
 	case 1:
-		latest, findErr := findLatestScan()
+		latest, findErr := findLatestScanIn(dir)
 		if findErr != nil {
 			return "", "", findErr
 		}
 		return args[0], latest, nil
 	default:
-		scans, findErr := findRecentScans(2)
+		scans, findErr := findRecentScans(dir, 2)
 		if findErr != nil {
 			return "", "", findErr
 		}
 		if len(scans) < 2 {
-			return "", "", fmt.Errorf("need two scans to compare, found %d in %s. Run 'tagctl scan' again to create a second one", len(scans), OutputDir)
+			return "", "", fmt.Errorf("need two scans to compare, found %d in %s. Run 'tagctl scan' again to create a second one", len(scans), dir)
 		}
 		// findRecentScans returns newest first.
 		return scans[1], scans[0], nil
 	}
 }
 
-// findRecentScans returns up to limit scan files from the output directory,
-// most recent first.
-func findRecentScans(limit int) ([]string, error) {
-	entries, err := os.ReadDir(OutputDir)
+// findRecentScans returns up to limit scan files from dir, most recent first.
+func findRecentScans(dir string, limit int) ([]string, error) {
+	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, fmt.Errorf("no output directory found. Run 'tagctl scan' first")
+			return nil, fmt.Errorf("output directory %s not found. Run 'tagctl scan' first", dir)
 		}
 		return nil, fmt.Errorf("failed to read output directory: %w", err)
 	}
@@ -150,7 +159,7 @@ func findRecentScans(limit int) ([]string, error) {
 
 	paths := make([]string, 0, limit)
 	for i := 0; i < len(files) && i < limit; i++ {
-		paths = append(paths, filepath.Join(OutputDir, files[i].name))
+		paths = append(paths, filepath.Join(dir, files[i].name))
 	}
 
 	return paths, nil
@@ -185,8 +194,8 @@ func printJSON(value any) error {
 }
 
 func printDiffTable(result *types.DiffResult, baselinePath, currentPath string) {
-	fmt.Printf("Baseline: %s (%s)\n", baselinePath, result.BaselineScannedAt.Format("2006-01-02 15:04:05"))
-	fmt.Printf("Current:  %s (%s)\n", currentPath, result.CurrentScannedAt.Format("2006-01-02 15:04:05"))
+	fmt.Printf("Baseline: %s (%s)\n", printable(baselinePath), result.BaselineScannedAt.Format("2006-01-02 15:04:05"))
+	fmt.Printf("Current:  %s (%s)\n", printable(currentPath), result.CurrentScannedAt.Format("2006-01-02 15:04:05"))
 	fmt.Println()
 
 	delta := result.CompliancePctDelta()

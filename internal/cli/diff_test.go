@@ -107,10 +107,6 @@ func TestIsScanFileName(t *testing.T) {
 func TestFindRecentScans(t *testing.T) {
 	dir := t.TempDir()
 
-	original := OutputDir
-	OutputDir = dir
-	defer func() { OutputDir = original }()
-
 	empty := &types.ScanResult{}
 	oldest := writeScan(t, dir, scanJan, empty)
 	middle := writeScan(t, dir, scanFeb, empty)
@@ -126,7 +122,7 @@ func TestFindRecentScans(t *testing.T) {
 		}
 	}
 
-	got, err := findRecentScans(2)
+	got, err := findRecentScans(dir, 2)
 	if err != nil {
 		t.Fatalf("findRecentScans() error = %v", err)
 	}
@@ -144,10 +140,6 @@ func TestFindRecentScans(t *testing.T) {
 func TestResolveDiffInputs(t *testing.T) {
 	dir := t.TempDir()
 
-	original := OutputDir
-	OutputDir = dir
-	defer func() { OutputDir = original }()
-
 	empty := &types.ScanResult{}
 	older := writeScan(t, dir, scanJan, empty)
 	newer := writeScan(t, dir, scanFeb, empty)
@@ -162,7 +154,7 @@ func TestResolveDiffInputs(t *testing.T) {
 	}
 
 	t.Run("two explicit arguments are used as given", func(t *testing.T) {
-		baseline, current, err := resolveDiffInputs([]string{"a.json", "b.json"})
+		baseline, current, err := resolveDiffInputs(dir, []string{"a.json", "b.json"})
 		if err != nil {
 			t.Fatalf("error = %v", err)
 		}
@@ -172,7 +164,7 @@ func TestResolveDiffInputs(t *testing.T) {
 	})
 
 	t.Run("one argument is the baseline against the latest scan", func(t *testing.T) {
-		baseline, current, err := resolveDiffInputs([]string{"a.json"})
+		baseline, current, err := resolveDiffInputs(dir, []string{"a.json"})
 		if err != nil {
 			t.Fatalf("error = %v", err)
 		}
@@ -185,7 +177,7 @@ func TestResolveDiffInputs(t *testing.T) {
 	})
 
 	t.Run("no arguments compares the two most recent, oldest as baseline", func(t *testing.T) {
-		baseline, current, err := resolveDiffInputs(nil)
+		baseline, current, err := resolveDiffInputs(dir, nil)
 		if err != nil {
 			t.Fatalf("error = %v", err)
 		}
@@ -202,13 +194,9 @@ func TestResolveDiffInputs(t *testing.T) {
 func TestResolveDiffInputs_NeedsTwoScans(t *testing.T) {
 	dir := t.TempDir()
 
-	original := OutputDir
-	OutputDir = dir
-	defer func() { OutputDir = original }()
-
 	writeScan(t, dir, scanJan, &types.ScanResult{})
 
-	if _, _, err := resolveDiffInputs(nil); err == nil {
+	if _, _, err := resolveDiffInputs(dir, nil); err == nil {
 		t.Fatal("resolveDiffInputs() with a single scan returned nil error")
 	}
 }

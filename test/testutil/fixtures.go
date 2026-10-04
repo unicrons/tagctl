@@ -27,21 +27,6 @@ func FixturePath(name string) string {
 	return filepath.Join(testdataDir(), "fixtures", name)
 }
 
-// LoadPlan loads a plan fixture by name (e.g., "plan-with-changes.json").
-func LoadPlan(name string) (*types.Plan, error) {
-	data, err := os.ReadFile(FixturePath(name))
-	if err != nil {
-		return nil, err
-	}
-
-	var plan types.Plan
-	if err := json.Unmarshal(data, &plan); err != nil {
-		return nil, err
-	}
-
-	return &plan, nil
-}
-
 // LoadResources loads a resources fixture by name (e.g., "resources-aws.json").
 func LoadResources(name string) ([]types.Resource, error) {
 	data, err := os.ReadFile(FixturePath(name))
@@ -55,45 +40,6 @@ func LoadResources(name string) ([]types.Resource, error) {
 	}
 
 	return resources, nil
-}
-
-// LoadViolations loads a violations fixture by name.
-func LoadViolations(name string) ([]types.Violation, error) {
-	data, err := os.ReadFile(FixturePath(name))
-	if err != nil {
-		return nil, err
-	}
-
-	var violations []types.Violation
-	if err := json.Unmarshal(data, &violations); err != nil {
-		return nil, err
-	}
-
-	return violations, nil
-}
-
-// LoadScanResult loads a scan result fixture by name.
-func LoadScanResult(name string) (*types.ScanResult, error) {
-	data, err := os.ReadFile(FixturePath(name))
-	if err != nil {
-		return nil, err
-	}
-
-	var result types.ScanResult
-	if err := json.Unmarshal(data, &result); err != nil {
-		return nil, err
-	}
-
-	return &result, nil
-}
-
-// MustLoadPlan loads a plan or panics. Use only in tests.
-func MustLoadPlan(name string) *types.Plan {
-	plan, err := LoadPlan(name)
-	if err != nil {
-		panic(err)
-	}
-	return plan
 }
 
 // MustLoadResources loads resources or panics. Use only in tests.
