@@ -43,7 +43,7 @@ internal/
 │   ├── output.go         # Table/JSON/CSV/HTML output
 │   ├── format.go         # -o validation per command (outputFormatFor)
 │   ├── paths.go          # output/ directory and file naming
-│   ├── progress.go       # Progress reporting
+│   ├── progress.go       # Spinner on stderr
 │   ├── color.go          # paletteFor: ANSI codes per stream
 │   ├── auth.go           # AWS auth flags shared by scan/apply/cost
 │   └── providers.go      # Provider initialization
