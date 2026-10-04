@@ -128,15 +128,17 @@ Release notes are generated from these subjects, so `feat`, `fix` and `docs`
 commits are what users will read. CI rejects a PR whose commits or title do
 not follow the format (`scripts/check-commits.sh`).
 
-CI runs only the jobs the diff needs. On a pull request, Lint (shellcheck on
-`scripts/*.sh` and `.githooks/*`, then golangci-lint) and Test (Linux, which
-also compiles every package) run when Go files change or anything the build
-and tests read: `go.mod`/`go.sum`, `.golangci.yml`,
+CI runs only the jobs the diff needs. On a pull request, Lint (shellcheck and
+ruff on the scripts, then golangci-lint), Test (race detector, shuffled order,
+coverage threshold), Build (Linux, plus Windows and macOS cross-compiled) and
+Gosec (gosec and govulncheck on the whole module) run when Go files change or
+anything the build and tests read: `go.mod`/`go.sum`, `.golangci.yml`,
 `internal/report/templates/`, `testdata/`, `permissions/`,
-`docs/providers/aws.mdx`, `Makefile`, `scripts/` and `.githooks/`. Gosec scans
-the packages holding the changed Go files (the whole module when only other
-inputs changed), Docs runs when `docs/` changes and the secrets scan always
-runs. A push to `main` only re-runs Test. A skipped job counts as passed.
+`docs/providers/aws.mdx`, `Makefile`, `scripts/` and `.githooks/`. Docs runs
+when `docs/` changes, Release config (`goreleaser check`) when the release
+files change, and the secrets scan always runs. A push to `main` only re-runs
+Test and Build, which also save the Go caches pull requests start from. A
+skipped job counts as passed.
 
 ### 5. Push and Create PR
 
