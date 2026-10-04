@@ -54,6 +54,7 @@ internal/
 │   ├── sarif.go          # SARIF 2.1.0 for GitHub code scanning
 │   ├── junit.go          # JUnit XML
 │   ├── ocsf.go           # OCSF 1.4 Compliance Finding events (class 2003)
+│   ├── markdown.go       # Markdown summary for CI job summaries
 │   ├── gate.go           # Compliance thresholds
 │   ├── findings.go       # findingMessage helper, tool name
 │   ├── html.go           # HTML report view model (templates/scan.html)
@@ -198,7 +199,10 @@ ignore:
 1. **Scan**: `engine.Scanner` → `provider.Provider.ListResources()` → `[]types.Resource`.
    A provider error keeps the other resources, sets `ScanResult.Partial`/`Errors`
    and is returned joined; `scan` writes its reports, then fails unless
-   `--allow-partial`. `plan`, `diff` and `--baseline` warn on a partial scan file
+   `--allow-partial`. `plan`, `diff` and `--baseline` warn on a partial scan file.
+   `scan --resource-type <glob>` (`RealScanner.OnlyTypes`) drops non-matching
+   types after discovery, before `ignore`: listers do not declare their
+   resource types, so no API call is saved
 2. **Evaluate**: `engine.Evaluator` → `[]types.Finding` (PASS or FAILED)
 3. **Plan**: `engine.Planner` → filters FAILED findings with `missing` reason → `[]types.TagChange`
 4. **Apply**: `engine.ValidatePlan` (add/update only) → `engine.Applier` → `provider.Provider.ApplyTags()` → cloud API calls
@@ -333,7 +337,11 @@ and providers/kubernetes summarize it and link there: change them together.
 
 ## Output Files
 
-Scan and plan commands write to the `output/` directory (see `internal/cli/paths.go`):
+Scan and plan commands write to the `output/` directory (see `internal/cli/paths.go`).
+`--output-dir` on `scan`, `plan` and `apply` names another one (`outputDirFor`
+resolves it and the path helpers take it as an argument; `OutputDir` is only the
+default); `scan --no-files` writes no report files. `diff` and `normalize` still
+look up the latest scan in the default directory:
 
 - `scan-YYYYMMDD-HHMMSS.json` — full scan results with all findings
 - `scan-YYYYMMDD-HHMMSS.csv` — findings CSV
@@ -359,6 +367,12 @@ Compliance Finding (class 2003, schema 1.4.0) per finding, passes included;
 `finding_info.uid` (`<resource identity>#<tag>`) and `analytic.uid` are the
 same ids SARIF uses, keep them aligned. The full mapping is the contract in
 `docs/integrations/ocsf.mdx`; extend it whenever a field changes.
+
+`--summary` (same commands) writes `report.WriteMarkdown`: headline, per-tag
+table, top failing resource types (distinct `Identity()`) and the first 25
+failed findings. Every cell goes through `markdownCell`, since names and tag
+values are account-controlled. `GITHUB_STEP_SUMMARY` is never read: the user
+passes it to the flag.
 
 ## Common Patterns
 

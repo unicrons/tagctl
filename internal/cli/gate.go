@@ -21,16 +21,18 @@ func addGateFlags(cmd *cobra.Command) {
 	cmd.Flags().String("sarif", "", "also write findings as SARIF to this path (- for stdout, instead of the command's output)")
 	cmd.Flags().String("junit", "", "also write findings as JUnit XML to this path (- for stdout, instead of the command's output)")
 	cmd.Flags().String("ocsf", "", "also write findings as OCSF Compliance Finding events to this path (- for stdout, instead of the command's output)")
+	cmd.Flags().String("summary", "", "also write a Markdown summary to this path, e.g. \"$GITHUB_STEP_SUMMARY\" (- for stdout, instead of the command's output)")
 }
 
 // gateOptions holds the parsed gate flags for one command run.
 type gateOptions struct {
-	command   string
-	gate      report.Gate
-	baseline  string
-	sarifPath string
-	junitPath string
-	ocsfPath  string
+	command     string
+	gate        report.Gate
+	baseline    string
+	sarifPath   string
+	junitPath   string
+	ocsfPath    string
+	summaryPath string
 }
 
 // readGateFlags parses the gate flags from a command.
@@ -41,14 +43,16 @@ func readGateFlags(cmd *cobra.Command) gateOptions {
 	sarifPath, _ := cmd.Flags().GetString("sarif")
 	junitPath, _ := cmd.Flags().GetString("junit")
 	ocsfPath, _ := cmd.Flags().GetString("ocsf")
+	summaryPath, _ := cmd.Flags().GetString("summary")
 
 	return gateOptions{
-		command:   cmd.Name(),
-		gate:      report.Gate{FailUnder: failUnder, FailOnNew: failOnNew},
-		baseline:  baseline,
-		sarifPath: sarifPath,
-		junitPath: junitPath,
-		ocsfPath:  ocsfPath,
+		command:     cmd.Name(),
+		gate:        report.Gate{FailUnder: failUnder, FailOnNew: failOnNew},
+		baseline:    baseline,
+		sarifPath:   sarifPath,
+		junitPath:   junitPath,
+		ocsfPath:    ocsfPath,
+		summaryPath: summaryPath,
 	}
 }
 
@@ -65,6 +69,7 @@ func (o gateOptions) stdoutFormat(cmd *cobra.Command, supported ...string) (stri
 		{"--sarif", o.sarifPath},
 		{"--junit", o.junitPath},
 		{"--ocsf", o.ocsfPath},
+		{"--summary", o.summaryPath},
 	} {
 		if report.path == "-" {
 			onStdout = append(onStdout, report.flag)
@@ -111,6 +116,14 @@ func (o gateOptions) writeReports(scan *types.ScanResult, policyFile string) err
 			return report.WriteOCSF(f, scan, report.OCSFOptions{Version: appVersion})
 		}); err != nil {
 			return fmt.Errorf("failed to write OCSF report: %w", err)
+		}
+	}
+
+	if o.summaryPath != "" {
+		if err := writeToPathOrStdout(o.summaryPath, func(f *os.File) error {
+			return report.WriteMarkdown(f, scan, report.MarkdownOptions{Version: appVersion})
+		}); err != nil {
+			return fmt.Errorf("failed to write Markdown summary: %w", err)
 		}
 	}
 

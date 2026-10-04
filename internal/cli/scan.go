@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -37,6 +38,9 @@ Examples:
   tagctl scan --region eu-west-1
   tagctl scan --region eu-west-1 --region us-east-1
 
+  # Only evaluate some resource types (path.Match globs, quoted for the shell)
+  tagctl scan --resource-type 'aws_s3_*' --resource-type aws_instance
+
   # Scan with specific config file
   tagctl scan --config production.yaml
 
@@ -48,7 +52,11 @@ Examples:
   tagctl scan --output json
 
   # Accept a scan where some regions or services could not be listed
-  tagctl scan --allow-partial`,
+  tagctl scan --allow-partial
+
+  # Write the reports somewhere else, or not at all
+  tagctl scan --output-dir reports
+  tagctl scan --no-files --sarif tagctl.sarif`,
 	RunE: runScan,
 }
 
@@ -57,18 +65,61 @@ func init() {
 	scanCmd.Flags().Bool("mock", false, "use mock data for demonstration")
 	scanCmd.Flags().Bool("allow-partial", false, "succeed with a warning when discovery failed for part of the estate")
 	scanCmd.Flags().StringSlice("region", nil, "AWS region(s) to scan (default: all available regions)")
+	scanCmd.Flags().StringArray(flagResourceType, nil, "only evaluate and report resource types matching this glob, e.g. 'aws_s3_*' (repeatable; default: every type)")
+	addOutputDirFlag(scanCmd, "directory to write the JSON, CSV and HTML reports to")
+	scanCmd.Flags().Bool(flagNoFiles, false, "write no JSON, CSV or HTML report files")
+	scanCmd.MarkFlagsMutuallyExclusive(flagOutputDir, flagNoFiles)
 	addAWSAuthFlags(scanCmd)
 	addGateFlags(scanCmd)
 }
 
+const (
+	flagNoFiles      = "no-files"
+	flagResourceType = "resource-type"
+)
+
 // scanProviders builds the providers a real scan runs against; tests replace it.
 var scanProviders = initProviders
 
+// scanOptions holds the scan flags that are not gate or auth flags.
+type scanOptions struct {
+	verbose       bool
+	mock          bool
+	allowPartial  bool
+	noFiles       bool
+	regions       []string
+	resourceTypes []string
+	outputDir     string
+}
+
+// readScanFlags parses and validates the scan flags.
+func readScanFlags(cmd *cobra.Command) (scanOptions, error) {
+	var opts scanOptions
+	opts.verbose, _ = cmd.Flags().GetBool("verbose")
+	opts.mock, _ = cmd.Flags().GetBool("mock")
+	opts.allowPartial, _ = cmd.Flags().GetBool("allow-partial")
+	opts.noFiles, _ = cmd.Flags().GetBool(flagNoFiles)
+	opts.regions, _ = cmd.Flags().GetStringSlice("region")
+
+	opts.resourceTypes, _ = cmd.Flags().GetStringArray(flagResourceType)
+	// pflag reads a lone "" back as no value at all.
+	if cmd.Flags().Changed(flagResourceType) && len(opts.resourceTypes) == 0 {
+		opts.resourceTypes = []string{""}
+	}
+	if err := engine.ValidateTypePatterns(opts.resourceTypes); err != nil {
+		return opts, fmt.Errorf("--%s: %w", flagResourceType, err)
+	}
+
+	var err error
+	opts.outputDir, err = outputDirFor(cmd)
+	return opts, err
+}
+
 func runScan(cmd *cobra.Command, args []string) error {
-	verbose, _ := cmd.Flags().GetBool("verbose")
-	useMock, _ := cmd.Flags().GetBool("mock")
-	allowPartial, _ := cmd.Flags().GetBool("allow-partial")
-	regions, _ := cmd.Flags().GetStringSlice("region")
+	opts, err := readScanFlags(cmd)
+	if err != nil {
+		return err
+	}
 	gateOpts := readGateFlags(cmd)
 	format, err := gateOpts.stdoutFormat(cmd, formatTable, formatJSON, formatCSV)
 	if err != nil {
@@ -93,28 +144,27 @@ func runScan(cmd *cobra.Command, args []string) error {
 	var discoveryErr error
 
 	// Use mock scanner if requested or if no providers are configured
-	if useMock || !hasConfiguredProviders(cfg) {
-		if !useMock && !hasConfiguredProviders(cfg) {
+	if opts.mock || !hasConfiguredProviders(cfg) {
+		if !opts.mock {
 			printDemoModeWarning()
 		}
-
-		fmt.Fprint(os.Stderr, "Scanning cloud resources (demo mode)...\n\n")
-
-		scanner := engine.NewMockScanner()
-		result, err = scanner.Scan(ctx)
+		result, err = mockScan(ctx, opts)
 		if err != nil {
-			return fmt.Errorf("scan failed: %w", err)
+			return err
 		}
 	} else {
-		result, discoveryErr = discoverResources(ctx, cfg, regions)
+		result, discoveryErr = discoverResources(ctx, cfg, opts.regions, opts.resourceTypes)
 		if result == nil {
 			return discoveryErr
 		}
 	}
 
-	outputPaths := writeScanReports(result)
+	var outputPaths *ScanOutputPaths
+	if !opts.noFiles {
+		outputPaths = writeScanReports(result, opts.outputDir)
+	}
 
-	if err := printScanResult(result, format, verbose); err != nil {
+	if err := printScanResult(result, format, opts.verbose); err != nil {
 		return err
 	}
 
@@ -129,7 +179,7 @@ func runScan(cmd *cobra.Command, args []string) error {
 	}
 
 	if discoveryErr != nil {
-		if !allowPartial {
+		if !opts.allowPartial {
 			return fmt.Errorf("scan is partial, pass --allow-partial to accept it: %w", discoveryErr)
 		}
 		fmt.Fprintf(os.Stderr, "Warning: accepting a partial scan (%d provider(s) failed discovery); resources may be missing from the results\n", len(result.Errors))
@@ -138,9 +188,25 @@ func runScan(cmd *cobra.Command, args []string) error {
 	return gateOpts.check(result)
 }
 
+// mockScan returns the fixed demo scan.
+func mockScan(ctx context.Context, opts scanOptions) (*types.ScanResult, error) {
+	if len(opts.resourceTypes) > 0 {
+		fmt.Fprintf(os.Stderr, "Warning: --%s is ignored in demo mode, the mock data is fixed\n", flagResourceType)
+	}
+
+	fmt.Fprint(os.Stderr, "Scanning cloud resources (demo mode)...\n\n")
+
+	result, err := engine.NewMockScanner().Scan(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("scan failed: %w", err)
+	}
+	return result, nil
+}
+
 // discoverResources scans the configured providers. A partial scan returns
 // both the result and the discovery error; any other failure returns no result.
-func discoverResources(ctx context.Context, cfg *config.Config, regions []string) (*types.ScanResult, error) {
+// resourceTypes, when set, keeps only the resources whose type matches a glob.
+func discoverResources(ctx context.Context, cfg *config.Config, regions, resourceTypes []string) (*types.ScanResult, error) {
 	spinner := NewSpinner("Initializing cloud providers...")
 	spinner.Start()
 
@@ -155,6 +221,9 @@ func discoverResources(ctx context.Context, cfg *config.Config, regions []string
 	if err != nil {
 		return nil, fmt.Errorf("failed to create scanner: %w", err)
 	}
+	if err = scanner.OnlyTypes(resourceTypes); err != nil {
+		return nil, fmt.Errorf("--%s: %w", flagResourceType, err)
+	}
 
 	spinner = NewSpinner("Discovering resources...")
 	spinner.Start()
@@ -167,6 +236,9 @@ func discoverResources(ctx context.Context, cfg *config.Config, regions []string
 		spinner.Fail(fmt.Sprintf("Discovered %d resources, but discovery failed for part of the estate", result.TotalResources))
 	default:
 		spinner.Success(fmt.Sprintf("Discovered %d resources", result.TotalResources))
+	}
+	if result != nil && len(resourceTypes) > 0 && result.TotalResources == 0 {
+		fmt.Fprintf(os.Stderr, "Warning: no discovered resource matches --%s %s\n", flagResourceType, strings.Join(resourceTypes, ", "))
 	}
 	return result, err
 }
@@ -260,12 +332,12 @@ func getAbsolutePath(path string) string {
 	return abs
 }
 
-// writeScanReports writes the JSON, CSV and HTML reports for a scan. A report
+// writeScanReports writes the JSON, CSV and HTML reports for a scan to dir. A report
 // that cannot be written is logged and skipped rather than failing the scan,
 // since the results are already in hand. Returns nil when the output directory
 // could not be resolved.
-func writeScanReports(result *types.ScanResult) *ScanOutputPaths {
-	outputPaths, err := GetScanOutputPaths()
+func writeScanReports(result *types.ScanResult, dir string) *ScanOutputPaths {
+	outputPaths, err := GetScanOutputPaths(dir)
 	if err != nil {
 		log.Error("Failed to get output paths: %v", err)
 		return nil

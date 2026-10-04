@@ -34,6 +34,9 @@ Examples:
   # Apply a specific plan file
   tagctl apply --plan output/plan-20240201-143052.json
 
+  # Apply the latest plan of another directory
+  tagctl apply --output-dir reports
+
   # Apply without confirmation
   tagctl apply --auto-approve
 
@@ -44,7 +47,8 @@ Examples:
 }
 
 func init() {
-	applyCmd.Flags().String("plan", "", "plan file to apply (default: latest in output/)")
+	applyCmd.Flags().String("plan", "", "plan file to apply (default: latest in --output-dir)")
+	addOutputDirFlag(applyCmd, "directory to look for the latest plan in")
 	applyCmd.Flags().Bool("auto-approve", false, "skip confirmation prompt")
 	applyCmd.Flags().Bool("mock", false, "use mock applier for demonstration")
 	addAWSAuthFlags(applyCmd)
@@ -59,6 +63,11 @@ func runApply(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	outputDir, err := outputDirFor(cmd)
+	if err != nil {
+		return err
+	}
+
 	ctx, stop := signalContext()
 	defer stop()
 
@@ -66,8 +75,7 @@ func runApply(cmd *cobra.Command, args []string) error {
 
 	// Find plan file
 	if planFile == "" {
-		var err error
-		planFile, err = findLatestPlan()
+		planFile, err = FindLatestPlanInDir(outputDir)
 		if err != nil {
 			return err
 		}
@@ -239,10 +247,6 @@ func printApplyResult(result *engine.ApplyResult) {
 
 	fmt.Println()
 	fmt.Println("Run 'tagctl scan' to verify compliance.")
-}
-
-func findLatestPlan() (string, error) {
-	return FindLatestPlanInDir()
 }
 
 func loadPlan(path string) (*types.Plan, error) {

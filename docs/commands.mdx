@@ -132,6 +132,10 @@ tagctl scan [flags]
   AWS region(s) to scan; overrides `regions` in the config file. If omitted, all available regions are discovered and scanned. Also filters S3 buckets by their region.
 </ParamField>
 
+<ParamField path="--resource-type" type="string[]" default="every type">
+  Only evaluate and report resource types matching this glob (`aws_s3_*`, `aws_instance`); repeat the flag to add more. The syntax is the one `ignore.resources` uses (Go `path.Match`: `*`, `?`, `[a-z]`), a comma is not a separator, and a malformed glob is rejected before anything is scanned. `ignore` rules still apply to what is left. See [Scanning some resource types](#scanning-some-resource-types)
+</ParamField>
+
 <ParamField path="--profile, -p" type="string">
   AWS profile from `~/.aws/config`; overrides `profile` in the config (which must have zero or one AWS entry)
 </ParamField>
@@ -150,6 +154,14 @@ tagctl scan [flags]
 
 <ParamField path="--allow-partial" type="boolean" default="false">
   Succeed with a warning on stderr when discovery failed for part of the estate. Without it a [partial scan](#partial-scans) writes its reports and then fails
+</ParamField>
+
+<ParamField path="--output-dir" type="string" default="output">
+  Directory the JSON, CSV and HTML reports are written to; created when missing. See [Output Files](#output-files)
+</ParamField>
+
+<ParamField path="--no-files" type="boolean" default="false">
+  Write no JSON, CSV or HTML report. The stdout output and the [CI gate](#ci-gates) reports are unaffected. Cannot be combined with `--output-dir`
 </ParamField>
 
 <CodeGroup>
@@ -223,9 +235,25 @@ Detailed results saved to:
 ```
 </Accordion>
 
+### Scanning some resource types
+
+```bash
+tagctl scan --resource-type 'aws_s3_*' --resource-type aws_instance
+```
+
+`--resource-type` filters the resources after discovery: every service is
+still listed, then only the matching types are evaluated, counted and
+reported. It narrows the reports and the gate, not the API calls or the scan
+time (use `--region` for that), and a service that cannot be listed still
+makes the scan [partial](#partial-scans) even when its types are filtered out.
+Quote the glob so the shell does not expand it. When nothing matches, the scan
+reports zero resources and warns on stderr. Demo mode (`--mock`) ignores the
+flag with a warning, since its data is fixed.
+
 ### Output Files
 
-Every scan automatically generates reports in the `output/` directory:
+Every scan generates reports in the `output/` directory, or in the one
+`--output-dir` names. `--no-files` writes none of them.
 
 | Format | File | Description |
 |--------|------|-------------|
@@ -239,7 +267,7 @@ Each finding includes:
 - **Reason**: Why the finding was generated
 
 <Tip>
-The `--output` flag controls what's printed to stdout. Output files are **always** generated regardless of this flag.
+The `--output` flag controls what's printed to stdout. Output files are generated regardless of it, unless `--no-files` is set. `tagctl diff` and `tagctl normalize` look for the latest scan in `output/`: with another `--output-dir`, pass them the scan files (`tagctl diff reports/scan-A.json reports/scan-B.json`, `tagctl normalize --scan reports/scan-A.json`).
 </Tip>
 
 <Accordion title="JSON output example">
@@ -346,12 +374,16 @@ Generate a plan to fix tag violations based on scan results.
 tagctl plan [flags]
 ```
 
-<ParamField path="--scan" type="string" default="latest in output/">
+<ParamField path="--scan" type="string" default="latest in --output-dir">
   Path to scan results file to use. If not specified, uses the most recent scan. A [partial scan](#partial-scans) prints a warning: resources it missed get no changes.
 </ParamField>
 
 <ParamField path="--out" type="string" default="output/plan-TIMESTAMP.json">
   Save plan to specific file
+</ParamField>
+
+<ParamField path="--output-dir" type="string" default="output">
+  Directory the latest scan is read from and the plan is written to. Use the one given to `tagctl scan --output-dir`
 </ParamField>
 
 <CodeGroup>
@@ -363,7 +395,7 @@ tagctl plan
 tagctl plan --scan output/scan-20260202-143052.json
 ```
 
-```bash Custom output file (a bare name lands in output/, a path is used as is)
+```bash Custom output file (a bare name lands in --output-dir, a path is used as is)
 tagctl plan --out fixes.json
 ```
 
@@ -426,8 +458,12 @@ a hand-edited `remove`) is rejected when it is loaded, before the confirmation
 prompt, and nothing is written. Interrupting a run (Ctrl-C) stops sending
 changes: the ones not sent yet are reported as failed with `context canceled`.
 
-<ParamField path="--plan" type="string" default="latest in output/">
+<ParamField path="--plan" type="string" default="latest in --output-dir">
   Plan file to apply. If not specified, uses the most recent plan.
+</ParamField>
+
+<ParamField path="--output-dir" type="string" default="output">
+  Directory the latest plan is looked up in
 </ParamField>
 
 <ParamField path="--profile, -p" type="string">
@@ -573,8 +609,8 @@ Resources must be provided as a JSON array:
 ### Output Format
 
 The command prints JSON with findings and summary; `json` is the only `--output`
-format it accepts. A report sent to stdout with `--sarif -`, `--junit -` or
-`--ocsf -` takes its place.
+format it accepts. A report sent to stdout with `--sarif -`, `--junit -`,
+`--ocsf -` or `--summary -` takes its place.
 
 ```json
 {
@@ -1231,6 +1267,7 @@ from a report into a build step.
 | `--sarif <path>` | Also write findings as SARIF (`-` for stdout) |
 | `--junit <path>` | Also write findings as JUnit XML (`-` for stdout) |
 | `--ocsf <path>` | Also write findings as OCSF Compliance Finding events (`-` for stdout) |
+| `--summary <path>` | Also write a [Markdown summary](#markdown-summary) (`-` for stdout) |
 
 Reports are written **before** the gate runs, so a failing build still uploads
 its findings. Report files are created readable only by the current user
@@ -1325,6 +1362,32 @@ with a standard", which is exactly what a tag policy check is.
 The full field mapping, an example event and ingestion notes are in
 [OCSF output](/integrations/ocsf).
 
+### Markdown summary
+
+`--summary` writes a GitHub-flavoured Markdown digest of the run, meant for a
+job summary or a pull request comment:
+
+- the overall compliance, and a notice when the scan is partial
+- one row per policy tag, worst first
+- the 10 resource types with the most failing resources
+- the first 25 failed findings: resource, type, tag and reason (with the
+  offending value when there is one). The full list stays in the scan files
+  and the other reports
+
+Resource names and tag values come from the account, so every table cell is
+escaped (pipes, backticks, emphasis, links, HTML), line breaks become spaces
+and control characters are removed.
+
+In GitHub Actions, point it at the step summary file:
+
+```bash
+tagctl scan --summary "$GITHUB_STEP_SUMMARY"
+```
+
+tagctl never writes there on its own: without `--summary` the variable is
+ignored. The file is replaced, not appended to. A step that already wrote to
+its summary can append instead with `tagctl scan --summary - >> "$GITHUB_STEP_SUMMARY"`.
+
 ### GitHub Actions
 
 ```yaml
@@ -1359,6 +1422,7 @@ jobs:
             --sarif tagctl.sarif \
             --junit tagctl-junit.xml \
             --ocsf tagctl.ocsf.json \
+            --summary "$GITHUB_STEP_SUMMARY" \
             --fail-on-new --baseline .tagctl/baseline-scan.json
 
       # Runs even when the gate failed, so findings are always visible.
