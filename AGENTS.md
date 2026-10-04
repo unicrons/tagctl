@@ -405,9 +405,9 @@ skips the removals of that resource, and a provider without the optional
 so the provider knows its region) fails them with a clear error. AWS
 (`internal/provider/aws/untag.go`, `untagRouteFor`) uses `ec2:DeleteTags` by
 ID in the resource's region, the Auto Scaling, Lightsail and Global
-Accelerator APIs, and `tag:UntagResources` by ARN for everything else (a
-bucket without an ARN gets its tag set rewritten); Kubernetes sends a merge
-patch with null labels. The untag IAM actions live in
+Accelerator APIs, and `tag:UntagResources` by ARN for everything else, in the
+ARN's region or `p.globalRegion()` when it has none (a bucket without an ARN
+gets its tag set rewritten); Kubernetes sends a merge patch with null labels. The untag IAM actions live in
 `permissions/aws/tagctl-apply-untag-policy.json`, an opt-in managed policy of
 the apply template (`AllowTagRemoval`): the role's inline policies have no
 room for them. `TestUntagPolicy_MirrorsEveryApplyAction` fails when a service

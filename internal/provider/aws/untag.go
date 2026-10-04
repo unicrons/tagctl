@@ -90,7 +90,7 @@ func untagRouteFor(resource types.Resource, globalRegion string) (untagRoute, st
 		return 0, "", err
 	}
 	region := parsed.Region
-	if region == "" {
+	if region == "" && resource.Region != regionGlobal {
 		region = resource.Region
 	}
 

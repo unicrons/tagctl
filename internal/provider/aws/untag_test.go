@@ -272,6 +272,8 @@ func TestUntagRouteFor(t *testing.T) {
 		{"Global Accelerator lives in one region", types.Resource{ARN: "arn:aws:globalaccelerator::123456789012:accelerator/abcd"}, untagViaGlobalAccelerator, globalAcceleratorRegion, ""},
 		{"Lambda function", types.Resource{ARN: "arn:aws:lambda:eu-west-1:123456789012:function:fn"}, untagViaTaggingAPI, "eu-west-1", ""},
 		{"global ARN uses the default region", types.Resource{ARN: "arn:aws:iam::123456789012:role/app"}, untagViaTaggingAPI, defaultRegion, ""},
+		{"global resource as the listers record it", types.Resource{ARN: "arn:aws:iam::123456789012:role/app", Region: regionGlobal}, untagViaTaggingAPI, defaultRegion, ""},
+		{"S3 bucket recorded as global is looked up", types.Resource{ID: "logs", ARN: "arn:aws:s3:::logs", Type: "aws_s3_bucket", Region: regionGlobal}, untagViaTaggingAPI, "", ""},
 		{"global ARN with a scanned region", types.Resource{ARN: "arn:aws:route53:::hostedzone/Z1", Region: "us-east-1"}, untagViaTaggingAPI, "us-east-1", ""},
 		{"no ARN", types.Resource{ID: "fn", Type: "aws_lambda_function", Region: "us-east-1"}, 0, "", "no ARN"},
 		{"not an ARN", types.Resource{ID: "fn", ARN: "fn", Region: "us-east-1"}, 0, "", "arn: invalid prefix"},
