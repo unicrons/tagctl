@@ -49,6 +49,9 @@ Examples:
   # Report drift in the most recent scan
   tagctl normalize
 
+  # Report drift in the most recent scan written by 'tagctl scan --output-dir reports'
+  tagctl normalize --output-dir reports
+
   # Report drift in a specific scan or resource file
   tagctl normalize --scan output/scan-20260201-120000.json
   tagctl normalize --resources resources.json
@@ -65,13 +68,14 @@ Examples:
 }
 
 func init() {
-	normalizeCmd.Flags().String("scan", "", "scan file to read resources from (default: the most recent scan)")
+	normalizeCmd.Flags().String("scan", "", "scan file to read resources from (default: the most recent scan in --output-dir)")
 	normalizeCmd.Flags().String("resources", "", "JSON file with resources, as accepted by 'tagctl evaluate'")
 	normalizeCmd.Flags().Int("max-distance", -1, "edit distance for typo matching, 0 disables it (default: from config, else 1)")
 	normalizeCmd.Flags().Bool("abbreviations", true, "group a value with a longer one it is a prefix of")
 	normalizeCmd.Flags().StringSlice("ignore-tag", nil, "tag key to leave alone (repeatable)")
 	normalizeCmd.Flags().String("out", "", "write a remediation plan to this path")
 	normalizeCmd.Flags().Bool("fail-on-drift", false, "exit 1 if any drift is found")
+	addOutputDirFlag(normalizeCmd, "directory to look for the most recent scan in")
 }
 
 func runNormalize(cmd *cobra.Command, args []string) error {
@@ -85,7 +89,12 @@ func runNormalize(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	resources, source, err := loadNormalizeResources(scanPath, resourcesPath)
+	outputDir, err := outputDirFor(cmd)
+	if err != nil {
+		return err
+	}
+
+	resources, source, err := loadNormalizeResources(outputDir, scanPath, resourcesPath)
 	if err != nil {
 		return err
 	}
@@ -120,8 +129,8 @@ func runNormalize(cmd *cobra.Command, args []string) error {
 }
 
 // loadNormalizeResources reads the resources to analyse, from an explicit
-// resource file, a named scan, or the most recent scan on disk.
-func loadNormalizeResources(scanPath, resourcesPath string) ([]types.Resource, string, error) {
+// resource file, a named scan, or the most recent scan in dir.
+func loadNormalizeResources(dir, scanPath, resourcesPath string) ([]types.Resource, string, error) {
 	if resourcesPath != "" && scanPath != "" {
 		return nil, "", fmt.Errorf("use --scan or --resources, not both")
 	}
@@ -135,7 +144,7 @@ func loadNormalizeResources(scanPath, resourcesPath string) ([]types.Resource, s
 	}
 
 	if scanPath == "" {
-		latest, err := findLatestScan()
+		latest, err := findLatestScanIn(dir)
 		if err != nil {
 			return nil, "", err
 		}

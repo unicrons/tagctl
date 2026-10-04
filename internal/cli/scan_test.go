@@ -106,7 +106,7 @@ func runPartialScan(t *testing.T, flags map[string]string) (*types.ScanResult, e
 
 	runErr := runScan(scanCmd, nil)
 
-	scans, err := findRecentScans(1)
+	scans, err := findRecentScans(OutputDir, 1)
 	if err != nil || len(scans) != 1 {
 		t.Fatalf("scan JSON not written: %v", err)
 	}

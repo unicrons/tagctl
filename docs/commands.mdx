@@ -323,7 +323,7 @@ Each finding includes:
 - **Reason**: Why the finding was generated
 
 <Tip>
-The `--output` flag controls what's printed to stdout. Output files are generated regardless of it, unless `--no-files` is set. `tagctl diff` and `tagctl normalize` look for the latest scan in `output/`: with another `--output-dir`, pass them the scan files (`tagctl diff reports/scan-A.json reports/scan-B.json`, `tagctl normalize --scan reports/scan-A.json`).
+The `--output` flag controls what's printed to stdout. Output files are generated regardless of it, unless `--no-files` is set. `tagctl plan`, `tagctl diff` and `tagctl normalize` look for the latest scan in `output/`: after a scan with another `--output-dir`, pass them the same flag (`tagctl diff --output-dir reports`, `tagctl normalize --output-dir reports`).
 </Tip>
 
 <Accordion title="JSON output example">
@@ -903,6 +903,9 @@ is both the number teams act on and the one a pipeline can be gated on.
 # Compare the two most recent scans in output/
 tagctl diff
 
+# Compare the two most recent scans written by `tagctl scan --output-dir reports`
+tagctl diff --output-dir reports
+
 # Compare two specific scans
 tagctl diff output/scan-20260101-120000.json output/scan-20260201-120000.json
 
@@ -918,6 +921,12 @@ tagctl diff -o json
 | Flag | Description |
 |------|-------------|
 | `--fail-on-regression` | Exit `1` if any finding regressed |
+| `--output-dir <dir>` | Directory the most recent scans are looked up in (default `output`). Use the one given to `tagctl scan --output-dir` |
+
+Scan files given as arguments are used as they are: with two, `--output-dir` is
+not read; with one, only the current scan comes from it. A directory that does
+not exist, or holds fewer scans than the comparison needs, is an error (exit `2`)
+that names the directory.
 
 ### What counts as drift
 
@@ -1299,6 +1308,9 @@ catches this: every one of those resources *is* tagged.
 # Report drift in the most recent scan
 tagctl normalize
 
+# Report drift in the most recent scan written by `tagctl scan --output-dir reports`
+tagctl normalize --output-dir reports
+
 # Read from a specific scan or resource file
 tagctl normalize --scan output/scan-20260201-120000.json
 tagctl normalize --resources resources.json
@@ -1315,7 +1327,8 @@ tagctl normalize --fail-on-drift
 
 | Flag | Description |
 |------|-------------|
-| `--scan <file>` | Scan file to read resources from (default: most recent scan) |
+| `--scan <file>` | Scan file to read resources from (default: most recent scan in `--output-dir`) |
+| `--output-dir <dir>` | Directory the most recent scan is looked up in (default `output`); not read with `--scan` or `--resources`. A directory that does not exist or holds no scan is an error (exit `2`) |
 | `--resources <file>` | Resource JSON, as accepted by `tagctl evaluate`; mutually exclusive with `--scan` |
 | `--max-distance <n>` | Edit distance for typo matching; `0` disables it, negative values are rejected (default `1`) |
 | `--abbreviations` | Group a value with a longer one it is a prefix of (default `true`) |

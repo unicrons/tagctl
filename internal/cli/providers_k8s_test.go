@@ -77,7 +77,7 @@ func useKubernetesConfig(t *testing.T, body string) {
 
 func latestScan(t *testing.T) *types.ScanResult {
 	t.Helper()
-	scans, err := findRecentScans(1)
+	scans, err := findRecentScans(OutputDir, 1)
 	if err != nil || len(scans) != 1 {
 		t.Fatalf("scan JSON not written: %v", err)
 	}

@@ -86,7 +86,7 @@ func TestResourcesFromScan_ReadsLegacyViolations(t *testing.T) {
 }
 
 func TestLoadNormalizeResources_RejectsBothSources(t *testing.T) {
-	if _, _, err := loadNormalizeResources("scan.json", "resources.json"); err == nil {
+	if _, _, err := loadNormalizeResources(OutputDir, "scan.json", "resources.json"); err == nil {
 		t.Error("passing both --scan and --resources returned nil error")
 	}
 }
@@ -107,7 +107,7 @@ func TestLoadNormalizeResources_FromResourcesFile(t *testing.T) {
 		t.Fatalf("write: %v", writeErr)
 	}
 
-	got, source, err := loadNormalizeResources("", path)
+	got, source, err := loadNormalizeResources(OutputDir, "", path)
 	if err != nil {
 		t.Fatalf("loadNormalizeResources() error = %v", err)
 	}
@@ -132,7 +132,7 @@ func TestLoadNormalizeResources_FromScanFile(t *testing.T) {
 	}
 	path := writeScan(t, dir, "scan-20260201-100000.json", scan)
 
-	got, source, err := loadNormalizeResources(path, "")
+	got, source, err := loadNormalizeResources(OutputDir, path, "")
 	if err != nil {
 		t.Fatalf("loadNormalizeResources() error = %v", err)
 	}

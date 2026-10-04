@@ -450,10 +450,12 @@ gains a tag write action without its untag counterpart.
 ## Output Files
 
 Scan and plan commands write to the `output/` directory (see `internal/cli/paths.go`).
-`--output-dir` on `scan`, `plan` and `apply` names another one (`outputDirFor`
-resolves it and the path helpers take it as an argument; `OutputDir` is only the
-default); `scan --no-files` writes no report files. `diff` and `normalize` still
-look up the latest scan in the default directory:
+`--output-dir` on `scan`, `plan`, `apply`, `diff` and `normalize` names another
+one (`outputDirFor` resolves it and the path helpers take it as an argument;
+`OutputDir` is only the default); `scan --no-files` writes no report files.
+`diff` and `normalize` only read it to look up the latest scans
+(`findRecentScans`, `findLatestScanIn`); scan files given explicitly win. The
+files:
 
 - `scan-YYYYMMDD-HHMMSS.json` — full scan results with all findings
 - `scan-YYYYMMDD-HHMMSS.csv` — findings CSV
