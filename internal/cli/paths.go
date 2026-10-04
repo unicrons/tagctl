@@ -10,10 +10,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// valueProd is the environment tag value used across this package's fixtures
-// and sample plans.
-const valueProd = "prod"
-
 // Output formats accepted by the -o/--output flag.
 const (
 	formatTable = "table"
