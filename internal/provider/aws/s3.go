@@ -170,24 +170,20 @@ func (p *Provider) getBucketRegion(ctx context.Context, client s3API, bucketName
 // getBucketTags reads a bucket's tags. A bucket without a tag set yields an
 // empty map; any other failure is returned so the caller can skip the bucket.
 func getBucketTags(ctx context.Context, client s3API, bucketName string) (map[string]string, error) {
-	tags := make(map[string]string)
-
 	output, err := client.GetBucketTagging(ctx, &s3.GetBucketTaggingInput{
 		Bucket: aws.String(bucketName),
 	})
 	if err != nil {
 		var apiErr smithy.APIError
 		if errors.As(err, &apiErr) && apiErr.ErrorCode() == "NoSuchTagSet" {
-			return tags, nil
+			return map[string]string{}, nil
 		}
 		return nil, err
 	}
 
-	for _, tag := range output.TagSet {
-		if tag.Key != nil && tag.Value != nil {
-			tags[*tag.Key] = *tag.Value
-		}
-	}
+	tags := tagsToMap(output.TagSet,
+		func(t s3types.Tag) *string { return t.Key },
+		func(t s3types.Tag) *string { return t.Value })
 
 	log.Debug("AWS S3: Bucket %s has %d tags", bucketName, len(tags))
 	return tags, nil

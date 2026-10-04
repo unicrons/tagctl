@@ -67,7 +67,9 @@ func getSNSTags(ctx context.Context, client snsAPI, arn string) (map[string]stri
 	if err != nil {
 		return nil, err
 	}
-	return snsTagsToMap(output.Tags), nil
+	return tagsToMap(output.Tags,
+		func(t snstypes.Tag) *string { return t.Key },
+		func(t snstypes.Tag) *string { return t.Value }), nil
 }
 
 // applySNSTags applies tags to an SNS topic.
@@ -93,15 +95,4 @@ func (p *Provider) applySNSTags(ctx context.Context, arn string, tags map[string
 
 	log.Debug("AWS SNS: Applied %d tags to %s", len(tags), arn)
 	return nil
-}
-
-// snsTagsToMap converts SNS tags to a map.
-func snsTagsToMap(tags []snstypes.Tag) map[string]string {
-	result := make(map[string]string)
-	for _, tag := range tags {
-		if tag.Key != nil && tag.Value != nil {
-			result[*tag.Key] = *tag.Value
-		}
-	}
-	return result
 }

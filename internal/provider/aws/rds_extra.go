@@ -84,15 +84,11 @@ func (p *Provider) listRDSSnapshotsFrom(ctx context.Context, client rdsExtraAPI,
 	return resources, nil
 }
 
-// rdsTagListToMap converts an RDS tag list to a map.
+// rdsTagListToMap is tagsToMap for the tag type every RDS lister shares.
 func rdsTagListToMap(tags []rdstypes.Tag) map[string]string {
-	result := make(map[string]string)
-	for _, tag := range tags {
-		if tag.Key != nil && tag.Value != nil {
-			result[*tag.Key] = *tag.Value
-		}
-	}
-	return result
+	return tagsToMap(tags,
+		func(t rdstypes.Tag) *string { return t.Key },
+		func(t rdstypes.Tag) *string { return t.Value })
 }
 
 // dbClusterType maps the engine of a DescribeDBClusters entry to its resource

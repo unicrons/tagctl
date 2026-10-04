@@ -2,6 +2,7 @@ package aws
 
 import (
 	"context"
+	"maps"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/kms"
@@ -91,11 +92,9 @@ func getKMSTags(ctx context.Context, client kmsAPI, keyID string) (map[string]st
 		if err != nil {
 			return nil, err
 		}
-		for _, tag := range output.Tags {
-			if tag.TagKey != nil && tag.TagValue != nil {
-				tags[*tag.TagKey] = *tag.TagValue
-			}
-		}
+		maps.Copy(tags, tagsToMap(output.Tags,
+			func(t kmstypes.Tag) *string { return t.TagKey },
+			func(t kmstypes.Tag) *string { return t.TagValue }))
 	}
 	return tags, nil
 }

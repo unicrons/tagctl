@@ -116,25 +116,18 @@ func (p *Provider) listSecretsFrom(ctx context.Context, client secretsManagerAPI
 		}
 		for _, s := range output.SecretList {
 			name := aws.ToString(s.Name)
+			tags := tagsToMap(s.Tags,
+				func(t smtypes.Tag) *string { return t.Key },
+				func(t smtypes.Tag) *string { return t.Value })
 			resources = append(resources, types.Resource{
 				ID: name, Name: name, ARN: aws.ToString(s.ARN), Type: "aws_secretsmanager_secret",
 				Region: region, Account: p.accountID, Provider: providerName,
-				Tags: secretTagsToMap(s.Tags), CreatedAt: s.CreatedDate,
+				Tags: tags, CreatedAt: s.CreatedDate,
 			})
 		}
 	}
 	log.Debug("AWS Secrets Manager: Found %d secrets in %s", len(resources), region)
 	return resources, nil
-}
-
-func secretTagsToMap(tags []smtypes.Tag) map[string]string {
-	result := make(map[string]string)
-	for _, tag := range tags {
-		if tag.Key != nil && tag.Value != nil {
-			result[*tag.Key] = *tag.Value
-		}
-	}
-	return result
 }
 
 func (p *Provider) listStacks(ctx context.Context, region string) ([]types.Resource, error) {
@@ -154,25 +147,18 @@ func (p *Provider) listStacksFrom(ctx context.Context, client cloudFormationAPI,
 				continue
 			}
 			name := aws.ToString(s.StackName)
+			tags := tagsToMap(s.Tags,
+				func(t cfntypes.Tag) *string { return t.Key },
+				func(t cfntypes.Tag) *string { return t.Value })
 			resources = append(resources, types.Resource{
 				ID: name, Name: name, ARN: aws.ToString(s.StackId), Type: "aws_cloudformation_stack",
 				Region: region, Account: p.accountID, Provider: providerName,
-				Tags: cfnTagsToMap(s.Tags), CreatedAt: s.CreationTime,
+				Tags: tags, CreatedAt: s.CreationTime,
 			})
 		}
 	}
 	log.Debug("AWS CloudFormation: Found %d stacks in %s", len(resources), region)
 	return resources, nil
-}
-
-func cfnTagsToMap(tags []cfntypes.Tag) map[string]string {
-	result := make(map[string]string)
-	for _, tag := range tags {
-		if tag.Key != nil && tag.Value != nil {
-			result[*tag.Key] = *tag.Value
-		}
-	}
-	return result
 }
 
 func (p *Provider) listAlarms(ctx context.Context, region string) ([]types.Resource, error) {
@@ -366,10 +352,13 @@ func (p *Provider) listFSxFileSystemsFrom(ctx context.Context, client fsxAPI, re
 		}
 		for _, fs := range output.FileSystems {
 			id := aws.ToString(fs.FileSystemId)
+			tags := tagsToMap(fs.Tags,
+				func(t fsxtypes.Tag) *string { return t.Key },
+				func(t fsxtypes.Tag) *string { return t.Value })
 			r := types.Resource{
 				ID: id, Name: id, ARN: aws.ToString(fs.ResourceARN), Type: "aws_fsx_file_system",
 				Region: region, Account: p.accountID, Provider: providerName,
-				Tags: fsxTagsToMap(fs.Tags), CreatedAt: fs.CreationTime,
+				Tags: tags, CreatedAt: fs.CreationTime,
 			}
 			if name, ok := r.Tags["Name"]; ok {
 				r.Name = name
@@ -379,16 +368,6 @@ func (p *Provider) listFSxFileSystemsFrom(ctx context.Context, client fsxAPI, re
 	}
 	log.Debug("AWS FSx: Found %d file systems in %s", len(resources), region)
 	return resources, nil
-}
-
-func fsxTagsToMap(tags []fsxtypes.Tag) map[string]string {
-	result := make(map[string]string)
-	for _, tag := range tags {
-		if tag.Key != nil && tag.Value != nil {
-			result[*tag.Key] = *tag.Value
-		}
-	}
-	return result
 }
 
 func (p *Provider) listBeanstalkEnvironments(ctx context.Context, region string) ([]types.Resource, error) {

@@ -153,15 +153,11 @@ func (p *Provider) applyECSTags(ctx context.Context, arn string, tags map[string
 	return nil
 }
 
-// ecsTagsToMap converts ECS tags to a map.
+// ecsTagsToMap is tagsToMap for the tag type ECS clusters and services share.
 func ecsTagsToMap(tags []ecstypes.Tag) map[string]string {
-	result := make(map[string]string)
-	for _, tag := range tags {
-		if tag.Key != nil && tag.Value != nil {
-			result[*tag.Key] = *tag.Value
-		}
-	}
-	return result
+	return tagsToMap(tags,
+		func(t ecstypes.Tag) *string { return t.Key },
+		func(t ecstypes.Tag) *string { return t.Value })
 }
 
 // chunk splits items into slices of at most size elements.

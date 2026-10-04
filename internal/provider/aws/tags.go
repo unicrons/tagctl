@@ -11,6 +11,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/resourcegroupstaggingapi"
+	taggingtypes "github.com/aws/aws-sdk-go-v2/service/resourcegroupstaggingapi/types"
 
 	"github.com/unicrons/tagctl/internal/log"
 	"github.com/unicrons/tagctl/internal/provider"
@@ -162,13 +163,9 @@ func fetchBulkTagGroup(ctx context.Context, client taggingAPI, filters []string)
 			if arn == "" {
 				continue
 			}
-			m := make(map[string]string, len(mapping.Tags))
-			for _, tag := range mapping.Tags {
-				if tag.Key != nil && tag.Value != nil {
-					m[*tag.Key] = *tag.Value
-				}
-			}
-			tags[arn] = m
+			tags[arn] = tagsToMap(mapping.Tags,
+				func(t taggingtypes.Tag) *string { return t.Key },
+				func(t taggingtypes.Tag) *string { return t.Value })
 		}
 	}
 	return tags, nil

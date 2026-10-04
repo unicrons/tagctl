@@ -198,15 +198,11 @@ func applyEC2TagsWith(ctx context.Context, clientFor func(region string) ec2Crea
 	return nil
 }
 
-// ec2TagsToMap converts EC2 tags to a map.
+// ec2TagsToMap is tagsToMap for the tag type every EC2 lister shares.
 func ec2TagsToMap(tags []ec2types.Tag) map[string]string {
-	result := make(map[string]string)
-	for _, tag := range tags {
-		if tag.Key != nil && tag.Value != nil {
-			result[*tag.Key] = *tag.Value
-		}
-	}
-	return result
+	return tagsToMap(tags,
+		func(t ec2types.Tag) *string { return t.Key },
+		func(t ec2types.Tag) *string { return t.Value })
 }
 
 // listSecurityGroups lists all EC2 security groups in a region.

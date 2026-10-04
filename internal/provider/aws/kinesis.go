@@ -2,10 +2,12 @@ package aws
 
 import (
 	"context"
+	"maps"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/kinesis"
+	kinesistypes "github.com/aws/aws-sdk-go-v2/service/kinesis/types"
 
 	"github.com/unicrons/tagctl/internal/log"
 	"github.com/unicrons/tagctl/internal/provider"
@@ -88,11 +90,9 @@ func getKinesisTags(ctx context.Context, client kinesisAPI, arn string) (map[str
 		if err != nil {
 			return nil, err
 		}
-		for _, tag := range output.Tags {
-			if tag.Key != nil && tag.Value != nil {
-				tags[*tag.Key] = *tag.Value
-			}
-		}
+		maps.Copy(tags, tagsToMap(output.Tags,
+			func(t kinesistypes.Tag) *string { return t.Key },
+			func(t kinesistypes.Tag) *string { return t.Value }))
 		if !aws.ToBool(output.HasMoreTags) || len(output.Tags) == 0 {
 			return tags, nil
 		}

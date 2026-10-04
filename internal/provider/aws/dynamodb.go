@@ -2,6 +2,7 @@ package aws
 
 import (
 	"context"
+	"maps"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
@@ -77,11 +78,9 @@ func getDynamoDBTags(ctx context.Context, client dynamoDBAPI, arn string) (map[s
 		if err != nil {
 			return nil, err
 		}
-		for _, tag := range output.Tags {
-			if tag.Key != nil && tag.Value != nil {
-				tags[*tag.Key] = *tag.Value
-			}
-		}
+		maps.Copy(tags, tagsToMap(output.Tags,
+			func(t ddbtypes.Tag) *string { return t.Key },
+			func(t ddbtypes.Tag) *string { return t.Value }))
 		if output.NextToken == nil {
 			return tags, nil
 		}

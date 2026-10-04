@@ -58,7 +58,9 @@ func (p *Provider) listElastiCacheClustersFrom(ctx context.Context, client elast
 			if err != nil {
 				return nil, err
 			}
-			return elastiCacheTagsToMap(output.TagList), nil
+			return tagsToMap(output.TagList,
+				func(t ectypes.Tag) *string { return t.Key },
+				func(t ectypes.Tag) *string { return t.Value }), nil
 		})
 		if err != nil {
 			p.skipResource(ctx, "ElastiCache", region, "cluster "+c.id, err)
@@ -103,15 +105,4 @@ func (p *Provider) applyElastiCacheTags(ctx context.Context, arn string, tags ma
 
 	log.Debug("AWS ElastiCache: Applied %d tags to %s", len(tags), arn)
 	return nil
-}
-
-// elastiCacheTagsToMap converts ElastiCache tags to a map.
-func elastiCacheTagsToMap(tags []ectypes.Tag) map[string]string {
-	result := make(map[string]string)
-	for _, tag := range tags {
-		if tag.Key != nil && tag.Value != nil {
-			result[*tag.Key] = *tag.Value
-		}
-	}
-	return result
 }

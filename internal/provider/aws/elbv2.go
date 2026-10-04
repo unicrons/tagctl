@@ -89,7 +89,9 @@ func getELBv2Tags(ctx context.Context, client elbv2API, arns []string) (tags map
 		switch {
 		case err == nil:
 			for _, desc := range output.TagDescriptions {
-				tags[aws.ToString(desc.ResourceArn)] = elbv2TagsToMap(desc.Tags)
+				tags[aws.ToString(desc.ResourceArn)] = tagsToMap(desc.Tags,
+					func(t elbv2types.Tag) *string { return t.Key },
+					func(t elbv2types.Tag) *string { return t.Value })
 			}
 		case resourceGone(err) && len(batch) > 1:
 			// One deleted ARN fails its whole batch: read the batch one ARN at a time.
@@ -130,17 +132,6 @@ func (p *Provider) applyELBv2Tags(ctx context.Context, arn string, tags map[stri
 
 	log.Debug("AWS ELBv2: Applied %d tags to %s", len(tags), arn)
 	return nil
-}
-
-// elbv2TagsToMap converts ELBv2 tags to a map.
-func elbv2TagsToMap(tags []elbv2types.Tag) map[string]string {
-	result := make(map[string]string)
-	for _, tag := range tags {
-		if tag.Key != nil && tag.Value != nil {
-			result[*tag.Key] = *tag.Value
-		}
-	}
-	return result
 }
 
 // listTargetGroups lists ALB/NLB target groups in a region.

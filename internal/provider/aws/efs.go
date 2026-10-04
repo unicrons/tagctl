@@ -41,6 +41,9 @@ func (p *Provider) listEFSFileSystemsFrom(ctx context.Context, client efsAPI, re
 			if name == "" {
 				name = id
 			}
+			tags := tagsToMap(fs.Tags,
+				func(t efstypes.Tag) *string { return t.Key },
+				func(t efstypes.Tag) *string { return t.Value })
 			resources = append(resources, types.Resource{
 				ID:        id,
 				Name:      name,
@@ -49,7 +52,7 @@ func (p *Provider) listEFSFileSystemsFrom(ctx context.Context, client efsAPI, re
 				Region:    region,
 				Account:   p.accountID,
 				Provider:  providerName,
-				Tags:      efsTagsToMap(fs.Tags),
+				Tags:      tags,
 				CreatedAt: fs.CreationTime,
 			})
 		}
@@ -82,15 +85,4 @@ func (p *Provider) applyEFSTags(ctx context.Context, arn string, tags map[string
 
 	log.Debug("AWS EFS: Applied %d tags to %s", len(tags), arn)
 	return nil
-}
-
-// efsTagsToMap converts EFS tags to a map.
-func efsTagsToMap(tags []efstypes.Tag) map[string]string {
-	result := make(map[string]string)
-	for _, tag := range tags {
-		if tag.Key != nil && tag.Value != nil {
-			result[*tag.Key] = *tag.Value
-		}
-	}
-	return result
 }

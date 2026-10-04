@@ -63,6 +63,9 @@ func (p *Provider) listRedshiftClustersFrom(ctx context.Context, client redshift
 		}
 		for _, c := range output.Clusters {
 			id := aws.ToString(c.ClusterIdentifier)
+			tags := tagsToMap(c.Tags,
+				func(t redshifttypes.Tag) *string { return t.Key },
+				func(t redshifttypes.Tag) *string { return t.Value })
 			resources = append(resources, types.Resource{
 				ID:        id,
 				Name:      id,
@@ -71,23 +74,13 @@ func (p *Provider) listRedshiftClustersFrom(ctx context.Context, client redshift
 				Region:    region,
 				Account:   p.accountID,
 				Provider:  providerName,
-				Tags:      redshiftTagsToMap(c.Tags),
+				Tags:      tags,
 				CreatedAt: c.ClusterCreateTime,
 			})
 		}
 	}
 	log.Debug("AWS Redshift: Found %d clusters in %s", len(resources), region)
 	return resources, nil
-}
-
-func redshiftTagsToMap(tags []redshifttypes.Tag) map[string]string {
-	result := make(map[string]string)
-	for _, tag := range tags {
-		if tag.Key != nil && tag.Value != nil {
-			result[*tag.Key] = *tag.Value
-		}
-	}
-	return result
 }
 
 func (p *Provider) listOpenSearchDomains(ctx context.Context, region string) ([]types.Resource, error) {

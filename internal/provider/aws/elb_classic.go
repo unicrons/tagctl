@@ -49,13 +49,9 @@ func (p *Provider) listClassicLoadBalancersFrom(ctx context.Context, client clas
 				return nil, provider.NewProviderError(providerName, "describe_classic_elb_tags", "", err)
 			}
 			for _, desc := range output.TagDescriptions {
-				m := make(map[string]string, len(desc.Tags))
-				for _, tag := range desc.Tags {
-					if tag.Key != nil && tag.Value != nil {
-						m[*tag.Key] = *tag.Value
-					}
-				}
-				tagsByName[aws.ToString(desc.LoadBalancerName)] = m
+				tagsByName[aws.ToString(desc.LoadBalancerName)] = tagsToMap(desc.Tags,
+					func(t elbtypes.Tag) *string { return t.Key },
+					func(t elbtypes.Tag) *string { return t.Value })
 			}
 		}
 	}
