@@ -277,6 +277,13 @@ identifier that is neither an ARN nor a known ID prefix has no route, and
 `ApplyTags` fails with `unknown resource type`. S3 buckets are addressed by
 ARN.
 
+Removal (`tagctl apply --allow-removals`) has its own routing in
+`internal/provider/aws/untag.go`: `untagRouteFor` sends every ARN to
+`tag:UntagResources` except the services in `ownUntagAPI`. A type the Tagging
+API cannot untag, as with Lightsail, needs a `remove<Service>Tags` function,
+an `untagRoute` and an `ownUntagAPI` entry, with a case in
+`TestUntagRouteFor`.
+
 ## 5. Register the lister
 
 Add the lister to `regionalListers()` in `provider.go`, or to `globalListers()`
@@ -321,9 +328,13 @@ The policy JSON files in `permissions/aws/` are the source of truth:
 | `tagctl-scan-policy.json` | `PerResourceTagFallback` | The tag read action behind `resourceTags` | none |
 | `tagctl-apply-policy.json` | `ServiceTagAPIs` | The write action of an `apply<Service>Tags` method | none |
 | `tagctl-apply-policy.json` | `TaggingAPIServices` | The service's own tag action, for types tagged through `tag:TagResources` | `memorydb:TagResource` |
+| `tagctl-apply-untag-policy.json` | `ServiceUntagAPIs` | The untag counterpart of an action added to `ServiceTagAPIs` | none |
+| `tagctl-apply-untag-policy.json` | `UntaggingAPIServices` | The untag counterpart of an action added to `TaggingAPIServices` | `memorydb:UntagResource` |
 
-`tag:TagResources` calls the service on your behalf, so the service's own tag
-action must be allowed as well.
+`tag:TagResources` and `tag:UntagResources` call the service on your behalf,
+so the service's own tag and untag actions must be allowed as well. The untag
+policy is the opt-in `AllowTagRemoval` managed policy of the apply template;
+give the untag action the same ARN pattern as the tag action.
 
 The scan policy stays on `"*"`. In the apply policy, add the ARN pattern of the
 tagged resource type to the statement's `Resource` list. Take the pattern from
@@ -336,15 +347,24 @@ resource type for the action. In that case, add the action to
 reason. If a write action can do more than tag, like `codebuild:UpdateProject`,
 it belongs in an opt-in policy, not the default apply policy.
 
-Then re-render the CloudFormation roles and copy the JSON into the docs:
+Then re-render the CloudFormation roles, check the names against the reference
+and copy the JSON into the docs:
 
 ```bash
 make iam-templates
+make iam-check
 ```
 
+`make iam-check` needs network access: it looks up every action and scoped ARN
+pattern of the policies in the machine-readable Service Authorization
+Reference, and fails on an action that does not exist or a pattern no action
+of that service accepts. An untag action is not always the tag action with
+another verb (`kinesis:AddTagsToStream` pairs with `RemoveTagsFromStream`,
+`mq:CreateTags` with `DeleteTags`), so do not skip it.
+
 Paste the updated policy into `docs/providers/aws.mdx`, under "Read-Only
-(Scan)" or "Read-Write (Apply)". The `TestPermissionPolicies_*` tests in
-`permissions_test.go` fail when:
+(Scan)", "Read-Write (Apply)" or "Tag Removal (Opt-In)". The
+`TestPermissionPolicies_*` tests in `permissions_test.go` fail when:
 
 - the provider calls an operation that no policy allows. When the IAM action
   has a different name, map it in `actionAliases` (`ListBuckets` is
@@ -354,6 +374,10 @@ Paste the updated policy into `docs/providers/aws.mdx`, under "Read-Only
 - the scan policy grants a write action, or an action appears in both policies
 - `tagctl-scan-role.yaml`, `tagctl-apply-role.yaml` or the docs page differ
   from the JSON files
+- the default apply policy grants a removal action, the untag policy grants
+  anything else, or it outgrows the 6,144 characters of a managed policy
+- a service can be tagged by the apply policy and has no action in the untag
+  policy (`TestUntagPolicy_MirrorsEveryApplyAction` in `untag_test.go`)
 - the scan, apply and CodeBuild policies together, whitespace excluded, leave
   less than 768 characters under IAM's 10,240-character limit for a role's
   inline policies. That space is reserved for the protected tag keys deny

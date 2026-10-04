@@ -105,6 +105,7 @@ test/
 permissions/aws/          # IAM policies (JSON, source of truth) and the
                           # TagctlScan / TagctlApply CloudFormation roles
                           # rendered from them by scripts/render-iam-templates.py
+                          # and checked by scripts/check-iam-actions.py
                           # (CodeBuild tagging, tag removal and the protected
                           # tag key deny are opt-in apply template parameters)
 ```
@@ -486,16 +487,21 @@ Checklist:
    region) + `tagAppliers` + `arnServiceRoutes` only when the Tagging
    API cannot tag the type; `idAddressedTypes` + `ec2IDPrefixes` only for
    bare-ID tag APIs, which get the plan's region through `regionTagAppliers`
-   (built once from `ec2IDPrefixes`, plus S3)
+   (built once from `ec2IDPrefixes`, plus S3). Removal goes through
+   `tag:UntagResources`; a type it cannot untag needs `remove<Service>Tags` +
+   `ownUntagAPI` (`untag.go`)
 5. Register in `regionalListers()` (`provider.go`) or `globalListers()`
 6. Pinned tests: `TestRegionalListers`/`TestGlobalListers`,
    `TestGetResourceType_AllSupportedServices`, `TestTaggingIdentifier`
 7. IAM: read actions in `tagctl-scan-policy.json`, write action in
    `tagctl-apply-policy.json` and its untag counterpart in
    `tagctl-apply-untag-policy.json`, on the Service Authorization Reference ARN
-   pattern (`"*"` only via `unscopedWriteActions`), `make iam-templates`, same
-   JSON in `docs/providers/aws.mdx`. `TestPermissionPolicies_*` pins the
-   copies, API coverage and the 10,240-character inline limit
+   pattern (`"*"` only via `unscopedWriteActions`), `make iam-templates`,
+   `make iam-check` (network; `scripts/check-iam-actions.py` looks every
+   action and ARN pattern up in the machine-readable reference), same JSON in
+   `docs/providers/aws.mdx`. `TestPermissionPolicies_*` pins the copies, API
+   coverage, the 10,240-character inline limit and the 6,144 of the untag
+   managed policy
 8. Docs: table and "How tags are read" in `docs/providers/aws.mdx`; bump the
    count in README, CONTRIBUTING, this file, introduction, configuration,
    development, architecture
