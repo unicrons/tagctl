@@ -168,12 +168,12 @@ func readTerraformResources(path string, opts terraform.Options) (terraform.Resu
 // until apply.
 func logUncheckedTags(parsed terraform.Result) {
 	for _, address := range parsed.Unreadable {
-		log.Error("%s: tags are only known after apply, skipping it", address)
+		log.Error("%s: tags are only known after apply, skipping it", printable(address))
 	}
 	for _, resource := range parsed.Resources {
 		if len(resource.UnknownTags) > 0 {
 			log.Error("%s: values of %s are only known after apply, not checked",
-				resource.ID, strings.Join(resource.UnknownTags, ", "))
+				printable(resource.ID), printable(strings.Join(resource.UnknownTags, ", ")))
 		}
 	}
 }

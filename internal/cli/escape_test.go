@@ -126,6 +126,24 @@ func TestCommandOutput_NeutralisesEscapeSequences(t *testing.T) {
 	}
 }
 
+func TestLogUncheckedTags_KeepsEachEntryOnOneLine(t *testing.T) {
+	var buf bytes.Buffer
+	log.SetOutput(&buf)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+
+	logUncheckedTags(terraform.Result{
+		Unreadable: []string{"aws_instance.a\nforged line"},
+		Resources: []types.Resource{{
+			ID:          "aws_instance.b\nforged line",
+			UnknownTags: []string{"owner\nforged line"},
+		}},
+	})
+
+	if got := strings.Count(buf.String(), "\n"); got != 2 {
+		t.Errorf("2 entries logged %d lines:\n%s", got, buf.String())
+	}
+}
+
 func assertNoControlCharacters(t *testing.T, out string, want ...string) {
 	t.Helper()
 
