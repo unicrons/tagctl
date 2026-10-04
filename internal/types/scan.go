@@ -26,7 +26,8 @@ type ScanResult struct {
 	// CompliancePct is the percentage of compliant resources.
 	CompliancePct float64 `json:"compliance_percent"`
 
-	// Violations repeats the FAILED findings, in order (DEPRECATED: use Findings).
+	// Violations repeats the FAILED findings, in order. It is deprecated and
+	// will be removed in v1.0.0, with the violations JSON key: use Findings.
 	Violations []Violation `json:"violations"`
 
 	// Findings is the list of all compliance findings (PASS and FAILED).

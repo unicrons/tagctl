@@ -244,7 +244,7 @@ const (
 )
 ```
 
-`ScanResult` carries both `Violations` (deprecated) and `Findings`; new code should
+`ScanResult` carries both `Violations` (deprecated, removed in `v1.0.0`) and `Findings`; new code should
 use `Findings`. The `violations` JSON key is kept for backwards compatibility. The
 evaluator checks each resource once; `Violations` is its FAILED findings in the same
 order (`type Violation Finding`). `ScanResult.FailedFindings()` falls back to
@@ -458,6 +458,16 @@ Pushing a `v*` tag runs `.github/workflows/release.yml`: GoReleaser
 and the `main.version`/`main.buildTime` ldflags, attaches archives and
 `checksums.txt` to the GitHub Release and groups the notes by conventional
 commit type. Commit subjects are `type(scope): summary`, at most 60 characters.
+
+## GitHub Action
+
+`action.yml` at the repo root is a composite action (`uses: unicrons/tagctl@<ref>`):
+`actions/setup-go`, `go install ...@<version>` (default: the action ref; a
+`uses: ./` checkout has no ref and builds from `github.action_path`), then
+tagctl with the `args` input. Inputs reach the scripts through `env:` only,
+never `${{ inputs.* }}` inside `run:`. `.github/workflows/action-test.yml` runs
+it from the checkout when `action.yml` changes; the contract is
+`docs/integrations/github-action.mdx`.
 
 ## Git Hooks
 

@@ -3,6 +3,9 @@ contact_links:
   - name: Documentation
     url: https://github.com/unicrons/tagctl/tree/main/docs
     about: Configuration reference, commands, providers and CI integration.
+  - name: Questions and support
+    url: https://github.com/unicrons/tagctl/issues/new?template=question.yml
+    about: Questions are handled as issues. Use the Question form when the documentation does not answer it.
   - name: Security policy
     url: https://github.com/unicrons/tagctl/security/policy
     about: Report vulnerabilities privately as the policy describes, never in a public issue.

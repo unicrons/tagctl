@@ -223,14 +223,14 @@ const (
 )
 ```
 
-### Violation (deprecated)
+### Violation (deprecated, removed in v1.0.0)
 
 ```go
 type Violation Finding // Always "FAILED"
 ```
 
 <Note>
-Use `Findings` instead of `Violations` in new code. Violations are kept for backward compatibility: the scan's `violations` list is its FAILED findings, in the same order.
+Use `Findings` instead of `Violations` in new code. The `Violations` field and the `violations` key of the scan JSON are deprecated and will be removed in `v1.0.0`. Until then the `violations` list is the scan's FAILED findings, in the same order; read `findings` and filter on `status` instead.
 </Note>
 
 ### TagChange

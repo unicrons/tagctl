@@ -17,12 +17,15 @@ when the provider calls an API the policies do not allow.
 ## Deploy
 
 ```bash
-# read-only, trusted by the whole account
+# read-only, trusted by every principal of the account allowed to assume it,
+# as long as it belongs to the organization
 aws cloudformation deploy \
   --template-file tagctl-scan-role.yaml \
   --stack-name tagctl-scan-role \
   --capabilities CAPABILITY_NAMED_IAM \
-  --parameter-overrides TrustedPrincipalArn=arn:aws:iam::111111111111:root
+  --parameter-overrides \
+    TrustedPrincipalArn=arn:aws:iam::123456789012:root \
+    OrgId=o-a1b2c3d4e5
 
 # read-write, trusted by one role in another account, MFA required
 aws cloudformation deploy \
@@ -38,11 +41,34 @@ aws cloudformation deploy \
 
 The `TagctlConfig` output is the account entry to paste under `clouds.aws`.
 
+## Who can assume the role
+
+`TrustedPrincipalArn` becomes the `Principal` of the role's trust policy:
+
+```json
+{
+  "Effect": "Allow",
+  "Principal": { "AWS": "arn:aws:iam::123456789012:root" },
+  "Action": "sts:AssumeRole"
+}
+```
+
+An account root ARN does not mean the root user. It delegates the decision to
+that account: every IAM user and role in `123456789012` whose identity policy
+allows `sts:AssumeRole` on this role can assume it, administrators included.
+That is acceptable for the read-only scan role inside an account you control;
+for anything else, and always for `TagctlApply`, name one role or user
+(`arn:aws:iam::123456789012:role/platform-admin`).
+
+Narrow either form with the conditions the templates offer: `OrgId`
+(`aws:PrincipalOrgID`, the caller must belong to your organization),
+`ExternalId` and `RequireMFA`.
+
 ## Parameters
 
 | Parameter | Default | Notes |
 |-----------|---------|-------|
-| `TrustedPrincipalArn` | required | Account root, IAM role/user or Identity Center permission-set role. |
+| `TrustedPrincipalArn` | required | IAM role/user, Identity Center permission-set role or account root. See [Who can assume the role](#who-can-assume-the-role). |
 | `ExternalId` | empty | Enforced as `sts:ExternalId` when set; mirror it in `external_id`. |
 | `RequireMFA` | scan `false`, apply `true` | Adds `aws:MultiFactorAuthPresent`. Keep `false` for CI. |
 | `OrgId` | empty | Adds `aws:PrincipalOrgID`: the caller must also belong to this organization. It narrows `TrustedPrincipalArn`, it does not replace it. |

@@ -19,46 +19,6 @@ type Provider interface {
 	ApplyTags(ctx context.Context, resourceID string, tags map[string]string) error
 }
 
-// ResourceFilter allows filtering resources during listing.
-type ResourceFilter struct {
-	// Types filters by resource type (e.g., "aws_instance", "k8s_pod").
-	Types []string
-
-	// Regions filters by region (AWS) or cluster (K8s).
-	Regions []string
-
-	// Accounts filters by account/profile.
-	Accounts []string
-
-	// Tags filters by existing tags (key=value).
-	Tags map[string]string
-}
-
-// ProviderConfig contains common configuration for providers.
-type ProviderConfig struct {
-	// DryRun simulates operations without making changes.
-	DryRun bool
-
-	// Verbose enables detailed logging.
-	Verbose bool
-
-	// MaxRetries is the number of retries for API calls.
-	MaxRetries int
-
-	// Timeout is the timeout for API calls in seconds.
-	Timeout int
-}
-
-// DefaultProviderConfig returns a ProviderConfig with sensible defaults.
-func DefaultProviderConfig() ProviderConfig {
-	return ProviderConfig{
-		DryRun:     false,
-		Verbose:    false,
-		MaxRetries: 3,
-		Timeout:    30,
-	}
-}
-
 // Error types for provider operations.
 type ProviderError struct {
 	Provider   string
