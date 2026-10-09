@@ -35,6 +35,9 @@ jobs:
           go-version-file: go.mod
           cache: false
 
+      - name: Download modules
+        run: go mod download
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
 
@@ -53,7 +56,7 @@ jobs:
         with:
           distribution: goreleaser
           version: '~> v2'
-          args: release --clean
+          args: release --clean --parallelism 2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Empty until the tap exists: GoReleaser then skips the cask upload.
