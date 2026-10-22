@@ -53,7 +53,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Run zizmor
-        uses: zizmorcore/zizmor-action@cc914d7f3750a2d13d75c7f184a1060aa0e9d482 # v0.6.4
+        uses: zizmorcore/zizmor-action@85b2b9fb8e3325e7a23d7d0a9d7ba5ae0f999e3e # v0.7.1
         with:
           advanced-security: "false"
           annotations: "true"
@@ -73,7 +73,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - name: Run TruffleHog
-        uses: trufflesecurity/trufflehog@4dd8831c5f12599465d4d45c3c447b4018a34c85 # v3.97.9
+        uses: trufflesecurity/trufflehog@e76dff8a7e57d6df0c60ad8cbf5d5cba505a8fc9 # v3.99.2
         with:
           # Same filter and ignore file as .githooks/check-secrets.sh.
           extra_args: --results=verified,unknown,unverified --exclude-paths=.trufflehog-ignore
